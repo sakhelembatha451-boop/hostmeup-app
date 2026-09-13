@@ -1,0 +1,85 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-paper text-ink antialiased;
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-weight: 400;
+  }
+
+  h1, h2, h3 {
+    font-family: 'Playfair Display', Georgia, serif;
+    letter-spacing: -0.02em;
+  }
+
+  h4, h5, h6 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer components {
+  .editorial-card {
+    @apply bg-paper border border-line transition-all duration-300;
+  }
+
+  .editorial-card:hover {
+    @apply border-ink/20;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+
+  .btn-primary {
+    @apply bg-ink text-paper font-medium border border-ink
+           hover:bg-ink-700 transition-all duration-200 rounded-none;
+  }
+
+  .btn-accent {
+    @apply bg-accent text-white font-medium border border-accent
+           hover:bg-accent-600 transition-all duration-200 rounded-none;
+  }
+
+  .btn-outline {
+    @apply bg-transparent text-ink font-medium border border-ink/20
+           hover:border-ink hover:bg-ink hover:text-paper
+           transition-all duration-200 rounded-none;
+  }
+
+  .btn-ghost {
+    @apply text-ink-500 font-medium hover:text-ink transition-colors duration-200;
+  }
+
+  .input-editorial {
+    @apply bg-transparent border border-line text-ink placeholder-ink-300
+           focus:border-ink focus:ring-0 outline-none
+           transition-all duration-200 rounded-none;
+  }
+
+  .filter-chip {
+    @apply px-3 py-1.5 text-xs font-medium uppercase tracking-wide-sm rounded-none transition-all duration-200 border;
+  }
+
+  .filter-chip-active {
+    @apply bg-ink text-paper border-ink;
+  }
+
+  .filter-chip-inactive {
+    @apply bg-transparent text-ink-500 border-line hover:border-ink/40 hover:text-ink;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}

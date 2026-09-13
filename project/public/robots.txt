@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /book/
+Disallow: /host-dashboard
+Disallow: /artist-dashboard
+Disallow: /artist-profile/edit
+Disallow: /inbox
+Disallow: /admin/
+Disallow: /dashboard
+
+Sitemap: https://hostmeup.com/sitemap.xml
