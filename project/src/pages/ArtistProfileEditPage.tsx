@@ -172,7 +172,7 @@ export default function ArtistProfileEditPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
                   <input type="text" value={newMediaTitle} onChange={(e) => setNewMediaTitle(e.target.value)} className="input-editorial sm:col-span-4 px-3 py-2.5 text-sm" placeholder="Title (optional)" />
                   <input type="url" value={newMediaUrlTyped} onChange={(e) => setNewMediaUrlTyped(e.target.value)} className="input-editorial sm:col-span-6 px-3 py-2.5 text-sm" placeholder="Media URL" />
-                  <button type="button" onClick={addMediaItem} disabled={!newMediaUrlTyped.trim() || !artistProfileId}
+                  <button type="button"  onClick={addMediaItem} disabled={!newMediaUrlTyped.trim()}
                     className="sm:col-span-2 inline-flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-paper bg-ink hover:bg-ink-700 disabled:opacity-50 transition-colors rounded-none whitespace-nowrap">
                     <Plus className="w-4 h-4" /> Add
                   </button>
