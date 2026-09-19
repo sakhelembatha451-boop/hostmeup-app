@@ -178,7 +178,7 @@ export default function ArtistProfileEditPage() {
   onChange={async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
+  try {
     const fileExt = file.name.split('.').pop();
     const filePath = `${artistProfileId || 'public'}/${Math.random()}.${fileExt}`;
 
@@ -192,7 +192,8 @@ export default function ArtistProfileEditPage() {
         .getPublicUrl(filePath);
 
       setNewMediaUrlTyped(data.publicUrl);
-    }
+    } catch (err) {
+      console.error(err);
   }}
 />
 <button type="button" onClick={addMediaItem} disabled={!newMediaUrlTyped.trim()}
