@@ -72,6 +72,7 @@ const addMediaItem = () => {
   };
 
   setMediaItems([...mediaItems, newItem]);
+  setMediaUrls([...mediaUrls, urlToAdd.trim()]);
   setNewMediaUrl('');
   setNewMediaUrlTyped('');
   setNewMediaTitle('');
