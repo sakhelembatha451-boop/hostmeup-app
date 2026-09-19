@@ -30,9 +30,7 @@ export default function ArtistProfileEditPage() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   const [mediaUrls, setMediaUrls] = useState<string[]>([]);
-  const [newMediaUrl, setNewMediaUrl] = useState('');
   const [mediaItems, setMediaItems] = useState<MediaItem[]>([]);
-  const [newMediaUrlTyped, setNewMediaUrlTyped] = useState('');
   const [newMediaTitle, setNewMediaTitle] = useState('');
   const [newMediaType, setNewMediaType] = useState<MediaType>('photo');
   const [artistProfileId, setArtistProfileId] = useState<string | null>(null);
@@ -49,14 +47,14 @@ export default function ArtistProfileEditPage() {
         setRateUnit(ap.rate_unit || 'hour'); setSpotifyUrl(ap.spotify_url || ''); setInstagramUrl(ap.instagram_url || '');
         setSoundcloudUrl(ap.soundcloud_url || ''); setYoutubeUrl(ap.youtube_url || ''); setWebsiteUrl(ap.website_url || '');
         setMediaUrls(ap.media_urls || []);
-       const { data: mediaData } = await supabase.from('media_items').select('*').eq('artist_profile_id', ap.id).order('display_order', { ascending: true });
+        const { data: mediaData } = await supabase.from('media_items').select('*').eq('artist_profile_id', ap.id).order('display_order', { ascending: true });
         if (mediaData) setMediaItems(mediaData as MediaItem[]);
       }
       setLoading(false);
     })();
-  }, [profile]); // <-- useEffect ends here
+  }, [profile]);
 
-    // 1. Storage helper
+  // 1. Storage helper
   const uploadFileToSupabase = async (file: File): Promise<string | null> => {
     if (!profile) return null;
     setSaving(true);
@@ -111,25 +109,6 @@ export default function ArtistProfileEditPage() {
     setNewMediaTitle('');
   };
 
-  // 4. Cover image handler
-  const handleCoverImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const publicUrl = await uploadFileToSupabase(file);
-    if (!publicUrl) return;
-
-    setMediaUrls(prev => [...prev, publicUrl]);
-  };
-      url: publicUrl,
-      title: newMediaTitle.trim() || file.name,
-    };
-
-    setMediaItems(prev => [...prev, newItem]);
-    setMediaUrls(prev => [...prev, publicUrl]);
-    setNewMediaTitle('');
-  };
-
   // 4. Cover image upload
   const handleCoverImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -142,38 +121,29 @@ export default function ArtistProfileEditPage() {
   };
 
   const removeMediaUrl = (idx: number) => setMediaUrls(mediaUrls.filter((_, i) => i !== idx));
-  const deleteMediaItem = (id: string) => setMediaItems(mediaItems.filter((m) => m.id !== id)); 
-    id: Date.now().toString(),
-    type: newMediaType,
-    url: urlToAdd.trim(),
-    title: newMediaTitle.trim() || undefined,
-  };
+  const deleteMediaItem = (id: string) => setMediaItems(mediaItems.filter((m) => m.id !== id));
+  const toggleArrayValue = (arr: string[], val: string, setter: (v: string[]) => void) => 
+    setter(arr.includes(val) ? arr.filter((v) => v !== val) : [...arr, val]);
 
-  setMediaItems([...mediaItems, newItem]);
-  setMediaUrls([...mediaUrls, urlToAdd.trim()]);
-  setNewMediaUrl('');
-  setNewMediaUrlTyped('');
-  setNewMediaTitle('');
-};
   const handleSave = async (e: FormEvent) => {
-  e.preventDefault();
-  if (!profile) return;
-  setSaving(true); setError(''); setSuccess(false);
+    e.preventDefault();
+    if (!profile) return;
+    setSaving(true); setError(''); setSuccess(false);
 
-  const { error: pErr } = await supabase.from('profiles').update({ full_name: fullName, bio, location, avatar_url: avatarUrl || null, updated_at: new Date().toISOString() }).eq('id', profile.id);
-  if (pErr) { setError(pErr.message); setSaving(false); return; }
+    const { error: pErr } = await supabase.from('profiles').update({ full_name: fullName, bio, location, avatar_url: avatarUrl || null, updated_at: new Date().toISOString() }).eq('id', profile.id);
+    if (pErr) { setError(pErr.message); setSaving(false); return; }
 
-  const { error: aErr } = await supabase.from('artist_profiles').upsert({ 
-    user_id: profile.id, 
-    talent_category: talentCategory, 
-    stage_name: stageName, 
-    performance_roles: performanceRoles,
-    media_urls: mediaUrls 
-  });
-  if (aErr) { setError(aErr.message); setSaving(false); return; }
+    const { error: aErr } = await supabase.from('artist_profiles').upsert({ 
+      user_id: profile.id, 
+      talent_category: talentCategory, 
+      stage_name: stageName, 
+      performance_roles: performanceRoles,
+      media_urls: mediaUrls 
+    });
+    if (aErr) { setError(aErr.message); setSaving(false); return; }
 
-  await refreshProfile(); setSaving(false); setSuccess(true); setTimeout(() => setSuccess(false), 3000);
-};
+    await refreshProfile(); setSaving(false); setSuccess(true); setTimeout(() => setSuccess(false), 3000);
+  };
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
@@ -202,7 +172,14 @@ export default function ArtistProfileEditPage() {
             <Field label="Full Name"><input type="text" value={fullName} onChange={(e) => setFullName(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" /></Field>
             <Field label="Stage Name"><input type="text" value={stageName} onChange={(e) => setStageName(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="Professional name" /></Field>
             <Field label="Location"><input type="text" value={location} onChange={(e) => setLocation(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="City, State" /></Field>
-            <Field label="Avatar URL"><input type="url" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="https://..." /></Field>
+            <Field label="Avatar / Profile Picture">
+              <input 
+                type="file" 
+                accept="image/*" 
+                onChange={handleAvatarUpload} 
+                className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-zinc-900 file:text-white hover:file:bg-zinc-800 cursor-pointer w-full text-sm text-zinc-500"
+              />
+            </Field>
             <Field label="Bio" full><textarea value={bio} onChange={(e) => setBio(e.target.value)} rows={4} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="Tell hosts about yourself..." /></Field>
           </Section>
 
@@ -249,11 +226,11 @@ export default function ArtistProfileEditPage() {
             <Field label="Website" full><input type="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="https://..." /></Field>
           </Section>
 
-          {/* Typed Media */}
+          {/* Portfolio Media */}
           <Section title="Portfolio Media">
             <div className="sm:col-span-2">
               <p className="text-sm text-ink-400 mb-4 flex items-start gap-2"><ImageIcon className="w-4 h-4 mt-0.5 flex-shrink-0" /> {mediaHint.hint}</p>
-              {/* Add new */}
+              
               <div className="border border-line p-4 mb-6">
                 <div className="flex flex-wrap gap-2 mb-3">
                   {(['photo', 'audio', 'video'] as MediaType[]).map((type) => {
@@ -267,36 +244,19 @@ export default function ArtistProfileEditPage() {
                   })}
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
-                  <input type="text" value={newMediaTitle} onChange={(e) => setNewMediaTitle(e.target.value)} className="input-editorial sm:col-span-4 px-3 py-2.5 text-sm" placeholder="Title (optional)" />
-                  
-
-  <input type="file" accept="image/*,video/*"
-  className="input-editorial sm:col-span-6 px-3 py-2.5 text-sm"
-  onChange={async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-  try {
-    const fileExt = file.name.split('.').pop();
-    const filePath = `${artistProfileId || 'public'}/${Math.random()}.${fileExt}`;
-
-    const { error } = await supabase.storage
-      .from('portfolio-media')
-      .upload(filePath, file);
-
-    if (!error) {
-      const { data } = supabase.storage
-        .from('portfolio-media')
-        .getPublicUrl(filePath);
-
-      setNewMediaUrlTyped(data.publicUrl);
-    } catch (err) {
-      console.error(err);
-  }}
-/>
-<button type="button" onClick={addMediaItem} disabled={!newMediaUrlTyped.trim()}
-                    className="sm:col-span-2 inline-flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-paper bg-ink hover:bg-ink-700 disabled:opacity-50 transition-colors rounded-none whitespace-nowrap">
-                    <Plus className="w-4 h-4" /> Add
-                  </button>
+                  <input 
+                    type="text" 
+                    value={newMediaTitle} 
+                    onChange={(e) => setNewMediaTitle(e.target.value)} 
+                    className="input-editorial sm:col-span-4 px-3 py-2.5 text-sm" 
+                    placeholder="Title (optional)" 
+                  />
+                  <input 
+                    type="file" 
+                    accept="image/*,video/*,audio/*"
+                    onChange={handlePortfolioMediaUpload}
+                    className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-zinc-900 file:text-white hover:file:bg-zinc-800 cursor-pointer sm:col-span-8 text-sm text-zinc-500"
+                  />
                 </div>
               </div>
 
@@ -350,11 +310,15 @@ export default function ArtistProfileEditPage() {
 
           {/* Cover images */}
           <Section title="Cover Images">
-            <Field label="Cover Image URLs" full>
+            <Field label="Cover Image Upload" full>
               <p className="text-xs text-ink-300 mb-2">Displayed as the card image in the directory.</p>
-              <div className="flex gap-2 mb-3">
-                <input type="url" value={newMediaUrl} onChange={(e) => setNewMediaUrl(e.target.value)} className="input-editorial flex-1 px-4 py-2.5 text-sm" placeholder="https://image-url.com/photo.jpg" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addMediaUrl(); } }} />
-                <button type="button" onClick={addMediaUrl} className="inline-flex items-center gap-1 px-4 py-2.5 text-sm font-medium text-paper bg-ink hover:bg-ink-700 transition-colors rounded-none whitespace-nowrap"><Plus className="w-4 h-4" /> Add</button>
+              <div className="mb-3">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  onChange={handleCoverImageUpload} 
+                  className="file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-zinc-900 file:text-white hover:file:bg-zinc-800 cursor-pointer w-full text-sm text-zinc-500"
+                />
               </div>
               {mediaUrls.length > 0 && (
                 <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
