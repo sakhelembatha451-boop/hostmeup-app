@@ -37,16 +37,29 @@ export default function ArtistProfileEditPage() {
 
   useEffect(() => {
     if (!profile) return;
-    setFullName(profile.full_name || ''); setBio(profile.bio || ''); setLocation(profile.location || ''); setAvatarUrl(profile.avatar_url || '');
+    setFullName(profile.full_name || ''); 
+    setBio(profile.bio || ''); 
+    setLocation(profile.location || ''); 
+    setAvatarUrl(profile.avatar_url || '');
+
     (async () => {
       const { data } = await supabase.from('artist_profiles').select('*').eq('user_id', profile.id).maybeSingle();
       if (data) {
         const ap = data as ArtistProfile;
-        setArtistProfileId(ap.id); setTalentCategory(ap.talent_category || 'performer_dj'); setStageName(ap.stage_name || '');
-        setPerformanceRoles(ap.performance_roles || []); setGenres(ap.genres || []); setBaseRate(ap.base_rate?.toString() || '');
-        setRateUnit(ap.rate_unit || 'hour'); setSpotifyUrl(ap.spotify_url || ''); setInstagramUrl(ap.instagram_url || '');
-        setSoundcloudUrl(ap.soundcloud_url || ''); setYoutubeUrl(ap.youtube_url || ''); setWebsiteUrl(ap.website_url || '');
+        setArtistProfileId(ap.id); 
+        setTalentCategory(ap.talent_category || 'performer_dj'); 
+        setStageName(ap.stage_name || '');
+        setPerformanceRoles(ap.performance_roles || []); 
+        setGenres(ap.genres || []); 
+        setBaseRate(ap.base_rate?.toString() || '');
+        setRateUnit(ap.rate_unit || 'hour'); 
+        setSpotifyUrl(ap.spotify_url || ''); 
+        setInstagramUrl(ap.instagram_url || '');
+        setSoundcloudUrl(ap.soundcloud_url || ''); 
+        setYoutubeUrl(ap.youtube_url || ''); 
+        setWebsiteUrl(ap.website_url || '');
         setMediaUrls(ap.media_urls || []);
+
         const { data: mediaData } = await supabase.from('media_items').select('*').eq('artist_profile_id', ap.id).order('display_order', { ascending: true });
         if (mediaData) setMediaItems(mediaData as MediaItem[]);
       }
@@ -99,13 +112,13 @@ export default function ArtistProfileEditPage() {
 
     const newItem: MediaItem = {
       id: Date.now().toString(),
-      type: newMediaType,
+      artist_profile_id: artistProfileId || '',
+      media_type: newMediaType,
       url: publicUrl,
       title: newMediaTitle.trim() || file.name,
     };
 
     setMediaItems(prev => [...prev, newItem]);
-    setMediaUrls(prev => [...prev, publicUrl]);
     setNewMediaTitle('');
   };
 
@@ -128,21 +141,70 @@ export default function ArtistProfileEditPage() {
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!profile) return;
-    setSaving(true); setError(''); setSuccess(false);
+    setSaving(true); 
+    setError(''); 
+    setSuccess(false);
 
-    const { error: pErr } = await supabase.from('profiles').update({ full_name: fullName, bio, location, avatar_url: avatarUrl || null, updated_at: new Date().toISOString() }).eq('id', profile.id);
-    if (pErr) { setError(pErr.message); setSaving(false); return; }
+    // Save user profile data
+    const { error: pErr } = await supabase.from('profiles').update({ 
+      full_name: fullName, 
+      bio, 
+      location, 
+      avatar_url: avatarUrl || null, 
+      updated_at: new Date().toISOString() 
+    }).eq('id', profile.id);
 
-    const { error: aErr } = await supabase.from('artist_profiles').upsert({ 
+    if (pErr) { 
+      setError(pErr.message); 
+      setSaving(false); 
+      return; 
+    }
+
+    // Save artist profile data
+    const { data: apData, error: aErr } = await supabase.from('artist_profiles').upsert({ 
       user_id: profile.id, 
       talent_category: talentCategory, 
       stage_name: stageName, 
       performance_roles: performanceRoles,
+      genres: genres,
+      base_rate: baseRate ? parseFloat(baseRate) : null,
+      rate_unit: rateUnit,
+      spotify_url: spotifyUrl,
+      instagram_url: instagramUrl,
+      soundcloud_url: soundcloudUrl,
+      youtube_url: youtubeUrl,
+      website_url: websiteUrl,
       media_urls: mediaUrls 
-    });
-    if (aErr) { setError(aErr.message); setSaving(false); return; }
+    }).select().single();
 
-    await refreshProfile(); setSaving(false); setSuccess(true); setTimeout(() => setSuccess(false), 3000);
+    if (aErr) { 
+      setError(aErr.message); 
+      setSaving(false); 
+      return; 
+    }
+
+    // Save portfolio media items if any exist
+    if (apData && mediaItems.length > 0) {
+      const itemsToSave = mediaItems.map((item, index) => ({
+        artist_profile_id: apData.id,
+        media_type: item.media_type,
+        url: item.url,
+        title: item.title,
+        display_order: index,
+      }));
+
+      const { error: mErr } = await supabase.from('media_items').upsert(itemsToSave);
+      if (mErr) {
+        setError(mErr.message);
+        setSaving(false);
+        return;
+      }
+    }
+
+    await refreshProfile(); 
+    setSaving(false); 
+    setSuccess(true); 
+    setTimeout(() => setSuccess(false), 3000);
   };
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
@@ -349,6 +411,7 @@ export default function ArtistProfileEditPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return <div className="border border-line p-6 lg:p-8"><h2 className="font-display text-xl font-semibold text-ink mb-6">{title}</h2><div className="grid grid-cols-1 sm:grid-cols-2 gap-5">{children}</div></div>;
 }
+
 function Field({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
   return <div className={full ? 'sm:col-span-2' : ''}><label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">{label}</label>{children}</div>;
 }
