@@ -78,15 +78,24 @@ const addMediaItem = () => {
   setNewMediaTitle('');
 };
   const handleSave = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!profile) return;
-    setSaving(true); setError(''); setSuccess(false);
-    const { error: pErr } = await supabase.from('profiles').update({ full_name: fullName, bio, location, avatar_url: avatarUrl || null, updated_at: new Date().toISOString() }).eq('id', profile.id);
-    if (pErr) { setError(pErr.message); setSaving(false); return; }
-    const { error: aErr } = await supabase.from('artist_profiles').upsert({ user_id: profile.id, talent_category: talentCategory, stage_name: stageName, performance_roles: performanceRoles, genres, base_rate: baseRate ? parseFloat(baseRate) : null, rate_unit: rateUnit, spotify_url: spotifyUrl || null, instagram_url: instagramUrl || null, soundcloud_url: soundcloudUrl || null, youtube_url: youtubeUrl || null, website_url: websiteUrl || null, media_urls: mediaUrls, updated_at: new Date().toISOString() });
-    if (aErr) { setError(aErr.message); setSaving(false); return; }
-    await refreshProfile(); setSaving(false); setSuccess(true); setTimeout(() => setSuccess(false), 3000);
-  };
+  e.preventDefault();
+  if (!profile) return;
+  setSaving(true); setError(''); setSuccess(false);
+
+  const { error: pErr } = await supabase.from('profiles').update({ full_name: fullName, bio, location, avatar_url: avatarUrl || null, updated_at: new Date().toISOString() }).eq('id', profile.id);
+  if (pErr) { setError(pErr.message); setSaving(false); return; }
+
+  const { error: aErr } = await supabase.from('artist_profiles').upsert({ 
+    user_id: profile.id, 
+    talent_category: talentCategory, 
+    stage_name: stageName, 
+    performance_roles: performanceRoles,
+    media_urls: mediaUrls 
+  });
+  if (aErr) { setError(aErr.message); setSaving(false); return; }
+
+  await refreshProfile(); setSaving(false); setSuccess(true); setTimeout(() => setSuccess(false), 3000);
+};
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
