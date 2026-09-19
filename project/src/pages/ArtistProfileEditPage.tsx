@@ -49,22 +49,100 @@ export default function ArtistProfileEditPage() {
         setRateUnit(ap.rate_unit || 'hour'); setSpotifyUrl(ap.spotify_url || ''); setInstagramUrl(ap.instagram_url || '');
         setSoundcloudUrl(ap.soundcloud_url || ''); setYoutubeUrl(ap.youtube_url || ''); setWebsiteUrl(ap.website_url || '');
         setMediaUrls(ap.media_urls || []);
-        const { data: mediaData } = await supabase.from('media_items').select('*').eq('artist_profile_id', ap.id).order('display_order', { ascending: true });
+       const { data: mediaData } = await supabase.from('media_items').select('*').eq('artist_profile_id', ap.id).order('display_order', { ascending: true });
         if (mediaData) setMediaItems(mediaData as MediaItem[]);
       }
       setLoading(false);
     })();
-  }, [profile]);
+  }, [profile]); // <-- useEffect ends here
 
-  const toggleArrayValue = (arr: string[], val: string, setter: (v: string[]) => void) => setter(arr.includes(val) ? arr.filter((v) => v !== val) : [...arr, val]);
-  const addMediaUrl = () => { if (newMediaUrl.trim()) { setMediaUrls([...mediaUrls, newMediaUrl.trim()]); setNewMediaUrl(''); } };
+    // 1. Storage helper
+  const uploadFileToSupabase = async (file: File): Promise<string | null> => {
+    if (!profile) return null;
+    setSaving(true);
+    setError('');
+    
+    const fileExt = file.name.split('.').pop();
+    const filePath = `${artistProfileId || profile.id}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from('portfolio-media')
+      .upload(filePath, file);
+
+    if (uploadErr) {
+      setError(uploadErr.message);
+      setSaving(false);
+      return null;
+    }
+
+    const { data } = supabase.storage
+      .from('portfolio-media')
+      .getPublicUrl(filePath);
+
+    setSaving(false);
+    return data.publicUrl;
+  };
+
+  // 2. Avatar upload handler
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const url = await uploadFileToSupabase(file);
+    if (url) setAvatarUrl(url);
+  };
+
+  // 3. Portfolio media handler
+  const handlePortfolioMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const publicUrl = await uploadFileToSupabase(file);
+    if (!publicUrl) return;
+
+    const newItem: MediaItem = {
+      id: Date.now().toString(),
+      type: newMediaType,
+      url: publicUrl,
+      title: newMediaTitle.trim() || file.name,
+    };
+
+    setMediaItems(prev => [...prev, newItem]);
+    setMediaUrls(prev => [...prev, publicUrl]);
+    setNewMediaTitle('');
+  };
+
+  // 4. Cover image handler
+  const handleCoverImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const publicUrl = await uploadFileToSupabase(file);
+    if (!publicUrl) return;
+
+    setMediaUrls(prev => [...prev, publicUrl]);
+  };
+      url: publicUrl,
+      title: newMediaTitle.trim() || file.name,
+    };
+
+    setMediaItems(prev => [...prev, newItem]);
+    setMediaUrls(prev => [...prev, publicUrl]);
+    setNewMediaTitle('');
+  };
+
+  // 4. Cover image upload
+  const handleCoverImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const publicUrl = await uploadFileToSupabase(file);
+    if (!publicUrl) return;
+
+    setMediaUrls(prev => [...prev, publicUrl]);
+  };
+
   const removeMediaUrl = (idx: number) => setMediaUrls(mediaUrls.filter((_, i) => i !== idx));
-
-const addMediaItem = () => {
-  const urlToAdd = newMediaUrlTyped || newMediaUrl;
-  if (!urlToAdd.trim()) return;
-
-  const newItem: MediaItem = {
+  const deleteMediaItem = (id: string) => setMediaItems(mediaItems.filter((m) => m.id !== id)); 
     id: Date.now().toString(),
     type: newMediaType,
     url: urlToAdd.trim(),
