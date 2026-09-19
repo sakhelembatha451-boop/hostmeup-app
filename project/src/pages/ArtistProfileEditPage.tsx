@@ -171,8 +171,31 @@ export default function ArtistProfileEditPage() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-12 gap-2">
                   <input type="text" value={newMediaTitle} onChange={(e) => setNewMediaTitle(e.target.value)} className="input-editorial sm:col-span-4 px-3 py-2.5 text-sm" placeholder="Title (optional)" />
-                  <input type="url" value={newMediaUrlTyped} onChange={(e) => setNewMediaUrlTyped(e.target.value)} className="input-editorial sm:col-span-6 px-3 py-2.5 text-sm" placeholder="Media URL" />
-                  <button type="button"  onClick={addMediaItem} disabled={!newMediaUrlTyped.trim()}
+                  
+
+  <input type="file" accept="image/*,video/*"
+  className="input-editorial sm:col-span-6 px-3 py-2.5 text-sm"
+  onChange={async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const fileExt = file.name.split('.').pop();
+    const filePath = `${artistProfileId || 'public'}/${Math.random()}.${fileExt}`;
+
+    const { error } = await supabase.storage
+      .from('portfolio-media')
+      .upload(filePath, file);
+
+    if (!error) {
+      const { data } = supabase.storage
+        .from('portfolio-media')
+        .getPublicUrl(filePath);
+
+      setNewMediaUrlTyped(data.publicUrl);
+    }
+  }}
+/>
+<button type="button" onClick={addMediaItem} disabled={!newMediaUrlTyped.trim()}
                     className="sm:col-span-2 inline-flex items-center justify-center gap-1 px-4 py-2.5 text-sm font-medium text-paper bg-ink hover:bg-ink-700 disabled:opacity-50 transition-colors rounded-none whitespace-nowrap">
                     <Plus className="w-4 h-4" /> Add
                   </button>
