@@ -60,13 +60,22 @@ export default function ArtistProfileEditPage() {
   const addMediaUrl = () => { if (newMediaUrl.trim()) { setMediaUrls([...mediaUrls, newMediaUrl.trim()]); setNewMediaUrl(''); } };
   const removeMediaUrl = (idx: number) => setMediaUrls(mediaUrls.filter((_, i) => i !== idx));
 
-  const addMediaItem = async () => {
-    if (!newMediaUrlTyped.trim() || !artistProfileId) return;
-    const { data, error } = await supabase.from('media_items').insert({ artist_profile_id: artistProfileId, media_type: newMediaType, url: newMediaUrlTyped.trim(), title: newMediaTitle.trim(), display_order: mediaItems.length }).select('*').single();
-    if (!error && data) { setMediaItems([...mediaItems, data as MediaItem]); setNewMediaUrlTyped(''); setNewMediaTitle(''); }
-  };
-  const deleteMediaItem = async (id: string) => { await supabase.from('media_items').delete().eq('id', id); setMediaItems(mediaItems.filter((m) => m.id !== id)); };
+const addMediaItem = () => {
+  const urlToAdd = newMediaUrlTyped || newMediaUrl;
+  if (!urlToAdd.trim()) return;
 
+  const newItem: MediaItem = {
+    id: Date.now().toString(),
+    type: newMediaType,
+    url: urlToAdd.trim(),
+    title: newMediaTitle.trim() || undefined,
+  };
+
+  setMediaItems([...mediaItems, newItem]);
+  setNewMediaUrl('');
+  setNewMediaUrlTyped('');
+  setNewMediaTitle('');
+};
   const handleSave = async (e: FormEvent) => {
     e.preventDefault();
     if (!profile) return;
