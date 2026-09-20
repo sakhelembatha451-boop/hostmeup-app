@@ -119,10 +119,10 @@ export default function ArtistProfileEditPage() {
     };
 
     setMediaItems(prev => [...prev, newItem]);
-    
     // Save artist profile data
     const { data: apData, error: aErr } = await supabase.from('artist_profiles').upsert(
       { 
+        ...(artistProfileId ? { id: artistProfileId } : {}),
         user_id: profile.id, 
         talent_category: talentCategory, 
         stage_name: stageName, 
@@ -137,7 +137,7 @@ export default function ArtistProfileEditPage() {
         website_url: websiteUrl,
         media_urls: mediaUrls 
       },
-      { onConflict: 'user_id' })
+      { onConflict: 'user_id' }
     ).select().single();
   const deleteMediaItem = (id: string) => setMediaItems(mediaItems.filter((m) => m.id !== id));
   const toggleArrayValue = (arr: string[], val: string, setter: (v: string[]) => void) => 
