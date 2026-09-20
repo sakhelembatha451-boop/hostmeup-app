@@ -120,25 +120,30 @@ export default function ArtistProfileEditPage() {
 
     setMediaItems(prev => [...prev, newItem]);
     // Save artist profile data
-    const { data: apData, error: aErr } = await supabase.from('artist_profiles').upsert(
-      { 
-        ...(artistProfileId ? { id: artistProfileId } : {}),
-        user_id: profile.id, 
-        talent_category: talentCategory, 
-        stage_name: stageName, 
-        performance_roles: performanceRoles,
-        genres: genres,
-        base_rate: baseRate ? parseFloat(baseRate) : null,
-        rate_unit: rateUnit,
-        spotify_url: spotifyUrl,
-        instagram_url: instagramUrl,
-        soundcloud_url: soundcloudUrl,
-        youtube_url: youtubeUrl,
-        website_url: websiteUrl,
-        media_urls: mediaUrls 
-      },
-      { onConflict: 'user_id' }
-    ).select().single();
+    // Save artist profile data
+    const { data: apData, error: aErr } = await supabase
+      .from('artist_profiles')
+      .upsert(
+        { 
+          ...(artistProfileId ? { id: artistProfileId } : {}),
+          user_id: profile.id, 
+          talent_category: talentCategory, 
+          stage_name: stageName, 
+          performance_roles: performanceRoles,
+          genres: genres,
+          base_rate: baseRate ? parseFloat(baseRate) : null,
+          rate_unit: rateUnit,
+          spotify_url: spotifyUrl,
+          instagram_url: instagramUrl,
+          soundcloud_url: soundcloudUrl,
+          youtube_url: youtubeUrl,
+          website_url: websiteUrl,
+          media_urls: mediaUrls 
+        },
+        { onConflict: 'user_id' }
+      )
+      .select()
+      .single();
   const deleteMediaItem = (id: string) => setMediaItems(mediaItems.filter((m) => m.id !== id));
   const toggleArrayValue = (arr: string[], val: string, setter: (v: string[]) => void) => 
     setter(arr.includes(val) ? arr.filter((v) => v !== val) : [...arr, val]);
