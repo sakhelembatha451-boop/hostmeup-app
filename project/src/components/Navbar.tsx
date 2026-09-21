@@ -125,9 +125,14 @@ export default function Navbar() {
                           )}
                         </div>
                       </div>
-                    </>
-                  )}
-                </div>
+                    ) : (
+  <>
+    <Link to="/artists" aria-label="Browse all talent" className="text-sm font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Browse</Link>
+    <a href="/legal#terms" className="text-sm font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Terms</a>
+<a href="/legal#privacy" className="text-sm font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Privacy</a>
+<a href="/legal#refunds" className="text-sm font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Refunds</a>
+<Link to="/login" aria-label="Sign in to your account" className="text-sm font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Sign In</Link>
+<Link to="/signup" aria-label="Create a new account" className="btn-primary px-5 py-2.5 text-xs uppercase tracking-wide-sm">Get Started</Link>
                 <div className="w-px h-5 bg-line" />
                 <div className="flex items-center gap-2">
                   {profile.avatar_url ? (
