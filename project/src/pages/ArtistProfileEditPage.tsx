@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Camera, Plus, Trash2, ArrowLeft, Loader2, Save } from 'lucide-react';
+import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon } from 'lucide-react';
 import type { Category, Genre } from '@/types';
 
 const CATEGORIES: Category[] = ['Singer', 'Producer', 'Performer', 'Model', 'Photographer', 'Beauty Professional'];
@@ -18,6 +18,9 @@ export default function ArtistProfileEditPage() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
+  const [uploadingGallery, setUploadingGallery] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
@@ -33,7 +36,6 @@ export default function ArtistProfileEditPage() {
   const [avatarUrl, setAvatarUrl] = useState('');
   const [coverUrl, setCoverUrl] = useState('');
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
-  const [newGalleryUrl, setNewGalleryUrl] = useState('');
   const [instagram, setInstagram] = useState('');
   const [spotify, setSpotify] = useState('');
   const [soundcloud, setSoundcloud] = useState('');
@@ -79,6 +81,90 @@ export default function ArtistProfileEditPage() {
     }
   };
 
+  // Generic File Upload Helper
+  const uploadFileToSupabase = async (file: File, folder: string) => {
+    if (!profile) throw new Error('User not authenticated');
+    const fileExt = file.name.split('.').pop();
+    const filePath = `${profile.id}/${folder}_${Date.now()}.${fileExt}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('media')
+      .upload(filePath, file, { upsert: true });
+
+    if (uploadError) throw uploadError;
+
+    const { data } = supabase.storage.from('media').getPublicUrl(filePath);
+    return data.publicUrl;
+  };
+
+  // Avatar Upload Handler
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingAvatar(true);
+      setError(null);
+      const url = await uploadFileToSupabase(file, 'avatar');
+      setAvatarUrl(url);
+      await supabase.from('artist_profiles').upsert({ user_id: profile?.id, avatar_url: url, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      if (profile?.id) {
+        await supabase.from('profiles').update({ avatar_url: url }).eq('id', profile.id);
+      }
+      await refreshProfile();
+    } catch (err: any) {
+      setError(err.message || 'Failed to upload avatar');
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  // Cover Upload Handler
+  const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setUploadingCover(true);
+      setError(null);
+      const url = await uploadFileToSupabase(file, 'cover');
+      setCoverUrl(url);
+      await supabase.from('artist_profiles').upsert({ user_id: profile?.id, cover_url: url, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    } catch (err: any) {
+      setError(err.message || 'Failed to upload cover banner');
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+
+  // Gallery Files Upload Handler (Auto Save)
+  const handleGalleryFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    try {
+      setUploadingGallery(true);
+      setError(null);
+      const uploadedUrls: string[] = [];
+      for (const file of files) {
+        const url = await uploadFileToSupabase(file, 'gallery');
+        uploadedUrls.push(url);
+      }
+      const updatedGallery = [...galleryUrls, ...uploadedUrls];
+      setGalleryUrls(updatedGallery);
+      await supabase.from('artist_profiles').upsert({ user_id: profile?.id, gallery_urls: updatedGallery, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    } catch (err: any) {
+      setError(err.message || 'Failed to upload gallery image');
+    } finally {
+      setUploadingGallery(false);
+    }
+  };
+
+  const handleRemoveGalleryUrl = async (index: number) => {
+    const updated = galleryUrls.filter((_, i) => i !== index);
+    setGalleryUrls(updated);
+    if (profile?.id) {
+      await supabase.from('artist_profiles').upsert({ user_id: profile.id, gallery_urls: updated, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+    }
+  };
+
   const handleCategoryToggle = (cat: Category) => {
     setCategories((prev) =>
       prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
@@ -91,18 +177,8 @@ export default function ArtistProfileEditPage() {
     );
   };
 
-  const handleAddGalleryUrl = () => {
-    if (!newGalleryUrl.trim()) return;
-    setGalleryUrls((prev) => [...prev, newGalleryUrl.trim()]);
-    setNewGalleryUrl('');
-  };
-
-  const handleRemoveGalleryUrl = (index: number) => {
-    setGalleryUrls((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setSaving(true);
     setError(null);
     setSuccess(false);
@@ -179,7 +255,7 @@ export default function ArtistProfileEditPage() {
             <p className="text-sm text-ink-500 mt-1">Keep your profile updated so event hosts can discover and book you.</p>
           </div>
           <button
-            onClick={handleSubmit}
+            onClick={() => handleSubmit()}
             disabled={saving}
             className="btn-primary flex items-center gap-2 px-6 py-3 text-xs uppercase tracking-wide-sm"
           >
@@ -314,48 +390,73 @@ export default function ArtistProfileEditPage() {
             </div>
           </section>
 
-          {/* Images */}
+          {/* Media Uploads */}
           <section className="space-y-6">
             <h2 className="text-sm uppercase tracking-wide-sm font-semibold text-ink border-b border-line pb-2">Profile & Banner Media</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <FormField label="Avatar Image URL" full={false}>
-                <input
-                  type="url"
-                  value={avatarUrl}
-                  onChange={(e) => setAvatarUrl(e.target.value)}
-                  className="input-field"
-                  placeholder="https://..."
-                />
-              </FormField>
-              <FormField label="Cover Banner Image URL" full={false}>
-                <input
-                  type="url"
-                  value={coverUrl}
-                  onChange={(e) => setCoverUrl(e.target.value)}
-                  className="input-field"
-                  placeholder="https://..."
-                />
-              </FormField>
+              {/* Avatar Upload */}
+              <div>
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Avatar Image</label>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-full overflow-hidden bg-paper-200 border border-line flex items-center justify-center flex-shrink-0">
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-ink-400" />
+                    )}
+                  </div>
+                  <label className="cursor-pointer btn-primary px-4 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-2">
+                    {uploadingAvatar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    Browse Avatar
+                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} disabled={uploadingAvatar} />
+                  </label>
+                </div>
+              </div>
+
+              {/* Cover Banner Upload */}
+              <div>
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Cover Banner Image</label>
+                <div className="flex items-center gap-4">
+                  <div className="w-24 h-16 overflow-hidden bg-paper-200 border border-line flex items-center justify-center flex-shrink-0">
+                    {coverUrl ? (
+                      <img src={coverUrl} alt="Cover" className="w-full h-full object-cover" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-ink-400" />
+                    )}
+                  </div>
+                  <label className="cursor-pointer btn-primary px-4 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-2">
+                    {uploadingCover ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    Browse Banner
+                    <input type="file" accept="image/*" className="hidden" onChange={handleCoverChange} disabled={uploadingCover} />
+                  </label>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-3">
-              <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Gallery Media URLs</label>
-              <div className="flex gap-2">
+            {/* Gallery File Upload */}
+            <div className="space-y-3 pt-4">
+              <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Gallery Photos</label>
+              <label className="cursor-pointer border-2 border-dashed border-line hover:border-ink p-6 text-center block transition-colors bg-paper-100">
+                {uploadingGallery ? (
+                  <div className="flex items-center justify-center gap-2 text-xs uppercase tracking-wide-sm text-ink-600">
+                    <Loader2 className="w-5 h-5 animate-spin" /> Uploading media...
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <Upload className="w-6 h-6 text-ink-500" />
+                    <span className="text-xs uppercase tracking-wide-sm font-semibold text-ink">Click to browse & upload gallery media</span>
+                    <span className="text-xs text-ink-400">Files automatically save upon selection</span>
+                  </div>
+                )}
                 <input
-                  type="url"
-                  value={newGalleryUrl}
-                  onChange={(e) => setNewGalleryUrl(e.target.value)}
-                  className="input-field flex-1"
-                  placeholder="https://..."
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handleGalleryFilesChange}
+                  disabled={uploadingGallery}
                 />
-                <button
-                  type="button"
-                  onClick={handleAddGalleryUrl}
-                  className="btn-primary px-4 flex items-center gap-1 text-xs uppercase tracking-wide-sm"
-                >
-                  <Plus className="w-4 h-4" /> Add
-                </button>
-              </div>
+              </label>
 
               {galleryUrls.length > 0 && (
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
