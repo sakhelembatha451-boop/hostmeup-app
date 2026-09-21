@@ -89,6 +89,14 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/booking/:id"
+          element={
+            <ProtectedRoute role="host">
+              <BookingRequestPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/host-dashboard"
           element={
             <ProtectedRoute role="host">
