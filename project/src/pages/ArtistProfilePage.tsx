@@ -1,19 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { MapPin, Calendar, Clock, Star, ArrowLeft, Loader2, Music2, Share2, ShieldCheck } from 'lucide-react';
+import { MapPin, Clock, ArrowLeft, Loader2, Music2, ShieldCheck, Edit3 } from 'lucide-react';
 
 export default function ArtistProfilePage() {
   const { id } = useParams<{ id: string }>();
   const [artist, setArtist] = useState<any>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    checkCurrentUser();
     if (id) {
       fetchArtistProfile();
     }
   }, [id]);
+
+  const checkCurrentUser = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      setCurrentUserId(user.id);
+    }
+  };
 
   const fetchArtistProfile = async () => {
     try {
@@ -56,6 +65,9 @@ export default function ArtistProfilePage() {
       </div>
     );
   }
+
+  // Check if logged-in user is the owner of this profile
+  const isOwner = currentUserId && artist.user_id && currentUserId === artist.user_id;
 
   return (
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
@@ -119,7 +131,9 @@ export default function ArtistProfilePage() {
           {/* Booking / Action Sidebar */}
           <div className="space-y-6">
             <div className="border border-line bg-paper-100 p-6 space-y-6">
-              <h3 className="font-display text-lg font-bold text-ink">Book {artist.stage_name || 'Artist'}</h3>
+              <h3 className="font-display text-lg font-bold text-ink">
+                {isOwner ? 'Your Artist Profile' : `Book ${artist.stage_name || 'Artist'}`}
+              </h3>
               
               <div className="space-y-3 text-xs text-ink-600">
                 <div className="flex items-center gap-2">
@@ -132,12 +146,22 @@ export default function ArtistProfilePage() {
                 </div>
               </div>
 
-              <Link
-                to={`/booking/${artist.id}`}
-                className="w-full text-center block py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
-              >
-                Request Booking
-              </Link>
+              {isOwner ? (
+                <Link
+                  to="/artist-profile/edit"
+                  className="w-full text-center flex items-center justify-center gap-2 py-3 bg-paper border border-ink text-ink text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink hover:text-paper transition-colors"
+                >
+                  <Edit3 className="w-4 h-4" />
+                  Edit Profile
+                </Link>
+              ) : (
+                <Link
+                  to={`/booking/${artist.id}`}
+                  className="w-full text-center block py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
+                >
+                  Request Booking
+                </Link>
+              )}
             </div>
           </div>
         </div>
