@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { MapPin, Clock, ArrowLeft, Loader2, Music2, ShieldCheck, Edit3 } from 'lucide-react';
+import { MapPin, Clock, ArrowLeft, Loader2, Music2, ShieldCheck, Edit3, ExternalLink, Globe, Instagram, Youtube, Twitter } from 'lucide-react';
 
 export default function ArtistProfilePage() {
   const { id } = useParams<{ id: string }>();
@@ -66,7 +66,6 @@ export default function ArtistProfilePage() {
     );
   }
 
-  // Check if logged-in user is the owner of this profile
   const isOwner = currentUserId && artist.user_id && currentUserId === artist.user_id;
 
   return (
@@ -77,10 +76,10 @@ export default function ArtistProfilePage() {
           Back to Browse
         </Link>
 
-        {/* Hero Section */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-          {/* Main Media & Info */}
+          {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-8">
+            {/* Main Cover / Avatar */}
             <div className="aspect-[16/9] bg-paper-200 border border-line overflow-hidden relative">
               {artist.cover_url || artist.avatar_url ? (
                 <img
@@ -119,16 +118,53 @@ export default function ArtistProfilePage() {
               )}
             </div>
 
-            {/* Bio */}
+            {/* About / Bio */}
             <div className="border-t border-line pt-6">
               <h3 className="font-display text-lg font-bold text-ink mb-3">About</h3>
               <p className="text-sm text-ink-600 leading-relaxed whitespace-pre-line">
                 {artist.bio || 'No biography provided yet.'}
               </p>
             </div>
+
+            {/* Media & Portfolio Gallery */}
+            {(artist.portfolio_urls?.length > 0 || artist.media_urls?.length > 0 || artist.gallery?.length > 0) && (
+              <div className="border-t border-line pt-6">
+                <h3 className="font-display text-lg font-bold text-ink mb-4">Portfolio & Media</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {(artist.portfolio_urls || artist.media_urls || artist.gallery || []).map((url: string, idx: number) => (
+                    <div key={idx} className="aspect-square bg-paper-200 border border-line overflow-hidden group">
+                      <img
+                        src={url}
+                        alt={`Portfolio item ${idx + 1}`}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Embedded Audio / Video Link */}
+            {artist.demo_url && (
+              <div className="border-t border-line pt-6">
+                <h3 className="font-display text-lg font-bold text-ink mb-3">Demo Reel / Track</h3>
+                <a
+                  href={artist.demo_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide-sm text-ink underline hover:text-ink-600"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Listen / Watch Demo Reel
+                </a>
+              </div>
+            )}
           </div>
 
-          {/* Booking / Action Sidebar */}
+          {/* Sidebar */}
           <div className="space-y-6">
             <div className="border border-line bg-paper-100 p-6 space-y-6">
               <h3 className="font-display text-lg font-bold text-ink">
@@ -163,6 +199,23 @@ export default function ArtistProfilePage() {
                 </Link>
               )}
             </div>
+
+            {/* Social / External Links */}
+            {(artist.social_links || artist.website_url || artist.instagram_url) && (
+              <div className="border border-line bg-paper p-6 space-y-3">
+                <h4 className="text-xs uppercase tracking-wide-sm font-bold text-ink mb-2">Links & Socials</h4>
+                {artist.website_url && (
+                  <a href={artist.website_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-ink-600 hover:text-ink">
+                    <Globe className="w-4 h-4 text-ink-400" /> Website
+                  </a>
+                )}
+                {artist.instagram_url && (
+                  <a href={artist.instagram_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-ink-600 hover:text-ink">
+                    <Instagram className="w-4 h-4 text-ink-400" /> Instagram
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
