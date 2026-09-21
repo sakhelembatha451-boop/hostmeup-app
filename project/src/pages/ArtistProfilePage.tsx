@@ -70,15 +70,17 @@ export default function ArtistProfilePage() {
   }
 
   const isOwner = currentUserId && artist.user_id && currentUserId === artist.user_id;
-  
-  // Ensure we get the correct uploaded gallery photos array first
-  const galleryImages: string[] = Array.isArray(artist.gallery) && artist.gallery.length > 0
+  // Ensure we get the correct uploaded gallery photos array first from gallery_urls
+  const galleryImages: string[] = Array.isArray(artist.gallery_urls) && artist.gallery_urls.length > 0
+    ? artist.gallery_urls
+    : Array.isArray(artist.gallery) && artist.gallery.length > 0
     ? artist.gallery
     : Array.isArray(artist.portfolio_urls) && artist.portfolio_urls.length > 0
     ? artist.portfolio_urls
     : Array.isArray(artist.media_urls)
     ? artist.media_urls
     : [];
+  
 
   return (
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
