@@ -80,6 +80,11 @@ export default function ArtistProfilePage() {
     : Array.isArray(artist.media_urls)
     ? artist.media_urls
     : [];
+  // Extract social links from nested object or direct columns
+  const instagram = artist.social_links?.instagram || artist.instagram || artist.instagram_url;
+  const spotify = artist.social_links?.spotify || artist.spotify || artist.spotify_url;
+  const soundcloud = artist.social_links?.soundcloud || artist.soundcloud || artist.soundcloud_url;
+  const youtube = artist.social_links?.youtube || artist.youtube || artist.youtube_url;
   
 
   return (
@@ -180,6 +185,56 @@ export default function ArtistProfilePage() {
               </div>
             )}
           </div>
+         {/* Social & Streaming Links */}
+        {(instagram || spotify || soundcloud || youtube) && (
+          <div className="space-y-4 pt-6 border-t border-line">
+            <h3 className="text-xs uppercase tracking-wide-sm font-semibold text-ink-500">
+              Social & Streaming Media
+            </h3>
+            <div className="flex flex-wrap gap-4">
+              {spotify && (
+                <a
+                  href={spotify.startsWith('http') ? spotify : `https://${spotify}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
+                >
+                  Spotify
+                </a>
+              )}
+              {instagram && (
+                <a
+                  href={instagram.startsWith('http') ? instagram : `https://instagram.com/${instagram.replace('@', '')}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
+                >
+                  Instagram
+                </a>
+              )}
+              {soundcloud && (
+                <a
+                  href={soundcloud.startsWith('http') ? soundcloud : `https://${soundcloud}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
+                >
+                  SoundCloud
+                </a>
+              )}
+              {youtube && (
+                <a
+                  href={youtube.startsWith('http') ? youtube : `https://${youtube}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
+                >
+                  YouTube
+                </a>
+              )}
+            </div>
+          </div>
+        )} 
 
           {/* Sidebar */}
           <div className="space-y-6">
