@@ -16,6 +16,7 @@ import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminSettingsPage from '@/pages/AdminSettingsPage';
 import { useAuth } from '@/context/AuthContext';
 import { Navigate, Link } from 'react-router-dom';
+import Legal from '@/components/Legal';
 import { Loader2 } from 'lucide-react';
 
 function DashboardRedirect() {
@@ -135,6 +136,7 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+       <Route path="/legal" element={<Legal />} /> 
         <Route
           path="*"
           element={
