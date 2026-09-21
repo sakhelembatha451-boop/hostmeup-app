@@ -1,8 +1,8 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
-import { CATEGORY_LIST } from '@/lib/categories';
 
+const HERO_IMG = 'https://images.pexels.com/photos/1066171/pexels-photo-1066171.jpeg?auto=compress&cs=tinysrgb&h=1200&w=800';
 
 const FEATURED = [
   { name: 'Sofia Chen', role: 'Singer / Vocalist', location: '', img: 'https://images.pexels.com/photos/8412351/pexels-photo-8412351.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
@@ -80,7 +80,7 @@ export default function LandingPage() {
             {FEATURED.map((person, i) => (
               <Link key={i} to="/artists" className="group block animate-fade-in" style={{ animationDelay: `${i * 0.06}s` }}>
                 <div className="relative overflow-hidden bg-paper-300 mb-4 aspect-[3/4]">
-                  <img src={person.img} alt={`${person.name}, ${person.role} based in ${person.location}`} width={600} height={900} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out" />
+                  <img src={person.img} alt={person.name} width={600} height={900} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out" />
                 </div>
                 <div className="flex items-baseline justify-between">
                   <div>
@@ -88,8 +88,8 @@ export default function LandingPage() {
                     <p className="text-sm text-ink-400 mt-0.5">{person.role}</p>
                   </div>
                   {person.location && (
-  <span className="text-xs uppercase tracking-wide-sm text-ink-300">{person.location}</span>
-)}
+                    <span className="text-xs uppercase tracking-wide-sm text-ink-300">{person.location}</span>
+                  )}
                 </div>
               </Link>
             ))}
@@ -113,7 +113,7 @@ export default function LandingPage() {
             {CATEGORIES.map((cat, i) => (
               <Link key={i} to="/artists" className="group block animate-fade-in" style={{ animationDelay: `${i * 0.05}s` }}>
                 <div className="relative overflow-hidden bg-paper-300 mb-3 aspect-[3/4]">
-                  <img src={cat.img} alt={`${cat.label} talent category showcase`} width={400} height={600} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                  <img src={cat.img} alt={cat.label} width={400} height={600} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
                 </div>
                 <h3 className="text-xs font-medium text-ink-600 group-hover:text-accent transition-colors leading-tight">{cat.label}</h3>
               </Link>
