@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Search, MapPin, Star, Filter, Loader2, Music2 } from 'lucide-react';
+import { MapPin, Loader2, Music2 } from 'lucide-react';
 import type { Category } from '@/types';
 
 const CATEGORIES: { label: string; value: Category | 'ALL' }[] = [
@@ -66,6 +66,7 @@ export default function ArtistsPage() {
           {CATEGORIES.map((cat) => (
             <button
               key={cat.value}
+              type="button"
               onClick={() => setSelectedCategory(cat.value)}
               className={`px-4 py-2 text-xs uppercase tracking-wide-sm whitespace-nowrap border transition-colors ${
                 selectedCategory === cat.value
