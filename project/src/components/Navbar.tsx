@@ -68,27 +68,32 @@ export default function Navbar() {
           </Link>
 
           {/* Desktop nav */}
-          <div className="hidden md:flex items-center gap-4 lg:gap-6">
+          <div className="hidden md:flex items-center gap-3 lg:gap-5">
             {profile ? (
               <>
                 <Link to="/artists" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm" aria-label="Browse all talent">Browse</Link>
-                <Link to={dashboardPath} aria-label="Go to your dashboard" className="flex items-center gap-1.5 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
+                <Link to={dashboardPath} aria-label="Go to your dashboard" className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
                   <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
                 </Link>
                 {profile.role === 'artist' && (
-                  <Link to="/artist-profile/edit" aria-label="Edit your talent profile" className="flex items-center gap-1.5 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
+                  <Link to="/artist-profile/edit" aria-label="Edit your talent profile" className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
                     <User className="w-3.5 h-3.5" /> Profile
                   </Link>
                 )}
                 {/* Inbox */}
-                <Link to={inboxPath} aria-label={profile.is_admin ? 'Go to admin inbox' : 'Go to your inbox'} className="flex items-center gap-1.5 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
+                <Link to={inboxPath} aria-label={profile.is_admin ? 'Go to admin inbox' : 'Go to your inbox'} className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
                   <Mail className="w-3.5 h-3.5" /> {profile.is_admin ? 'Admin' : 'Inbox'}
                 </Link>
                 {profile.is_admin && (
-                  <Link to="/admin/settings" aria-label="Admin settings" className="flex items-center gap-1.5 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
+                  <Link to="/admin/settings" aria-label="Admin settings" className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
                     <Shield className="w-3.5 h-3.5" /> Settings
                   </Link>
                 )}
+                {/* Legal Links for Logged-In Users */}
+                <a href="/legal#terms" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Terms</a>
+                <a href="/legal#privacy" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Privacy</a>
+                <a href="/legal#refunds" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Refunds</a>
+
                 {/* Notifications */}
                 <div className="relative">
                   <button onClick={() => setNotifOpen(!notifOpen)} aria-label={`${unreadCount} unread notifications`} className="relative flex items-center text-ink-500 hover:text-ink transition-colors">
@@ -135,9 +140,9 @@ export default function Navbar() {
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-ink text-paper flex items-center justify-center font-medium text-sm">{profile.full_name?.[0]?.toUpperCase() || '?'}</div>
                   )}
-                  <span className="text-xs font-medium text-ink-600 max-w-[100px] truncate">{profile.full_name || 'User'}</span>
+                  <span className="text-xs font-medium text-ink-600 max-w-[80px] truncate">{profile.full_name || 'User'}</span>
                 </div>
-                <button onClick={handleSignOut} aria-label="Sign out of your account" className="flex items-center gap-1.5 text-xs font-medium text-ink-400 hover:text-ink transition-colors uppercase tracking-wide-sm">
+                <button onClick={handleSignOut} aria-label="Sign out of your account" className="flex items-center gap-1 text-xs font-medium text-ink-400 hover:text-ink transition-colors uppercase tracking-wide-sm">
                   <LogOut className="w-3.5 h-3.5" /> Exit
                 </button>
               </>
@@ -171,6 +176,9 @@ export default function Navbar() {
                 {profile.role === 'artist' && <Link to="/artist-profile/edit" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Profile</Link>}
                 <Link to={inboxPath} onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">{profile.is_admin ? 'Admin Inbox' : 'Inbox'}</Link>
                 {profile.is_admin && <Link to="/admin/settings" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Admin Settings</Link>}
+                <a href="/legal#terms" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Terms & Conditions</a>
+                <a href="/legal#privacy" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Privacy Policy</a>
+                <a href="/legal#refunds" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Refund Policy</a>
                 {unreadCount > 0 && <span className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-accent text-white text-xs font-bold rounded-full">{unreadCount}</span>}
                 <button onClick={() => { setMenuOpen(false); handleSignOut(); }} className="block w-full text-left py-2.5 text-sm font-medium text-ink-400 uppercase tracking-wide-sm">Sign Out</button>
               </>
