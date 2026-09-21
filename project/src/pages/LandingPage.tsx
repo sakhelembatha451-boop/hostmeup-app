@@ -4,14 +4,14 @@ import { ArrowRight, ArrowUpRight } from 'lucide-react';
 import { CATEGORY_LIST } from '@/lib/categories';
 
 const HERO_IMG = 'https://images.pexels.com/photos/1066171/pexels-photo-1066171.jpeg?auto=compress&cs=tinysrgb&h=1200&w=800';
-
 const FEATURED = [
-  { name: 'Sofia Chen', role: 'Singer / Vocalist', location: 'New York', img: 'https://images.pexels.com/photos/8412351/pexels-photo-8412351.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
-  { name: 'Marcus Ray', role: 'Producer / Sound Engineer', location: 'Los Angeles', img: 'https://images.pexels.com/photos/8132801/pexels-photo-8132801.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
-  { name: 'Elena Voss', role: 'Model', location: 'Paris', img: 'https://images.pexels.com/photos/24972993/pexels-photo-24972993.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
-  { name: 'Aria Kim', role: 'Beauty Professional', location: 'Seoul', img: 'https://images.pexels.com/photos/19301071/pexels-photo-19301071.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
-  { name: 'James Cole', role: 'Photographer / Videographer', location: 'London', img: 'https://images.pexels.com/photos/30681560/pexels-photo-30681560.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
-  { name: 'Nia Okafor', role: 'Live Performer / DJ', location: 'Berlin', img: 'https://images.pexels.com/photos/6398745/pexels-photo-6398745.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
+  { name: 'Sofia Chen', role: 'Singer / Vocalist', location: '', img: 'https://images.pexels.com/photos/8412351/pexels-photo-8412351.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
+  { name: 'Marcus Ray', role: 'Producer / Sound Engineer', location: '', img: 'https://images.pexels.com/photos/8132801/pexels-photo-8132801.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
+  { name: 'Elena Voss', role: 'Model', location: '', img: 'https://images.pexels.com/photos/24972993/pexels-photo-24972993.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
+  { name: 'Aria Kim', role: 'Beauty Professional', location: '', img: 'https://images.pexels.com/photos/19301071/pexels-photo-19301071.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
+  { name: 'James Cole', role: 'Photographer / Videographer', location: '', img: 'https://images.pexels.com/photos/30681560/pexels-photo-30681560.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
+  { name: 'Nia Okafor', role: 'Live Performer / DJ', location: '', img: 'https://images.pexels.com/photos/6398745/pexels-photo-6398745.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
+];
 ];
 
 const CATEGORIES = [
@@ -88,7 +88,9 @@ export default function LandingPage() {
                     <h3 className="font-display text-xl font-semibold text-ink group-hover:text-accent transition-colors">{person.name}</h3>
                     <p className="text-sm text-ink-400 mt-0.5">{person.role}</p>
                   </div>
-                  <span className="text-xs uppercase tracking-wide-sm text-ink-300">{person.location}</span>
+                  {person.location && (
+  <span className="text-xs uppercase tracking-wide-sm text-ink-300">{person.location}</span>
+)}
                 </div>
               </Link>
             ))}
