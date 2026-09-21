@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { MapPin, Clock, ArrowLeft, Loader2, Music2, ShieldCheck, Edit3, ExternalLink, Globe, Instagram, Youtube, Twitter } from 'lucide-react';
+import { MapPin, Clock, ArrowLeft, Loader2, Music2, ShieldCheck, Edit3, ExternalLink, Globe, Instagram, X } from 'lucide-react';
 
 export default function ArtistProfilePage() {
   const { id } = useParams<{ id: string }>();
@@ -9,6 +9,9 @@ export default function ArtistProfilePage() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // State for image lightbox modal
+  const [activeImage, setActiveImage] = useState<string | null>(null);
 
   useEffect(() => {
     checkCurrentUser();
@@ -67,6 +70,15 @@ export default function ArtistProfilePage() {
   }
 
   const isOwner = currentUserId && artist.user_id && currentUserId === artist.user_id;
+  
+  // Ensure we get the correct uploaded gallery photos array first
+  const galleryImages: string[] = Array.isArray(artist.gallery) && artist.gallery.length > 0
+    ? artist.gallery
+    : Array.isArray(artist.portfolio_urls) && artist.portfolio_urls.length > 0
+    ? artist.portfolio_urls
+    : Array.isArray(artist.media_urls)
+    ? artist.media_urls
+    : [];
 
   return (
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
@@ -85,7 +97,8 @@ export default function ArtistProfilePage() {
                 <img
                   src={artist.cover_url || artist.avatar_url}
                   alt={artist.stage_name}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                  onClick={() => setActiveImage(artist.cover_url || artist.avatar_url)}
                 />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-ink-400">
@@ -126,22 +139,24 @@ export default function ArtistProfilePage() {
               </p>
             </div>
 
-            {/* Media & Portfolio Gallery */}
-            {(artist.portfolio_urls?.length > 0 || artist.media_urls?.length > 0 || artist.gallery?.length > 0) && (
+            {/* Gallery Photos (Clickable Lightbox Grid) */}
+            {galleryImages.length > 0 && (
               <div className="border-t border-line pt-6">
-                <h3 className="font-display text-lg font-bold text-ink mb-4">Portfolio & Media</h3>
+                <h3 className="font-display text-lg font-bold text-ink mb-4">Gallery & Portfolio</h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {(artist.portfolio_urls || artist.media_urls || artist.gallery || []).map((url: string, idx: number) => (
-                    <div key={idx} className="aspect-square bg-paper-200 border border-line overflow-hidden group">
+                  {galleryImages.map((url: string, idx: number) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => setActiveImage(url)}
+                      className="aspect-square bg-paper-200 border border-line overflow-hidden group focus:outline-none focus:ring-2 focus:ring-ink"
+                    >
                       <img
                         src={url}
-                        alt={`Portfolio item ${idx + 1}`}
+                        alt={`Gallery item ${idx + 1}`}
                         className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = 'none';
-                        }}
                       />
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -200,8 +215,8 @@ export default function ArtistProfilePage() {
               )}
             </div>
 
-            {/* Social / External Links */}
-            {(artist.social_links || artist.website_url || artist.instagram_url) && (
+            {/* Social Links */}
+            {(artist.website_url || artist.instagram_url) && (
               <div className="border border-line bg-paper p-6 space-y-3">
                 <h4 className="text-xs uppercase tracking-wide-sm font-bold text-ink mb-2">Links & Socials</h4>
                 {artist.website_url && (
@@ -219,6 +234,29 @@ export default function ArtistProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Fullscreen Lightbox Modal */}
+      {activeImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setActiveImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setActiveImage(null)}
+              className="absolute top-3 right-3 bg-ink text-paper p-2 hover:bg-ink-800 transition-colors z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={activeImage}
+              alt="Expanded view"
+              className="w-full h-full object-contain max-h-[85vh]"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
