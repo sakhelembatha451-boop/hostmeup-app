@@ -89,10 +89,8 @@ export default function Navbar() {
                     <Shield className="w-3.5 h-3.5" /> Settings
                   </Link>
                 )}
-                {/* Legal Links for Logged-In Users */}
-                <a href="/legal#terms" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Terms</a>
-                <a href="/legal#privacy" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Privacy</a>
-                <a href="/legal#refunds" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Refunds</a>
+                {/* Single Legal Link for Logged-In Users */}
+                <Link to="/legal" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">T&C's</Link>
 
                 {/* Notifications */}
                 <div className="relative">
@@ -149,9 +147,8 @@ export default function Navbar() {
             ) : (
               <>
                 <Link to="/artists" aria-label="Browse all talent" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Browse</Link>
-                <a href="/legal#terms" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Terms</a>
-                <a href="/legal#privacy" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Privacy</a>
-                <a href="/legal#refunds" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Refunds</a>
+                {/* Single Legal Link for Logged-Out Users */}
+                <Link to="/legal" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">T&C's</Link>
                 <Link to="/login" aria-label="Sign in to your account" className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">Sign In</Link>
                 <Link to="/signup" aria-label="Create a new account" className="btn-primary px-4 py-2 text-xs uppercase tracking-wide-sm">Get Started</Link>
               </>
@@ -176,18 +173,14 @@ export default function Navbar() {
                 {profile.role === 'artist' && <Link to="/artist-profile/edit" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Profile</Link>}
                 <Link to={inboxPath} onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">{profile.is_admin ? 'Admin Inbox' : 'Inbox'}</Link>
                 {profile.is_admin && <Link to="/admin/settings" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Admin Settings</Link>}
-                <a href="/legal#terms" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Terms & Conditions</a>
-                <a href="/legal#privacy" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Privacy Policy</a>
-                <a href="/legal#refunds" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Refund Policy</a>
+                <Link to="/legal" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">T&C's</Link>
                 {unreadCount > 0 && <span className="ml-2 inline-flex items-center justify-center w-5 h-5 bg-accent text-white text-xs font-bold rounded-full">{unreadCount}</span>}
                 <button onClick={() => { setMenuOpen(false); handleSignOut(); }} className="block w-full text-left py-2.5 text-sm font-medium text-ink-400 uppercase tracking-wide-sm">Sign Out</button>
               </>
             ) : (
               <>
                 <Link to="/artists" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Browse</Link>
-                <a href="/legal#terms" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Terms & Conditions</a>
-                <a href="/legal#privacy" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Privacy Policy</a>
-                <a href="/legal#refunds" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Refund Policy</a>
+                <Link to="/legal" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">T&C's</Link>
                 <Link to="/login" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Sign In</Link>
                 <Link to="/signup" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-semibold text-paper bg-ink uppercase tracking-wide-sm text-center">Get Started</Link>
               </>
