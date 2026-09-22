@@ -145,26 +145,22 @@ export default function LandingPage() {
                     <span className="font-display text-2xl text-ink-200 font-light tabular-nums flex-shrink-0 w-8">{String(i + 1).padStart(2, '0')}</span>
                     <span className="text-ink-600 leading-relaxed pt-1">{item}</span>
                   </li>
-              {/* Stats strip */}
-      <section className="border-b border-line">
-        <div className="max-w-editorial mx-auto px-6 lg:px-12 py-16">
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-y-10 gap-x-6">
-            { value: '6+', label: 'Versatile Categories' },
-{ value: '2 Min', label: 'Fast Verification' },
-{ value: 'Direct', label: 'Host Connections' },
-{ value: '100%', label: 'Vetted Profiles' },
-              
-            ].map((stat, i) => (
-              <div key={i} className="text-center lg:text-left">
-                <div className="font-display text-5xl lg:text-6xl font-bold text-ink mb-2">{stat.value}</div>
-                <div className="text-xs uppercase tracking-wide-sm text-ink-400">{stat.label}</div>
-              </div>
-            )}
-          </div>
-        </div>
-      </section> 
-        </div>
-      </section>
+                ))}
+              </ul>
+            </div>
+
+            {/* For Talent */}
+            <div className="border-l border-line pl-8">
+              <h3 className="font-display text-2xl font-semibold text-ink mb-6">For Talent</h3>
+              <ul className="space-y-5">
+                {[
+                  'Build a rich profile with portfolio, specialties, and social links',
+                  'Showcase photo galleries, audio tracks, and video reels',
+                  'Receive booking requests from vetted event hosts',
+                  'Accept or decline on your own terms',
+                ].map((item, i) => (
+                  <li key={i} className="flex items-start gap-4">
+                    <span className="font-display text-2xl text-ink-200 font-light tabular-nums flex-shrink-0 w-8">{String(i + 1).padStart(2, '0')}</span>
                     <span className="text-ink-600 leading-relaxed pt-1">{item}</span>
                   </li>
                 ))}
@@ -179,10 +175,10 @@ export default function LandingPage() {
         <div className="max-w-editorial mx-auto px-6 lg:px-12 py-16">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-y-10 gap-x-6">
             {[
-              { value: '500+', label: 'Talents' },
-              { value: '1,200+', label: 'Events Booked' },
-              { value: '6', label: 'Categories' },
-              { value: '4.9', label: 'Avg. Rating' },
+              { value: '6+', label: 'Versatile Categories' },
+              { value: '2 Min', label: 'Fast Verification' },
+              { value: 'Direct', label: 'Host Connections' },
+              { value: '100%', label: 'Vetted Profiles' },
             ].map((stat, i) => (
               <div key={i} className="text-center lg:text-left">
                 <div className="font-display text-5xl lg:text-6xl font-bold text-ink mb-2">{stat.value}</div>
