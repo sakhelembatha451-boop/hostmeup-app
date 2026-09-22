@@ -149,17 +149,17 @@ export default function LandingPage() {
       <section className="border-b border-line">
         <div className="max-w-editorial mx-auto px-6 lg:px-12 py-16">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-y-10 gap-x-6">
-            {[
-              { value: '6+', label: 'Versatile Categories' },
-              { value: '2 Min', label: 'Fast Verification' },
-              { value: 'Direct', label: 'Host Connections' },
-              { value: '100%', label: 'Vetted Profiles' },
+            { value: '6+', label: 'Versatile Categories' },
+{ value: '2 Min', label: 'Fast Verification' },
+{ value: 'Direct', label: 'Host Connections' },
+{ value: '100%', label: 'Vetted Profiles' },
+              
             ].map((stat, i) => (
               <div key={i} className="text-center lg:text-left">
                 <div className="font-display text-5xl lg:text-6xl font-bold text-ink mb-2">{stat.value}</div>
                 <div className="text-xs uppercase tracking-wide-sm text-ink-400">{stat.label}</div>
               </div>
-            ))}
+            )}
           </div>
         </div>
       </section> 
