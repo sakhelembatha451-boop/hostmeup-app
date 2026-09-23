@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getAdminId, createConversation, sendMessage, markMessagesRead } from '@/lib/messaging';
-import { Loader2, Send, MessageSquare, ArrowLeft, Plus, Mail, Calendar, X } from 'lucide-react';
+import { Loader2, Send, MessageSquare, Plus, Mail, Calendar, X } from 'lucide-react';
 import type { Conversation, Message } from '@/types';
 
 export default function InboxPage() {
@@ -24,31 +24,48 @@ export default function InboxPage() {
 
   const loadConversations = useCallback(async () => {
     if (!profile) return;
-    const { data, error } = await supabase
-      .from('conversations')
-      .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)')
-      .eq('user_id', profile.id)
-      .order('updated_at', { ascending: false });
-    if (error) { setConversations([]); }
-    else { setConversations((data as Conversation[]) || []); }
-    setLoading(false);
+    try {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)')
+        .eq('user_id', profile.id)
+        .order('updated_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading conversations:', error);
+        setConversations([]);
+      } else {
+        setConversations((data as Conversation[]) || []);
+      }
+    } catch (err) {
+      console.error('Unexpected error loading conversations:', err);
+    } finally {
+      setLoading(false);
+    }
   }, [profile]);
 
   const loadMessages = useCallback(async (convId: string) => {
     setMsgLoading(true);
-    const { data } = await supabase
-      .from('messages')
-      .select('*, sender:profiles!messages_sender_id_fkey(id, full_name, avatar_url)')
-      .eq('conversation_id', convId)
-      .order('created_at', { ascending: true });
-    setMessages((data as Message[]) || []);
-    setMsgLoading(false);
-    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*, sender:profiles!messages_sender_id_fkey(id, full_name, avatar_url)')
+        .eq('conversation_id', convId)
+        .order('created_at', { ascending: true });
+
+      if (error) console.error('Error loading messages:', error);
+      setMessages((data as Message[]) || []);
+    } catch (err) {
+      console.error('Unexpected error loading messages:', err);
+    } finally {
+      setMsgLoading(false);
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
   }, []);
 
   useEffect(() => {
     loadConversations();
-    getAdminId().then(setAdminId);
+    getAdminId().then(setAdminId).catch((err) => console.error('Error fetching admin ID:', err));
   }, [loadConversations]);
 
   useEffect(() => {
@@ -77,25 +94,30 @@ export default function InboxPage() {
       setReplyText('');
       await loadMessages(selectedConv.id);
       loadConversations();
-    } catch { /* ignore */ }
-    setSending(false);
+    } catch (err) {
+      console.error('Error sending reply:', err);
+    } finally {
+      setSending(false);
+    }
   };
 
   const sendEmailNotification = async (subject: string, message: string) => {
     try {
-      await fetch('https://formspree.io/f/xknkyoky', {
+      await fetch('https://formspree.io/f/sakhelembatha451@gmail.com', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Accept': 'application/json' 
+        },
         body: JSON.stringify({
-          recipient: 'sakhelembatha451@gmail.com',
-          sender_name: profile?.full_name || 'HostMeUp User',
-          email: profile?.email || 'user@hostmeup.co.za',
-          subject: `[HostMeUp] New Message from User: ${subject}`,
-          message: `You received a new message from ${profile?.full_name || 'a user'}:\n\nSubject: ${subject}\nMessage: ${message}`,
+          _replyto: profile?.email || 'user@hostmeup.co.za',
+          name: profile?.full_name || 'HostMeUp User',
+          subject: `[HostMeUp Direct Message] ${subject}`,
+          message: `Sender: ${profile?.full_name} (${profile?.email})\n\nSubject: ${subject}\n\nMessage:\n${message}`,
         }),
       });
-    } catch {
-      // Email sending error fallback silently
+    } catch (err) {
+      console.error('Email dispatch error:', err);
     }
   };
 
@@ -103,30 +125,34 @@ export default function InboxPage() {
     if (!profile || !newSubject.trim() || !newMessage.trim()) return;
     setCreating(true);
 
-    const timeout = setTimeout(() => {
-      setCreating(false);
-      setShowNewModal(false);
-    }, 5000);
-
     try {
       const id = await createConversation(profile.id, newSubject.trim(), 'direct', undefined, newMessage.trim(), adminId);
       
-      // Dispatch email directly to sakhelembatha451@gmail.com
-      await sendEmailNotification(newSubject.trim(), newMessage.trim());
-
-      if (id) {
-        setNewSubject('');
-        setNewMessage('');
-        await loadConversations();
-        const newConv = (await supabase.from('conversations').select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)').eq('id', id).maybeSingle()).data as Conversation;
-        if (newConv) setSelectedConv(newConv);
+      if (!id) {
+        alert('Failed to save message to database. Please check your Supabase schema and RLS policies.');
+        return;
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      clearTimeout(timeout);
-      setCreating(false);
+
+      // Send email via Formspree
+      sendEmailNotification(newSubject.trim(), newMessage.trim());
+
+      setNewSubject('');
+      setNewMessage('');
+      await loadConversations();
+
+      const { data: newConv } = await supabase
+        .from('conversations')
+        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (newConv) setSelectedConv(newConv as Conversation);
       setShowNewModal(false);
+    } catch (err) {
+      console.error('Error in handleCreateConversation:', err);
+      alert('An unexpected error occurred while sending.');
+    } finally {
+      setCreating(false);
     }
   };
 
