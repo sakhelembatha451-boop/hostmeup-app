@@ -81,21 +81,53 @@ export default function InboxPage() {
     setSending(false);
   };
 
+  const sendEmailNotification = async (subject: string, message: string) => {
+    try {
+      await fetch('https://formspree.io/f/xknkyoky', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: 'sakhelembatha451@gmail.com',
+          sender_name: profile?.full_name || 'HostMeUp User',
+          sender_email: profile?.email || 'N/A',
+          subject: `New Admin Message: ${subject}`,
+          message: message,
+        }),
+      });
+    } catch {
+      // Email sending error fallback silently
+    }
+  };
+
   const handleCreateConversation = async () => {
     if (!profile || !newSubject.trim() || !newMessage.trim()) return;
     setCreating(true);
+
+    const timeout = setTimeout(() => {
+      setCreating(false);
+      setShowNewModal(false);
+    }, 6000);
+
     try {
       const id = await createConversation(profile.id, newSubject.trim(), 'direct', undefined, newMessage.trim(), adminId);
+      
+      // Trigger email dispatch in background
+      sendEmailNotification(newSubject.trim(), newMessage.trim());
+
       if (id) {
-        setShowNewModal(false);
         setNewSubject('');
         setNewMessage('');
         await loadConversations();
         const newConv = (await supabase.from('conversations').select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)').eq('id', id).maybeSingle()).data as Conversation;
         if (newConv) setSelectedConv(newConv);
       }
-    } catch { /* ignore */ }
-    setCreating(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      clearTimeout(timeout);
+      setCreating(false);
+      setShowNewModal(false);
+    }
   };
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
