@@ -85,13 +85,13 @@ export default function InboxPage() {
     try {
       await fetch('https://formspree.io/f/xknkyoky', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
-          to: 'sakhelembatha451@gmail.com',
+          recipient: 'sakhelembatha451@gmail.com',
           sender_name: profile?.full_name || 'HostMeUp User',
-          sender_email: profile?.email || 'N/A',
-          subject: `New Admin Message: ${subject}`,
-          message: message,
+          email: profile?.email || 'user@hostmeup.co.za',
+          subject: `[HostMeUp] New Message from User: ${subject}`,
+          message: `You received a new message from ${profile?.full_name || 'a user'}:\n\nSubject: ${subject}\nMessage: ${message}`,
         }),
       });
     } catch {
@@ -106,13 +106,13 @@ export default function InboxPage() {
     const timeout = setTimeout(() => {
       setCreating(false);
       setShowNewModal(false);
-    }, 6000);
+    }, 5000);
 
     try {
       const id = await createConversation(profile.id, newSubject.trim(), 'direct', undefined, newMessage.trim(), adminId);
       
-      // Trigger email dispatch in background
-      sendEmailNotification(newSubject.trim(), newMessage.trim());
+      // Dispatch email directly to sakhelembatha451@gmail.com
+      await sendEmailNotification(newSubject.trim(), newMessage.trim());
 
       if (id) {
         setNewSubject('');
