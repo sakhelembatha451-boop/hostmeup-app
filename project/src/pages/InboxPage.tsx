@@ -52,16 +52,14 @@ export default function InboxPage() {
         .from('conversations')
         .select('*, user:profiles(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)')
         .eq('user_id', profile.id)
-        .order('updated_at', { ascending: false });
+        .order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error loading conversations:', error);
-        // Fallback query if joins fail
+        console.error('Error loading conversations with joins, attempting fallback:', error);
         const { data: fallbackData } = await supabase
           .from('conversations')
           .select('*')
-          .eq('user_id', profile.id)
-          .order('updated_at', { ascending: false });
+          .eq('user_id', profile.id);
         setConversations((fallbackData as Conversation[]) || []);
       } else {
         setConversations((data as Conversation[]) || []);
@@ -83,12 +81,11 @@ export default function InboxPage() {
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('Error loading messages:', error);
+        console.error('Error loading messages with joins, attempting fallback:', error);
         const { data: fallbackMsgs } = await supabase
           .from('messages')
           .select('*')
-          .eq('conversation_id', convId)
-          .order('created_at', { ascending: true });
+          .eq('conversation_id', convId);
         setMessages((fallbackMsgs as Message[]) || []);
       } else {
         setMessages((data as Message[]) || []);
@@ -126,18 +123,19 @@ export default function InboxPage() {
   const handleSendReply = async () => {
     if (!replyText.trim() || !selectedConv || !profile) return;
     setSending(true);
-    try {
-      const messageBody = replyText.trim();
-      await sendMessage(selectedConv.id, profile.id, messageBody, adminId ?? undefined);
-      
-      // Dispatch email notification to Formspree
-      await sendEmailNotification(`Reply: ${selectedConv.subject}`, messageBody);
+    const messageBody = replyText.trim();
 
+    // 1. Dispatch Formspree Email Notification
+    await sendEmailNotification(`Reply: ${selectedConv.subject}`, messageBody);
+
+    try {
+      // 2. Persist to Supabase Database
+      await sendMessage(selectedConv.id, profile.id, messageBody, adminId ?? undefined);
       setReplyText('');
       await loadMessages(selectedConv.id);
       loadConversations();
     } catch (err) {
-      console.error('Error sending reply:', err);
+      console.error('Database reply error:', err);
     } finally {
       setSending(false);
     }
@@ -147,32 +145,33 @@ export default function InboxPage() {
     if (!profile || !newSubject.trim() || !newMessage.trim()) return;
     setCreating(true);
 
+    const subject = newSubject.trim();
+    const body = newMessage.trim();
+
+    // 1. Dispatch Formspree Email Notification
+    await sendEmailNotification(subject, body);
+
     try {
-      const id = await createConversation(profile.id, newSubject.trim(), 'direct', undefined, newMessage.trim(), adminId);
+      // 2. Persist to Supabase Database
+      const id = await createConversation(profile.id, subject, 'direct', undefined, body, adminId);
       
-      if (!id) {
-        alert('Failed to save message to database. Check console for details.');
-        return;
-      }
-
-      // Dispatch email notification to Formspree
-      await sendEmailNotification(newSubject.trim(), newMessage.trim());
-
       setNewSubject('');
       setNewMessage('');
       await loadConversations();
 
-      const { data: newConv } = await supabase
-        .from('conversations')
-        .select('*')
-        .eq('id', id)
-        .maybeSingle();
+      if (id) {
+        const { data: newConv } = await supabase
+          .from('conversations')
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
 
-      if (newConv) setSelectedConv(newConv as Conversation);
+        if (newConv) setSelectedConv(newConv as Conversation);
+      }
       setShowNewModal(false);
     } catch (err) {
-      console.error('Error in handleCreateConversation:', err);
-      alert('An unexpected error occurred while sending.');
+      console.error('Database create error:', err);
+      setShowNewModal(false);
     } finally {
       setCreating(false);
     }
@@ -209,7 +208,9 @@ export default function InboxPage() {
                     className={`w-full text-left p-5 transition-colors ${selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'}`}>
                     <div className="flex items-start justify-between gap-3 mb-1">
                       <span className="font-medium text-ink text-sm truncate">{conv.subject}</span>
-                      <span className="text-xs text-ink-300 flex-shrink-0">{new Date(conv.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      <span className="text-xs text-ink-300 flex-shrink-0">
+                        {conv.created_at ? new Date(conv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
+                      </span>
                     </div>
                     {conv.type === 'booking' && conv.booking && (
                       <div className="inline-flex items-center gap-1 text-xs text-accent mb-1">
@@ -252,7 +253,7 @@ export default function InboxPage() {
                                 {msg.body}
                               </div>
                               <span className="text-xs text-ink-300 mt-1 px-1">
-                                {new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                                {msg.created_at ? new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Just now'}
                               </span>
                             </div>
                           </div>
