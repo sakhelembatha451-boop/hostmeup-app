@@ -27,13 +27,19 @@ export default function InboxPage() {
     try {
       const { data, error } = await supabase
         .from('conversations')
-        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)')
+        .select('*, user:profiles(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)')
         .eq('user_id', profile.id)
         .order('updated_at', { ascending: false });
 
       if (error) {
         console.error('Error loading conversations:', error);
-        setConversations([]);
+        // Fallback query if joins fail
+        const { data: fallbackData } = await supabase
+          .from('conversations')
+          .select('*')
+          .eq('user_id', profile.id)
+          .order('updated_at', { ascending: false });
+        setConversations((fallbackData as Conversation[]) || []);
       } else {
         setConversations((data as Conversation[]) || []);
       }
@@ -49,12 +55,21 @@ export default function InboxPage() {
     try {
       const { data, error } = await supabase
         .from('messages')
-        .select('*, sender:profiles!messages_sender_id_fkey(id, full_name, avatar_url)')
+        .select('*, sender:profiles(id, full_name, avatar_url)')
         .eq('conversation_id', convId)
         .order('created_at', { ascending: true });
 
-      if (error) console.error('Error loading messages:', error);
-      setMessages((data as Message[]) || []);
+      if (error) {
+        console.error('Error loading messages:', error);
+        const { data: fallbackMsgs } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('conversation_id', convId)
+          .order('created_at', { ascending: true });
+        setMessages((fallbackMsgs as Message[]) || []);
+      } else {
+        setMessages((data as Message[]) || []);
+      }
     } catch (err) {
       console.error('Unexpected error loading messages:', err);
     } finally {
@@ -74,7 +89,6 @@ export default function InboxPage() {
     if (profile) markMessagesRead(selectedConv.id, profile.id);
   }, [selectedConv, loadMessages, profile]);
 
-  // Realtime subscription for new messages
   useEffect(() => {
     if (!selectedConv) return;
     const channel = supabase
@@ -101,26 +115,6 @@ export default function InboxPage() {
     }
   };
 
-  const sendEmailNotification = async (subject: string, message: string) => {
-    try {
-      await fetch('https://formspree.io/f/sakhelembatha451@gmail.com', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json' 
-        },
-        body: JSON.stringify({
-          _replyto: profile?.email || 'user@hostmeup.co.za',
-          name: profile?.full_name || 'HostMeUp User',
-          subject: `[HostMeUp Direct Message] ${subject}`,
-          message: `Sender: ${profile?.full_name} (${profile?.email})\n\nSubject: ${subject}\n\nMessage:\n${message}`,
-        }),
-      });
-    } catch (err) {
-      console.error('Email dispatch error:', err);
-    }
-  };
-
   const handleCreateConversation = async () => {
     if (!profile || !newSubject.trim() || !newMessage.trim()) return;
     setCreating(true);
@@ -129,12 +123,9 @@ export default function InboxPage() {
       const id = await createConversation(profile.id, newSubject.trim(), 'direct', undefined, newMessage.trim(), adminId);
       
       if (!id) {
-        alert('Failed to save message to database. Please check your Supabase schema and RLS policies.');
+        alert('Failed to save message to database. Check console for details.');
         return;
       }
-
-      // Send email via Formspree
-      sendEmailNotification(newSubject.trim(), newMessage.trim());
 
       setNewSubject('');
       setNewMessage('');
@@ -142,7 +133,7 @@ export default function InboxPage() {
 
       const { data: newConv } = await supabase
         .from('conversations')
-        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)')
+        .select('*')
         .eq('id', id)
         .maybeSingle();
 
@@ -180,7 +171,6 @@ export default function InboxPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 border border-line min-h-[500px]">
-            {/* Conversation list */}
             <div className={`lg:col-span-1 border-r border-line ${selectedConv ? 'hidden lg:block' : ''}`}>
               <div className="divide-y divide-line">
                 {conversations.map((conv) => (
@@ -201,11 +191,9 @@ export default function InboxPage() {
               </div>
             </div>
 
-            {/* Message thread */}
             <div className={`lg:col-span-2 flex flex-col ${selectedConv ? '' : 'hidden lg:flex'}`}>
               {selectedConv ? (
                 <>
-                  {/* Thread header */}
                   <div className="border-b border-line p-5 flex items-center justify-between">
                     <div>
                       <h3 className="font-display text-lg font-semibold text-ink">{selectedConv.subject}</h3>
@@ -218,7 +206,6 @@ export default function InboxPage() {
                     <button onClick={() => setSelectedConv(null)} className="lg:hidden text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
                   </div>
 
-                  {/* Messages */}
                   <div className="flex-1 overflow-y-auto p-5 space-y-4 min-h-[300px] max-h-[500px]">
                     {msgLoading ? (
                       <div className="flex items-center justify-center py-12"><Loader2 className="w-5 h-5 text-ink animate-spin" /></div>
@@ -244,7 +231,6 @@ export default function InboxPage() {
                     <div ref={messagesEndRef} />
                   </div>
 
-                  {/* Reply box */}
                   <div className="border-t border-line p-4 flex items-end gap-3">
                     <textarea
                       value={replyText}
@@ -271,7 +257,6 @@ export default function InboxPage() {
         )}
       </div>
 
-      {/* New message modal */}
       {showNewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-4" onClick={() => setShowNewModal(false)}>
           <div className="bg-paper border border-line max-w-md w-full p-8 animate-scale-in" onClick={(e) => e.stopPropagation()}>
