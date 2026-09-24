@@ -84,7 +84,7 @@ export default function InboxPage() {
       }
     } catch (err) {
       console.error('Error loading conversations:', err);
-    } fontally {
+    } finally {
       setLoading(false);
     }
   }, [profile, isAdmin]);
