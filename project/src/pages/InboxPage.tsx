@@ -300,7 +300,7 @@ export default function InboxPage() {
     const subject = newSubject.trim();
     const body = newMessage.trim();
 
-    // CRITICAL FIX: If Admin, the conversation.user_id MUST be assigned to the recipient's user_id
+    // If Admin, the conversation.user_id MUST be assigned to the recipient's user_id
     const conversationOwnerId = isAdmin ? selectedRecipientId : profile.id;
     let targetRecipientId = isAdmin ? selectedRecipientId : adminId;
 
@@ -463,7 +463,7 @@ export default function InboxPage() {
                     <button onClick={() => setSelectedConv(null)} className="lg:hidden text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto p-5 space-y-4 min-h-[300px] max-h-[500px]">
+                  <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4 min-h-[300px] max-h-[500px]">
                     {msgLoading ? (
                       <div className="flex items-center justify-center py-12"><Loader2 className="w-5 h-5 text-ink animate-spin" /></div>
                     ) : messages.length === 0 ? (
@@ -476,7 +476,10 @@ export default function InboxPage() {
                         const msgWithSender = msg as Message & { sender?: Profile };
 
                         return (
-                          <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group items-center gap-2`}>
+                          <div 
+                            key={msg.id} 
+                            className={`w-full flex items-center gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}
+                          >
                             {isOwn && (
                               <button 
                                 onClick={() => handleDeleteSingleMessage(msg.id)} 
@@ -486,12 +489,18 @@ export default function InboxPage() {
                               </button>
                             )}
 
-                            <div className={`max-w-[80%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
-                              <span className="text-[10px] text-ink-400 mb-0.5 px-1">
+                            <div className={`max-w-[70%] flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
+                              <span className="text-[10px] text-ink-400 mb-1 px-1">
                                 {isOwn ? 'You' : msgWithSender.sender?.full_name || 'User'}
                               </span>
 
-                              <div className={`px-4 py-3 text-sm ${isOwn ? 'bg-ink text-paper' : 'bg-paper-200 text-ink border border-line'}`}>
+                              <div 
+                                className={`px-4 py-3 text-sm rounded-lg ${
+                                  isOwn 
+                                    ? 'bg-ink text-paper rounded-br-none' 
+                                    : 'bg-paper-200 text-ink border border-line rounded-bl-none'
+                                }`}
+                              >
                                 {isAudio ? (
                                   <audio controls src={audioUrl} className="max-w-[240px] h-10" />
                                 ) : (
@@ -499,7 +508,7 @@ export default function InboxPage() {
                                 )}
                               </div>
 
-                              <span className="text-xs text-ink-300 mt-1 px-1">
+                              <span className="text-[10px] text-ink-300 mt-1 px-1">
                                 {msg.created_at ? new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Just now'}
                               </span>
                             </div>
