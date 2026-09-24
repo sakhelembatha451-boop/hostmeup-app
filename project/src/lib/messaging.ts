@@ -40,6 +40,7 @@ export async function createConversation(
 ): Promise<string | null> {
   const targetAdminId = explicitAdminId || (await getAdminId());
 
+  // Insert conversation using the creator's ID
   const { data: conv, error: convError } = await supabase
     .from('conversations')
     .insert([
@@ -59,8 +60,13 @@ export async function createConversation(
     throw convError;
   }
 
+  // Send initial message if text was provided
   if (initialMessageText && initialMessageText.trim().length > 0) {
-    await sendMessage(conv.id, userId, initialMessageText, targetAdminId || undefined);
+    try {
+      await sendMessage(conv.id, userId, initialMessageText, targetAdminId || undefined);
+    } catch (msgErr) {
+      console.warn('Conversation created, but initial message failed:', msgErr);
+    }
   }
 
   return conv.id;
@@ -108,21 +114,29 @@ export async function sendMessage(
     insertedData = data as Message;
   }
 
-  // Update conversation updated_at timestamp
-  await supabase
-    .from('conversations')
-    .update({ updated_at: new Date().toISOString() })
-    .eq('id', conversationId);
+  // Safely update conversation timestamp without blocking on error
+  try {
+    await supabase
+      .from('conversations')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', conversationId);
+  } catch (tsErr) {
+    console.warn('Could not update conversation timestamp:', tsErr);
+  }
 
-  // Dispatch notification to recipient
+  // Safely dispatch notification to recipient without throwing errors
   if (recipientId && recipientId !== senderId) {
-    await createNotification(
-      recipientId,
-      'message',
-      'New Message Received',
-      body.length > 80 ? `${body.slice(0, 80)}...` : body,
-      `/inbox`
-    );
+    try {
+      await createNotification(
+        recipientId,
+        'message',
+        'New Message Received',
+        body.length > 80 ? `${body.slice(0, 80)}...` : body,
+        `/inbox`
+      );
+    } catch (notifErr) {
+      console.warn('Notification dispatch ignored:', notifErr);
+    }
   }
 
   return insertedData;
