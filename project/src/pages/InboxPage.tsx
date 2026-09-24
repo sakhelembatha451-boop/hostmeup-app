@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getAdminId, createConversation, sendMessage, markMessagesRead } from '@/lib/messaging';
-import { Loader2, Send, MessageSquare, Plus, Mail, Calendar, X } from 'lucide-react';
+import { Loader2, Send, MessageSquare, Plus, Mail, Calendar, X, User } from 'lucide-react';
 import type { Conversation, Message } from '@/types';
 
 const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xoevdgog';
@@ -23,6 +23,8 @@ export default function InboxPage() {
   const [newMessage, setNewMessage] = useState('');
   const [creating, setCreating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const isAdmin = profile?.role === 'admin' || profile?.email === 'sakhelembatha451@gmail.com';
 
   const sendEmailNotification = async (subject: string, message: string) => {
     try {
@@ -48,18 +50,23 @@ export default function InboxPage() {
   const loadConversations = useCallback(async () => {
     if (!profile) return;
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('conversations')
-        .select('*, user:profiles(id, full_name, avatar_url), booking:bookings(id, event_name, event_date, status)')
-        .eq('user_id', profile.id)
-        .order('created_at', { ascending: false });
+        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, email)');
+
+      // If NOT admin, only fetch current user's messages
+      if (!isAdmin) {
+        query = query.eq('user_id', profile.id);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) {
-        console.error('Error loading conversations with joins, attempting fallback:', error);
-        const { data: fallbackData } = await supabase
-          .from('conversations')
-          .select('*')
-          .eq('user_id', profile.id);
+        console.error('Error loading conversations with joins:', error);
+        // Fallback without joins
+        let fallbackQuery = supabase.from('conversations').select('*');
+        if (!isAdmin) fallbackQuery = fallbackQuery.eq('user_id', profile.id);
+        const { data: fallbackData } = await fallbackQuery;
         setConversations((fallbackData as Conversation[]) || []);
       } else {
         setConversations((data as Conversation[]) || []);
@@ -69,23 +76,23 @@ export default function InboxPage() {
     } finally {
       setLoading(false);
     }
-  }, [profile]);
+  }, [profile, isAdmin]);
 
   const loadMessages = useCallback(async (convId: string) => {
     setMsgLoading(true);
     try {
       const { data, error } = await supabase
         .from('messages')
-        .select('*, sender:profiles(id, full_name, avatar_url)')
+        .select('*, sender:profiles(id, full_name, avatar_url, role)')
         .eq('conversation_id', convId)
         .order('created_at', { ascending: true });
 
       if (error) {
-        console.error('Error loading messages with joins, attempting fallback:', error);
         const { data: fallbackMsgs } = await supabase
           .from('messages')
           .select('*')
-          .eq('conversation_id', convId);
+          .eq('conversation_id', convId)
+          .order('created_at', { ascending: true });
         setMessages((fallbackMsgs as Message[]) || []);
       } else {
         setMessages((data as Message[]) || []);
@@ -109,6 +116,7 @@ export default function InboxPage() {
     if (profile) markMessagesRead(selectedConv.id, profile.id);
   }, [selectedConv, loadMessages, profile]);
 
+  // Realtime subscription for live chats
   useEffect(() => {
     if (!selectedConv) return;
     const channel = supabase
@@ -125,17 +133,18 @@ export default function InboxPage() {
     setSending(true);
     const messageBody = replyText.trim();
 
-    // 1. Dispatch Formspree Email Notification
-    await sendEmailNotification(`Reply: ${selectedConv.subject}`, messageBody);
-
     try {
-      // 2. Persist to Supabase Database
-      await sendMessage(selectedConv.id, profile.id, messageBody, adminId ?? undefined);
+      // 1. Send via Supabase Live Database
+      await sendMessage(selectedConv.id, profile.id, messageBody, selectedConv.user_id);
+
+      // 2. Send email alert
+      await sendEmailNotification(`Reply: ${selectedConv.subject}`, messageBody);
+
       setReplyText('');
       await loadMessages(selectedConv.id);
       loadConversations();
     } catch (err) {
-      console.error('Database reply error:', err);
+      console.error('Reply error:', err);
     } finally {
       setSending(false);
     }
@@ -148,13 +157,11 @@ export default function InboxPage() {
     const subject = newSubject.trim();
     const body = newMessage.trim();
 
-    // 1. Dispatch Formspree Email Notification
-    await sendEmailNotification(subject, body);
-
     try {
-      // 2. Persist to Supabase Database
       const id = await createConversation(profile.id, subject, 'direct', undefined, body, adminId);
       
+      await sendEmailNotification(subject, body);
+
       setNewSubject('');
       setNewMessage('');
       await loadConversations();
@@ -170,7 +177,7 @@ export default function InboxPage() {
       }
       setShowNewModal(false);
     } catch (err) {
-      console.error('Database create error:', err);
+      console.error('Create conversation error:', err);
       setShowNewModal(false);
     } finally {
       setCreating(false);
@@ -184,23 +191,28 @@ export default function InboxPage() {
       <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12">
         <div className="flex items-center justify-between mb-10">
           <div>
-            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Inbox</p>
+            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— {isAdmin ? 'Admin Console' : 'Inbox'}</p>
             <h1 className="font-display text-4xl font-bold text-ink tracking-tight">Messages</h1>
           </div>
-          <button onClick={() => setShowNewModal(true)} className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm">
-            <Plus className="w-3.5 h-3.5" /> New Message
-          </button>
+          {!isAdmin && (
+            <button onClick={() => setShowNewModal(true)} className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm">
+              <Plus className="w-3.5 h-3.5" /> New Message
+            </button>
+          )}
         </div>
 
         {conversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="w-16 h-16 border border-line flex items-center justify-center text-ink-300 mb-6"><Mail className="w-7 h-7" /></div>
             <h3 className="font-display text-xl text-ink mb-1">No messages yet</h3>
-            <p className="text-sm text-ink-400 mb-6">Start a conversation with the platform admin.</p>
-            <button onClick={() => setShowNewModal(true)} className="btn-primary px-6 py-3 text-xs uppercase tracking-wide-sm">Contact Admin</button>
+            <p className="text-sm text-ink-400 mb-6">{isAdmin ? 'No user queries submitted yet.' : 'Start a conversation with the platform admin.'}</p>
+            {!isAdmin && (
+              <button onClick={() => setShowNewModal(true)} className="btn-primary px-6 py-3 text-xs uppercase tracking-wide-sm">Contact Admin</button>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 border border-line min-h-[500px]">
+            {/* Conversation List */}
             <div className={`lg:col-span-1 border-r border-line ${selectedConv ? 'hidden lg:block' : ''}`}>
               <div className="divide-y divide-line">
                 {conversations.map((conv) => (
@@ -212,10 +224,10 @@ export default function InboxPage() {
                         {conv.created_at ? new Date(conv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
                       </span>
                     </div>
-                    {conv.type === 'booking' && conv.booking && (
-                      <div className="inline-flex items-center gap-1 text-xs text-accent mb-1">
-                        <Calendar className="w-3 h-3" /> {conv.booking.event_name}
-                      </div>
+                    {isAdmin && (
+                      <p className="text-xs text-accent font-medium mb-1 flex items-center gap-1">
+                        <User className="w-3 h-3" /> {(conv as any).user?.full_name || 'User'}
+                      </p>
                     )}
                     <p className="text-xs text-ink-400 truncate">{conv.type === 'booking' ? 'Booking discussion' : 'Direct message'}</p>
                   </button>
@@ -223,17 +235,16 @@ export default function InboxPage() {
               </div>
             </div>
 
+            {/* Message Thread */}
             <div className={`lg:col-span-2 flex flex-col ${selectedConv ? '' : 'hidden lg:flex'}`}>
               {selectedConv ? (
                 <>
                   <div className="border-b border-line p-5 flex items-center justify-between">
                     <div>
                       <h3 className="font-display text-lg font-semibold text-ink">{selectedConv.subject}</h3>
-                      {selectedConv.type === 'booking' && selectedConv.booking && selectedConv.booking?.id && (
-                        <Link to={`/artists/${selectedConv.booking.id}`} aria-label={`View booking for ${selectedConv.booking.event_name}`} className="text-xs text-accent hover:text-accent-600 flex items-center gap-1 mt-0.5">
-                          <Calendar className="w-3 h-3" /> {selectedConv.booking.event_name}
-                        </Link>
-                      )}
+                      <p className="text-xs text-ink-400">
+                        Thread with {(selectedConv as any).user?.full_name || 'User'}
+                      </p>
                     </div>
                     <button onClick={() => setSelectedConv(null)} className="lg:hidden text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
                   </div>
@@ -249,7 +260,10 @@ export default function InboxPage() {
                         return (
                           <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
                             <div className={`max-w-[75%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
-                              <div className={`px-4 py-3 text-sm ${isOwn ? 'bg-ink text-paper' : 'bg-paper-200 text-ink border border-line'} rounded-none`}>
+                              <span className="text-[10px] text-ink-400 mb-0.5 px-1">
+                                {isOwn ? 'You' : (msg as any).sender?.full_name || 'User'}
+                              </span>
+                              <div className={`px-4 py-3 text-sm ${isOwn ? 'bg-ink text-paper' : 'bg-paper-200 text-ink border border-line'}`}>
                                 {msg.body}
                               </div>
                               <span className="text-xs text-ink-300 mt-1 px-1">
@@ -263,6 +277,7 @@ export default function InboxPage() {
                     <div ref={messagesEndRef} />
                   </div>
 
+                  {/* Reply Input */}
                   <div className="border-t border-line p-4 flex items-end gap-3">
                     <textarea
                       value={replyText}
@@ -281,7 +296,7 @@ export default function InboxPage() {
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
                   <MessageSquare className="w-10 h-10 text-ink-200 mb-4" />
-                  <p className="text-sm text-ink-400">Select a conversation to view messages.</p>
+                  <p className="text-sm text-ink-400">Select a conversation thread to view live messages.</p>
                 </div>
               )}
             </div>
