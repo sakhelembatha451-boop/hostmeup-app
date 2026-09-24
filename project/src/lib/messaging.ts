@@ -40,28 +40,45 @@ export async function createConversation(
 ): Promise<string | null> {
   const targetAdminId = explicitAdminId || (await getAdminId());
 
-  // Insert conversation using the creator's ID
-  const { data: conv, error: convError } = await supabase
+  // Clean payload to prevent 400 errors from null/invalid optional columns
+  const convPayload: Record<string, any> = {
+    user_id: userId,
+    subject: subject.trim(),
+    type,
+  };
+
+  if (bookingId) {
+    convPayload.booking_id = bookingId;
+  }
+
+  // Primary attempt
+  let conv: any = null;
+  const { data, error: convError } = await supabase
     .from('conversations')
-    .insert([
-      {
-        user_id: userId,
-        subject,
-        type,
-        booking_id: bookingId || null,
-        status: 'open',
-      },
-    ])
+    .insert([{ ...convPayload, status: 'open' }])
     .select()
     .single();
 
-  if (convError || !conv) {
-    console.error('Error creating conversation:', convError);
-    throw convError;
+  if (convError) {
+    console.warn('First attempt inserting conversation failed, retrying without status column:', convError);
+    // Fallback attempt without 'status' column if table doesn't have it
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from('conversations')
+      .insert([convPayload])
+      .select()
+      .single();
+
+    if (fallbackError || !fallbackData) {
+      console.error('Error creating conversation:', fallbackError);
+      throw fallbackError || new Error('Failed to create conversation');
+    }
+    conv = fallbackData;
+  } else {
+    conv = data;
   }
 
   // Send initial message if text was provided
-  if (initialMessageText && initialMessageText.trim().length > 0) {
+  if (initialMessageText && initialMessageText.trim().length > 0 && conv) {
     try {
       await sendMessage(conv.id, userId, initialMessageText, targetAdminId || undefined);
     } catch (msgErr) {
