@@ -136,7 +136,7 @@ export default function InboxPage() {
 
     try {
       await sendMessage(selectedConv.id, profile.id, messageBody, recipientId);
-      await sendEmailNotification(`Reply: ${selectedConv.subject}`, messageBody);
+      sendEmailNotification(`Reply: ${selectedConv.subject}`, messageBody).catch(err => console.warn('Email dispatch failed:', err));
 
       setReplyText('');
       await loadMessages(selectedConv.id);
@@ -158,10 +158,12 @@ export default function InboxPage() {
     try {
       const id = await createConversation(profile.id, subject, 'direct', undefined, body, adminId);
       
-      await sendEmailNotification(subject, body);
+      sendEmailNotification(subject, body).catch(err => console.warn('Email dispatch failed:', err));
 
       setNewSubject('');
       setNewMessage('');
+      setShowNewModal(false);
+
       await loadConversations();
 
       if (id) {
@@ -173,10 +175,9 @@ export default function InboxPage() {
 
         if (newConv) setSelectedConv(newConv as Conversation);
       }
-      setShowNewModal(false);
     } catch (err) {
       console.error('Create conversation error:', err);
-      setShowNewModal(false);
+      alert('Could not send message. Please check connection or permissions.');
     } finally {
       setCreating(false);
     }
