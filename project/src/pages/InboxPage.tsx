@@ -23,12 +23,11 @@ export default function InboxPage() {
   const [creating, setCreating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Force Admin mode permanently for testing
-  const isAdmin = true;
+  const isAdmin = profile?.role === 'admin' || profile?.email === 'sakhelembatha451@gmail.com';
 
   const sendEmailNotification = async (subject: string, message: string) => {
     try {
-      const res = await fetch(FORMSPREE_ENDPOINT, {
+      await fetch(FORMSPREE_ENDPOINT, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -41,7 +40,6 @@ export default function InboxPage() {
           message: `From: ${profile?.full_name ?? 'User'} (${profile?.email ?? 'No email'})\n\nSubject: ${subject}\n\nMessage:\n${message}`,
         }),
       });
-      console.log('Formspree dispatch status:', res.status);
     } catch (err) {
       console.error('Formspree dispatch error:', err);
     }
@@ -52,16 +50,15 @@ export default function InboxPage() {
     try {
       let query = supabase
         .from('conversations')
-        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, email)');
+        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, email), messages(id, read, sender_id)');
 
       if (!isAdmin) {
         query = query.eq('user_id', profile.id);
       }
 
-      const { data, error } = await query.order('created_at', { ascending: false });
+      const { data, error } = await query.order('updated_at', { ascending: false });
 
       if (error) {
-        console.error('Error loading conversations with joins:', error);
         let fallbackQuery = supabase.from('conversations').select('*');
         if (!isAdmin) fallbackQuery = fallbackQuery.eq('user_id', profile.id);
         const { data: fallbackData } = await fallbackQuery;
@@ -109,29 +106,36 @@ export default function InboxPage() {
   }, [loadConversations]);
 
   useEffect(() => {
-    if (!selectedConv) return;
+    if (!selectedConv || !profile) return;
     loadMessages(selectedConv.id);
-    if (profile) markMessagesRead(selectedConv.id, profile.id);
-  }, [selectedConv, loadMessages, profile]);
+    markMessagesRead(selectedConv.id, profile.id).then(() => loadConversations());
+  }, [selectedConv, loadMessages, profile, loadConversations]);
 
   useEffect(() => {
-    if (!selectedConv) return;
+    if (!selectedConv || !profile) return;
     const channel = supabase
       .channel(`messages:${selectedConv.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedConv.id}` },
-        () => { loadMessages(selectedConv.id); }
+        () => { 
+          loadMessages(selectedConv.id);
+          markMessagesRead(selectedConv.id, profile.id).then(() => loadConversations());
+        }
       )
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [selectedConv, loadMessages]);
+  }, [selectedConv, loadMessages, profile, loadConversations]);
 
   const handleSendReply = async () => {
     if (!replyText.trim() || !selectedConv || !profile) return;
     setSending(true);
     const messageBody = replyText.trim();
 
+    const recipientId = isAdmin 
+      ? selectedConv.user_id 
+      : (adminId || selectedConv.user_id);
+
     try {
-      await sendMessage(selectedConv.id, profile.id, messageBody, selectedConv.user_id);
+      await sendMessage(selectedConv.id, profile.id, messageBody, recipientId);
       await sendEmailNotification(`Reply: ${selectedConv.subject}`, messageBody);
 
       setReplyText('');
@@ -209,23 +213,38 @@ export default function InboxPage() {
             {/* Conversation List */}
             <div className={`lg:col-span-1 border-r border-line ${selectedConv ? 'hidden lg:block' : ''}`}>
               <div className="divide-y divide-line">
-                {conversations.map((conv) => (
-                  <button key={conv.id} onClick={() => setSelectedConv(conv)}
-                    className={`w-full text-left p-5 transition-colors ${selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'}`}>
-                    <div className="flex items-start justify-between gap-3 mb-1">
-                      <span className="font-medium text-ink text-sm truncate">{conv.subject}</span>
-                      <span className="text-xs text-ink-300 flex-shrink-0">
-                        {conv.created_at ? new Date(conv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
-                      </span>
-                    </div>
-                    {isAdmin && (
-                      <p className="text-xs text-accent font-medium mb-1 flex items-center gap-1">
-                        <User className="w-3 h-3" /> {(conv as any).user?.full_name || 'User'}
-                      </p>
-                    )}
-                    <p className="text-xs text-ink-400 truncate">{conv.type === 'booking' ? 'Booking discussion' : 'Direct message'}</p>
-                  </button>
-                ))}
+                {conversations.map((conv) => {
+                  const unreadCount = (conv as any).messages?.filter(
+                    (m: any) => !m.read && m.sender_id !== profile?.id
+                  ).length || 0;
+
+                  return (
+                    <button key={conv.id} onClick={() => setSelectedConv(conv)}
+                      className={`w-full text-left p-5 transition-colors relative ${selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'}`}>
+                      <div className="flex items-start justify-between gap-3 mb-1">
+                        <span className={`text-sm truncate ${unreadCount > 0 ? 'font-bold text-ink' : 'font-medium text-ink-400'}`}>
+                          {conv.subject}
+                        </span>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {unreadCount > 0 && (
+                            <span className="bg-accent text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
+                              Unread
+                            </span>
+                          )}
+                          <span className="text-xs text-ink-300">
+                            {conv.created_at ? new Date(conv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
+                          </span>
+                        </div>
+                      </div>
+                      {isAdmin && (
+                        <p className="text-xs text-accent font-medium mb-1 flex items-center gap-1">
+                          <User className="w-3 h-3" /> {(conv as any).user?.full_name || 'User'}
+                        </p>
+                      )}
+                      <p className="text-xs text-ink-400 truncate">{conv.type === 'booking' ? 'Booking discussion' : 'Direct message'}</p>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
