@@ -67,9 +67,9 @@ export default function InboxPage() {
         .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, email), messages(id, read, sender_id)');
 
       if (isAdmin) {
-        query = query.eq('deleted_by_admin', false);
+        query = query.or('deleted_by_admin.is.null,deleted_by_admin.eq.false');
       } else {
-        query = query.eq('user_id', profile.id).eq('deleted_by_user', false);
+        query = query.eq('user_id', profile.id).or('deleted_by_user.is.null,deleted_by_user.eq.false');
       }
 
       const { data, error } = await query.order('updated_at', { ascending: false });
@@ -104,9 +104,9 @@ export default function InboxPage() {
         .eq('conversation_id', convId);
 
       if (isAdmin) {
-        query = query.eq('deleted_by_admin', false);
+        query = query.or('deleted_by_admin.is.null,deleted_by_admin.eq.false');
       } else {
-        query = query.eq('deleted_by_user', false);
+        query = query.or('deleted_by_user.is.null,deleted_by_user.eq.false');
       }
 
       const { data, error } = await query.order('created_at', { ascending: true });
