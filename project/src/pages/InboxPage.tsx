@@ -54,7 +54,6 @@ export default function InboxPage() {
         .from('conversations')
         .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, email)');
 
-      // If NOT admin, only fetch current user's messages
       if (!isAdmin) {
         query = query.eq('user_id', profile.id);
       }
@@ -63,7 +62,6 @@ export default function InboxPage() {
 
       if (error) {
         console.error('Error loading conversations with joins:', error);
-        // Fallback without joins
         let fallbackQuery = supabase.from('conversations').select('*');
         if (!isAdmin) fallbackQuery = fallbackQuery.eq('user_id', profile.id);
         const { data: fallbackData } = await fallbackQuery;
@@ -116,7 +114,6 @@ export default function InboxPage() {
     if (profile) markMessagesRead(selectedConv.id, profile.id);
   }, [selectedConv, loadMessages, profile]);
 
-  // Realtime subscription for live chats
   useEffect(() => {
     if (!selectedConv) return;
     const channel = supabase
@@ -134,10 +131,7 @@ export default function InboxPage() {
     const messageBody = replyText.trim();
 
     try {
-      // 1. Send via Supabase Live Database
       await sendMessage(selectedConv.id, profile.id, messageBody, selectedConv.user_id);
-
-      // 2. Send email alert
       await sendEmailNotification(`Reply: ${selectedConv.subject}`, messageBody);
 
       setReplyText('');
