@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getAdminId, createConversation, sendMessage, markMessagesRead } from '@/lib/messaging';
-import { Loader2, Send, MessageSquare, Plus, Mail, X, User } from 'lucide-react';
+import { Loader2, Send, MessageSquare, Plus, Mail, X, User, Trash2, Smile, Mic, Square } from 'lucide-react';
 import type { Conversation, Message } from '@/types';
 
 const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xoevdgog';
+
+const EMOJI_LIST = ['😊', '😂', '👍', '❤️', '🔥', '🎉', '🙏', '🙌', '✨', '💯', '😎', '🤝', '🎵', '🎙️', '👋', '💬'];
 
 export default function InboxPage() {
   const { profile } = useAuth();
@@ -21,6 +23,15 @@ export default function InboxPage() {
   const [newSubject, setNewSubject] = useState('');
   const [newMessage, setNewMessage] = useState('');
   const [creating, setCreating] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // Audio recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const isAdmin = profile?.role === 'admin' || profile?.email === 'sakhelembatha451@gmail.com';
@@ -115,7 +126,7 @@ export default function InboxPage() {
     if (!selectedConv || !profile) return;
     const channel = supabase
       .channel(`messages:${selectedConv.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedConv.id}` },
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `conversation_id=eq.${selectedConv.id}` },
         () => { 
           loadMessages(selectedConv.id);
           markMessagesRead(selectedConv.id, profile.id).then(() => loadConversations());
@@ -125,26 +136,86 @@ export default function InboxPage() {
     return () => { supabase.removeChannel(channel); };
   }, [selectedConv, loadMessages, profile, loadConversations]);
 
-  const handleSendReply = async () => {
-    if (!replyText.trim() || !selectedConv || !profile) return;
+  const handleSendReply = async (textToSend?: string) => {
+    const finalBody = (textToSend || replyText).trim();
+    if (!finalBody || !selectedConv || !profile) return;
     setSending(true);
-    const messageBody = replyText.trim();
 
     const recipientId = isAdmin 
       ? selectedConv.user_id 
       : (adminId || selectedConv.user_id);
 
     try {
-      await sendMessage(selectedConv.id, profile.id, messageBody, recipientId);
-      sendEmailNotification(`Reply: ${selectedConv.subject}`, messageBody).catch(err => console.warn('Email dispatch failed:', err));
+      await sendMessage(selectedConv.id, profile.id, finalBody, recipientId);
+      sendEmailNotification(`Reply: ${selectedConv.subject}`, finalBody).catch(err => console.warn('Email dispatch failed:', err));
 
       setReplyText('');
+      setShowEmojiPicker(false);
       await loadMessages(selectedConv.id);
       loadConversations();
     } catch (err) {
       console.error('Reply error:', err);
     } finally {
       setSending(false);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!confirm('Are you sure you want to delete this message?')) return;
+    try {
+      const { error } = await supabase.from('messages').delete().eq('id', messageId);
+      if (error) {
+        alert('Could not delete message.');
+        return;
+      }
+      if (selectedConv) loadMessages(selectedConv.id);
+    } catch (err) {
+      console.error('Delete error:', err);
+    }
+  };
+
+  // Voice Note Recording
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: Blob[] = [];
+
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.onstop = async () => {
+        const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+        const fileName = `voicenotes/${Date.now()}.webm`;
+
+        const { data, error } = await supabase.storage.from('messages').upload(fileName, audioBlob);
+        if (error) {
+          // If storage bucket is missing, send as placeholder audio indicator
+          handleSendReply('🎙️ Voice Note (Audio recording)');
+        } else {
+          const { data: publicUrl } = supabase.storage.from('messages').getPublicUrl(fileName);
+          handleSendReply(`AUDIO:${publicUrl.publicUrl}`);
+        }
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      recorder.start();
+      setMediaRecorder(recorder);
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+      alert('Microphone access is required to record voice notes.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      setIsRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
     }
   };
 
@@ -271,15 +342,29 @@ export default function InboxPage() {
                     ) : (
                       messages.map((msg) => {
                         const isOwn = msg.sender_id === profile?.id;
+                        const isAudio = msg.body?.startsWith('AUDIO:');
+                        const audioUrl = isAudio ? msg.body.replace('AUDIO:', '') : '';
+
                         return (
-                          <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                          <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group relative`}>
                             <div className={`max-w-[75%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
-                              <span className="text-[10px] text-ink-400 mb-0.5 px-1">
+                              <span className="text-[10px] text-ink-400 mb-0.5 px-1 flex items-center gap-2">
                                 {isOwn ? 'You' : (msg as any).sender?.full_name || 'User'}
+                                {(isOwn || isAdmin) && (
+                                  <button onClick={() => handleDeleteMessage(msg.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity" title="Delete message">
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                )}
                               </span>
+
                               <div className={`px-4 py-3 text-sm ${isOwn ? 'bg-ink text-paper' : 'bg-paper-200 text-ink border border-line'}`}>
-                                {msg.body}
+                                {isAudio ? (
+                                  <audio controls src={audioUrl} className="max-w-[220px]" />
+                                ) : (
+                                  msg.body
+                                )}
                               </div>
+
                               <span className="text-xs text-ink-300 mt-1 px-1">
                                 {msg.created_at ? new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Just now'}
                               </span>
@@ -291,20 +376,53 @@ export default function InboxPage() {
                     <div ref={messagesEndRef} />
                   </div>
 
-                  {/* Reply Input */}
-                  <div className="border-t border-line p-4 flex items-end gap-3">
-                    <textarea
-                      value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      rows={1}
-                      placeholder="Type your reply..."
-                      className="input-editorial flex-1 px-4 py-3 text-sm resize-none"
-                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
-                    />
-                    <button onClick={handleSendReply} disabled={sending || !replyText.trim()}
-                      className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm disabled:opacity-50 flex-shrink-0">
-                      {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send
-                    </button>
+                  {/* Reply Bar with Emoji & Voice Notes */}
+                  <div className="border-t border-line p-4 relative">
+                    {/* Emoji Picker Popup */}
+                    {showEmojiPicker && (
+                      <div className="absolute bottom-16 left-4 bg-paper border border-line p-3 shadow-lg rounded-lg grid grid-cols-8 gap-2 z-10 animate-fade-in">
+                        {EMOJI_LIST.map((emoji) => (
+                          <button key={emoji} onClick={() => setReplyText((prev) => prev + emoji)} className="text-xl hover:scale-125 transition-transform p-1">
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setShowEmojiPicker(!showEmojiPicker)} className="text-ink-400 hover:text-ink p-2">
+                        <Smile className="w-5 h-5" />
+                      </button>
+
+                      {isRecording ? (
+                        <div className="flex-1 flex items-center justify-between bg-red-500/10 border border-red-500 text-red-600 px-4 py-2 rounded">
+                          <span className="text-xs font-medium animate-pulse flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-red-600" /> Recording Voice Note ({recordingTime}s)
+                          </span>
+                          <button onClick={stopRecording} className="btn-primary bg-red-600 border-red-600 text-white px-3 py-1 text-xs flex items-center gap-1">
+                            <Square className="w-3 h-3 fill-current" /> Stop & Send
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <textarea
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            rows={1}
+                            placeholder="Type your reply..."
+                            className="input-editorial flex-1 px-4 py-3 text-sm resize-none"
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
+                          />
+                          <button type="button" onClick={startRecording} className="text-ink-400 hover:text-ink p-2" title="Hold/Click to Record Voice Note">
+                            <Mic className="w-5 h-5" />
+                          </button>
+                          <button onClick={() => handleSendReply()} disabled={sending || !replyText.trim()}
+                            className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm disabled:opacity-50 flex-shrink-0">
+                            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </>
               ) : (
