@@ -66,8 +66,10 @@ export default function InboxPage() {
         .from('conversations')
         .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, email), messages(id, read, sender_id)');
 
-      if (!isAdmin) {
-        query = query.eq('user_id', profile.id);
+      if (isAdmin) {
+        query = query.eq('deleted_by_admin', false);
+      } else {
+        query = query.eq('user_id', profile.id).eq('deleted_by_user', false);
       }
 
       const { data, error } = await query.order('updated_at', { ascending: false });
@@ -96,11 +98,18 @@ export default function InboxPage() {
   const loadMessages = useCallback(async (convId: string) => {
     setMsgLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('messages')
         .select('*, sender:profiles(id, full_name, avatar_url, role)')
-        .eq('conversation_id', convId)
-        .order('created_at', { ascending: true });
+        .eq('conversation_id', convId);
+
+      if (isAdmin) {
+        query = query.eq('deleted_by_admin', false);
+      } else {
+        query = query.eq('deleted_by_user', false);
+      }
+
+      const { data, error } = await query.order('created_at', { ascending: true });
 
       if (error) {
         const { data: fallbackMsgs } = await supabase
@@ -118,7 +127,7 @@ export default function InboxPage() {
       setMsgLoading(false);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     }
-  }, []);
+  }, [isAdmin]);
 
   useEffect(() => {
     loadConversations();
@@ -173,9 +182,11 @@ export default function InboxPage() {
   const handleDeleteSingleMessage = async (messageId: string) => {
     if (!confirm('Delete this message?')) return;
     try {
-      const { error } = await supabase.from('messages').delete().eq('id', messageId);
+      const updatePayload = isAdmin ? { deleted_by_admin: true } : { deleted_by_user: true };
+      const { error } = await supabase.from('messages').update(updatePayload).eq('id', messageId);
+
       if (error) {
-        alert('Could not delete message. Check database RLS permissions.');
+        alert('Could not hide message.');
         return;
       }
       if (selectedConv) loadMessages(selectedConv.id);
@@ -193,15 +204,17 @@ export default function InboxPage() {
 
   const handleBulkDeleteConversations = async () => {
     if (selectedConvIds.length === 0) return;
-    if (!confirm(`Are you sure you want to delete ${selectedConvIds.length} conversation(s)?`)) return;
+    if (!confirm(`Remove ${selectedConvIds.length} conversation(s) from your view?`)) return;
 
     setIsBulkDeleting(true);
     try {
-      await supabase.from('messages').delete().in('conversation_id', selectedConvIds);
-      const { error } = await supabase.from('conversations').delete().in('id', selectedConvIds);
+      const updatePayload = isAdmin ? { deleted_by_admin: true } : { deleted_by_user: true };
+      
+      await supabase.from('messages').update(updatePayload).in('conversation_id', selectedConvIds);
+      const { error } = await supabase.from('conversations').update(updatePayload).in('id', selectedConvIds);
 
       if (error) {
-        alert('Could not delete selected conversations.');
+        alert('Could not remove conversations.');
       } else {
         if (selectedConv && selectedConvIds.includes(selectedConv.id)) {
           setSelectedConv(null);
@@ -424,8 +437,7 @@ export default function InboxPage() {
 
                         return (
                           <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group items-center gap-2`}>
-                            {/* Permanent Visible Delete Icon for Sender/Admin */}
-                            {(isOwn || isAdmin) && isOwn && (
+                            {isOwn && (
                               <button 
                                 onClick={() => handleDeleteSingleMessage(msg.id)} 
                                 className="text-red-500 hover:text-red-700 p-1 transition-colors flex-shrink-0" 
@@ -452,8 +464,7 @@ export default function InboxPage() {
                               </span>
                             </div>
 
-                            {/* Delete Icon on Left for Received Messages if Admin */}
-                            {(isOwn || isAdmin) && !isOwn && (
+                            {!isOwn && isAdmin && (
                               <button 
                                 onClick={() => handleDeleteSingleMessage(msg.id)} 
                                 className="text-red-500 hover:text-red-700 p-1 transition-colors flex-shrink-0" 
@@ -527,7 +538,7 @@ export default function InboxPage() {
         )}
       </div>
 
-      {/* New Message Modal with Admin Recipient Dropdown */}
+      {/* New Message Modal */}
       {showNewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-4" onClick={() => setShowNewModal(false)}>
           <div className="bg-paper border border-line max-w-md w-full p-8 animate-scale-in" onClick={(e) => e.stopPropagation()}>
