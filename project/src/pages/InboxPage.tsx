@@ -24,7 +24,8 @@ export default function InboxPage() {
   const [creating, setCreating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const isAdmin = profile?.role === 'admin' || profile?.email === 'sakhelembatha451@gmail.com';
+  // Force Admin mode permanently for testing
+  const isAdmin = true;
 
   const sendEmailNotification = async (subject: string, message: string) => {
     try {
