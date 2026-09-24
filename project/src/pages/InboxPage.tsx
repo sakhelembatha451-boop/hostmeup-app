@@ -69,7 +69,7 @@ export default function InboxPage() {
       if (isAdmin) {
         query = query.or('deleted_by_admin.is.null,deleted_by_admin.eq.false');
       } else {
-        // Fetch message threads where user participated (sent or received)
+        // Fetch message threads where user participated or is owner
         const { data: userMessages } = await supabase
           .from('messages')
           .select('conversation_id')
@@ -300,7 +300,10 @@ export default function InboxPage() {
     const subject = newSubject.trim();
     const body = newMessage.trim();
 
+    // CRITICAL FIX: If Admin, the conversation.user_id MUST be assigned to the recipient's user_id
+    const conversationOwnerId = isAdmin ? selectedRecipientId : profile.id;
     let targetRecipientId = isAdmin ? selectedRecipientId : adminId;
+
     if (!isAdmin && !targetRecipientId) {
       try {
         targetRecipientId = await getAdminId();
@@ -311,7 +314,7 @@ export default function InboxPage() {
 
     try {
       const id = await createConversation(
-        profile.id,
+        conversationOwnerId, // Conversation user_id
         subject,
         'direct',
         undefined,
@@ -338,7 +341,7 @@ export default function InboxPage() {
         if (newConv) setSelectedConv(newConv as Conversation);
       }
     } catch (err: unknown) {
-      console.error('Create conversation detailed error:', err);
+      console.error('Create conversation error:', err);
       const errorMsg = err instanceof Error ? err.message : '';
       alert(`Could not send message. ${errorMsg}`);
     } finally {
