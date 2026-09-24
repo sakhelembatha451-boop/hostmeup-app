@@ -1,7 +1,7 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { LogOut, LayoutDashboard, User, Menu, X, Bell, Mail, Shield } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { markNotificationRead, markAllNotificationsRead } from '@/lib/messaging';
 import type { Notification } from '@/types';
@@ -22,34 +22,34 @@ export default function Navbar() {
     navigate('/');
   };
 
+  const fetchNotifications = useCallback(async (userId: string) => {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(10);
+
+    if (!error && data) {
+      const notifs = data as Notification[];
+      setNotifications(notifs);
+      setUnreadCount(notifs.filter((n) => !n.read).length);
+    }
+  }, []);
+
   useEffect(() => {
     if (!profile?.id) return;
 
-    // Fetch initial notifications list
-    const loadNotifications = async () => {
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', profile.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
+    // Fetch initial notifications
+    fetchNotifications(profile.id);
 
-      if (!error && data) {
-        const notifs = data as Notification[];
-        setNotifications(notifs);
-        setUnreadCount(notifs.filter((n) => !n.read).length);
-      }
-    };
-
-    loadNotifications();
-
-    // Set up Realtime listener for incoming messages and booking notifications
+    // Set up Realtime listener matching user_id
     const channel = supabase
       .channel(`user-notifications-${profile.id}`)
       .on(
         'postgres_changes',
         {
-          event: '*', // Listen to INSERT (new notifications) and UPDATE (read status changes)
+          event: '*',
           schema: 'public',
           table: 'notifications',
           filter: `user_id=eq.${profile.id}`,
@@ -57,19 +57,19 @@ export default function Navbar() {
         (payload) => {
           if (payload.eventType === 'INSERT') {
             const newNotif = payload.new as Notification;
-            setNotifications((prev) => [newNotif, ...prev.slice(0, 9)]);
+            setNotifications((prev) => [newNotif, ...prev.filter((n) => n.id !== newNotif.id).slice(0, 9)]);
             if (!newNotif.read) {
               setUnreadCount((count) => count + 1);
             }
           } else if (payload.eventType === 'UPDATE') {
             const updatedNotif = payload.new as Notification;
-            setNotifications((prev) =>
-              prev.map((n) => (n.id === updatedNotif.id ? updatedNotif : n))
-            );
-            // Recalculate unread count
-            setUnreadCount((_) =>
-              notifications.filter((n) => (n.id === updatedNotif.id ? !updatedNotif.read : !n.read)).length
-            );
+            setNotifications((prev) => {
+              const updatedList = prev.map((n) => (n.id === updatedNotif.id ? updatedNotif : n));
+              setUnreadCount(updatedList.filter((n) => !n.read).length);
+              return updatedList;
+            });
+          } else if (payload.eventType === 'DELETE') {
+            fetchNotifications(profile.id);
           }
         }
       )
@@ -78,7 +78,7 @@ export default function Navbar() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [profile?.id]);
+  }, [profile?.id, fetchNotifications]);
 
   const handleNotifClick = async (notif: Notification) => {
     await markNotificationRead(notif.id);
@@ -90,7 +90,7 @@ export default function Navbar() {
   const handleMarkAllRead = async () => {
     if (!profile) return;
     await markAllNotificationsRead(profile.id);
-    setNotifications(notifications.map((n) => ({ ...n, read: true })));
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     setUnreadCount(0);
   };
 
@@ -154,7 +154,7 @@ export default function Navbar() {
                                   {!notif.read && <span className="w-2 h-2 bg-accent rounded-full mt-1.5 flex-shrink-0" />}
                                   <div className={notif.read ? 'pl-4' : ''}>
                                     <p className="text-sm font-medium text-ink">{notif.title}</p>
-                                    {notif.body && <p className="text-xs text-ink-400 mt-0.5 line-clamp-2">{notif.body}</p>}
+                                    {(notif.body || notif.message) && <p className="text-xs text-ink-400 mt-0.5 line-clamp-2">{notif.body || notif.message}</p>}
                                     <p className="text-xs text-ink-300 mt-1">{new Date(notif.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
                                   </div>
                                 </div>
