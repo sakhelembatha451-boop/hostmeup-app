@@ -84,7 +84,7 @@ export default function InboxPage() {
       }
     } catch (err) {
       console.error('Error loading conversations:', err);
-    } finally {
+    } fontally {
       setLoading(false);
     }
   }, [profile, isAdmin]);
@@ -240,7 +240,7 @@ export default function InboxPage() {
         const audioBlob = new Blob(chunks, { type: 'audio/webm' });
         const fileName = `${Date.now()}.webm`;
 
-        const { data, error } = await supabase.storage.from('messages').upload(fileName, audioBlob);
+        const { error } = await supabase.storage.from('messages').upload(fileName, audioBlob);
 
         if (error) {
           const reader = new FileReader();
@@ -283,12 +283,28 @@ export default function InboxPage() {
 
     const subject = newSubject.trim();
     const body = newMessage.trim();
-    const targetUserId = isAdmin && selectedRecipientId ? selectedRecipientId : profile.id;
-    const recipientId = isAdmin ? selectedRecipientId : adminId;
+
+    let targetRecipientId = isAdmin ? selectedRecipientId : adminId;
+    if (!isAdmin && !targetRecipientId) {
+      try {
+        targetRecipientId = await getAdminId();
+      } catch (e) {
+        console.error('Could not retrieve admin ID:', e);
+      }
+    }
 
     try {
-      const id = await createConversation(targetUserId, subject, 'direct', undefined, body, recipientId);
-      sendEmailNotification(subject, body).catch(err => console.warn(err));
+      // Always pass profile.id as the first parameter so current logged-in user owns creation
+      const id = await createConversation(
+        profile.id,
+        subject,
+        'direct',
+        undefined,
+        body,
+        targetRecipientId || undefined
+      );
+
+      sendEmailNotification(subject, body).catch(err => console.warn('Email dispatch error:', err));
 
       setNewSubject('');
       setNewMessage('');
@@ -306,9 +322,9 @@ export default function InboxPage() {
 
         if (newConv) setSelectedConv(newConv as Conversation);
       }
-    } catch (err) {
-      console.error('Create conversation error:', err);
-      alert('Could not send message.');
+    } catch (err: any) {
+      console.error('Create conversation detailed error:', err);
+      alert(`Could not send message. ${err?.message || ''}`);
     } finally {
       setCreating(false);
     }
