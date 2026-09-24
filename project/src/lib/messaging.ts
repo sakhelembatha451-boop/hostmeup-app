@@ -199,7 +199,7 @@ export async function markMessagesRead(conversationId: string, userId: string): 
 }
 
 /**
- * Creates an in-app bell notification
+ * Creates an in-app bell notification (Strictly-Typed)
  */
 export async function createNotification(
   userId: string,
@@ -216,19 +216,18 @@ export async function createNotification(
       type,
       title,
       message,
-      body: message, // Standardizes body/message fields
-      link,
+      body: message, // Keeps compatibility across body and message schema variants
       read: false,
     };
 
+    if (link) notifPayload.link = link;
     if (conversationId) notifPayload.conversation_id = conversationId;
     if (bookingId) notifPayload.booking_id = bookingId;
 
     const { error } = await supabase.from('notifications').insert([notifPayload]);
 
     if (error) {
-      // Fallback: retry without optional relation columns if schema varies
-      console.warn('Initial notification insert failed, retrying simplified:', error);
+      console.warn('Initial notification insert failed, retrying simplified payload:', error);
       await supabase.from('notifications').insert([
         {
           user_id: userId,
@@ -244,7 +243,7 @@ export async function createNotification(
 }
 
 /**
- * Marks a single notification as read (Required by Navbar.tsx)
+ * Marks a single notification as read
  */
 export async function markNotificationRead(notificationId: string): Promise<void> {
   try {
@@ -255,7 +254,7 @@ export async function markNotificationRead(notificationId: string): Promise<void
 }
 
 /**
- * Marks all notifications for a user as read (Required by Navbar.tsx)
+ * Marks all notifications for a user as read
  */
 export async function markAllNotificationsRead(userId: string): Promise<void> {
   try {
