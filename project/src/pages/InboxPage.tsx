@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getAdminId, createConversation, sendMessage, markMessagesRead } from '@/lib/messaging';
-import { Loader2, Send, MessageSquare, Plus, Mail, Calendar, X, User } from 'lucide-react';
+import { Loader2, Send, MessageSquare, Plus, Mail, X, User } from 'lucide-react';
 import type { Conversation, Message } from '@/types';
 
 const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xoevdgog';
