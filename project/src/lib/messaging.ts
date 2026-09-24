@@ -1,25 +1,30 @@
 import { supabase } from './supabase';
-import type { Message, Conversation } from '@/types';
+import type { Message, Conversation, Notification } from '@/types';
 
 /**
- * Gets the Admin User ID from profiles table
+ * Gets the Admin User ID safely without blocking non-admin accounts
  */
 export async function getAdminId(): Promise<string | null> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id')
-    .eq('role', 'admin')
-    .maybeSingle();
-
-  if (error || !data) {
-    const { data: emailData } = await supabase
+  try {
+    const { data } = await supabase
       .from('profiles')
       .select('id')
       .eq('email', 'sakhelembatha451@gmail.com')
       .maybeSingle();
-    return emailData?.id || null;
+
+    if (data?.id) return data.id;
+
+    const { data: roleData } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin')
+      .maybeSingle();
+
+    return roleData?.id || null;
+  } catch (err) {
+    console.warn('Could not query admin ID:', err);
+    return null;
   }
-  return data.id;
 }
 
 /**
@@ -62,7 +67,7 @@ export async function createConversation(
 }
 
 /**
- * Sends a message within a conversation thread & dispatches bell notification
+ * Sends a message within a conversation thread & dispatches bell notifications
  */
 export async function sendMessage(
   conversationId: string,
@@ -77,6 +82,8 @@ export async function sendMessage(
     read: false,
   };
 
+  let insertedData: Message | null = null;
+
   const { data, error } = await supabase
     .from('messages')
     .insert([payload])
@@ -84,11 +91,24 @@ export async function sendMessage(
     .single();
 
   if (error) {
-    console.error('Error inserting message:', error);
-    throw error;
+    console.warn('First attempt sending message failed, retrying without read key:', error);
+    delete payload.read;
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from('messages')
+      .insert([payload])
+      .select()
+      .single();
+
+    if (fallbackError) {
+      console.error('Error inserting message:', fallbackError);
+      throw fallbackError;
+    }
+    insertedData = fallbackData as Message;
+  } else {
+    insertedData = data as Message;
   }
 
-  // Update conversation timestamp
+  // Update conversation updated_at timestamp
   await supabase
     .from('conversations')
     .update({ updated_at: new Date().toISOString() })
@@ -99,13 +119,13 @@ export async function sendMessage(
     await createNotification(
       recipientId,
       'message',
-      'New Reply from Admin',
+      'New Message Received',
       body.length > 80 ? `${body.slice(0, 80)}...` : body,
       `/inbox`
     );
   }
 
-  return data as Message;
+  return insertedData;
 }
 
 /**
@@ -149,10 +169,24 @@ export async function createNotification(
   }
 }
 
+/**
+ * Marks a single notification as read (Required by Navbar.tsx)
+ */
 export async function markNotificationRead(notificationId: string): Promise<void> {
-  await supabase.from('notifications').update({ read: true }).eq('id', notificationId);
+  try {
+    await supabase.from('notifications').update({ read: true }).eq('id', notificationId);
+  } catch (err) {
+    console.warn('Error marking notification read:', err);
+  }
 }
 
+/**
+ * Marks all notifications for a user as read (Required by Navbar.tsx)
+ */
 export async function markAllNotificationsRead(userId: string): Promise<void> {
-  await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
+  try {
+    await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
+  } catch (err) {
+    console.warn('Error marking all notifications read:', err);
+  }
 }
