@@ -2,11 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getAdminId, createConversation, sendMessage, markMessagesRead } from '@/lib/messaging';
-import { Loader2, Send, MessageSquare, Plus, Mail, X, User, Trash2, Smile, Mic, Square } from 'lucide-react';
-import type { Conversation, Message } from '@/types';
+import { Loader2, Send, MessageSquare, Plus, Mail, X, User, Trash2, Smile, Mic, Square, CheckSquare, Square as UncheckedSquare } from 'lucide-react';
+import type { Conversation, Message, Profile } from '@/types';
 
 const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xoevdgog';
-
 const EMOJI_LIST = ['😊', '😂', '👍', '❤️', '🔥', '🎉', '🙏', '🙌', '✨', '💯', '😎', '🤝', '🎵', '🎙️', '👋', '💬'];
 
 export default function InboxPage() {
@@ -19,13 +18,21 @@ export default function InboxPage() {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [adminId, setAdminId] = useState<string | null>(null);
+
+  // New Conversation Modal State
   const [showNewModal, setShowNewModal] = useState(false);
   const [newSubject, setNewSubject] = useState('');
   const [newMessage, setNewMessage] = useState('');
+  const [selectedRecipientId, setSelectedRecipientId] = useState<string>('');
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
   const [creating, setCreating] = useState(false);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-  // Audio recording state
+  // Bulk Selection State
+  const [selectedConvIds, setSelectedConvIds] = useState<string[]>([]);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+
+  // Audio Recording State
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -35,23 +42,20 @@ export default function InboxPage() {
 
   const isAdmin = profile?.role === 'admin' || profile?.email === 'sakhelembatha451@gmail.com';
 
-  const sendEmailNotification = async (subject: string, message: string) => {
+  const sendEmailNotification = async (subject: string, message: string, recipientEmail?: string) => {
     try {
       await fetch(FORMSPREE_ENDPOINT, {
         method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json' 
-        },
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify({
-          _replyto: profile?.email || 'user@hostmeup.co.za',
-          name: profile?.full_name || 'HostMeUp User',
+          _replyto: recipientEmail || profile?.email || 'user@hostmeup.co.za',
+          name: profile?.full_name || 'HostMeUp System',
           subject: `[HostMeUp] ${subject}`,
-          message: `From: ${profile?.full_name ?? 'User'} (${profile?.email ?? 'No email'})\n\nSubject: ${subject}\n\nMessage:\n${message}`,
+          message: `From: ${profile?.full_name ?? 'User'}\n\nSubject: ${subject}\n\nMessage:\n${message}`,
         }),
       });
     } catch (err) {
-      console.error('Formspree dispatch error:', err);
+      console.error('Email dispatch error:', err);
     }
   };
 
@@ -77,11 +81,17 @@ export default function InboxPage() {
         setConversations((data as Conversation[]) || []);
       }
     } catch (err) {
-      console.error('Unexpected error loading conversations:', err);
+      console.error('Error loading conversations:', err);
     } finally {
       setLoading(false);
     }
   }, [profile, isAdmin]);
+
+  const loadUsersForAdmin = useCallback(async () => {
+    if (!isAdmin) return;
+    const { data } = await supabase.from('profiles').select('*').neq('id', profile?.id || '');
+    if (data) setAllUsers(data as Profile[]);
+  }, [isAdmin, profile]);
 
   const loadMessages = useCallback(async (convId: string) => {
     setMsgLoading(true);
@@ -103,7 +113,7 @@ export default function InboxPage() {
         setMessages((data as Message[]) || []);
       }
     } catch (err) {
-      console.error('Unexpected error loading messages:', err);
+      console.error('Error loading messages:', err);
     } finally {
       setMsgLoading(false);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -112,8 +122,9 @@ export default function InboxPage() {
 
   useEffect(() => {
     loadConversations();
+    loadUsersForAdmin();
     getAdminId().then(setAdminId).catch((err) => console.error('Error fetching admin ID:', err));
-  }, [loadConversations]);
+  }, [loadConversations, loadUsersForAdmin]);
 
   useEffect(() => {
     if (!selectedConv || !profile) return;
@@ -140,14 +151,12 @@ export default function InboxPage() {
     if (!finalBody || !selectedConv || !profile) return;
     setSending(true);
 
-    const recipientId = isAdmin 
-      ? selectedConv.user_id 
-      : (adminId || selectedConv.user_id);
+    const recipientId = isAdmin ? selectedConv.user_id : (adminId || selectedConv.user_id);
 
     try {
       await sendMessage(selectedConv.id, profile.id, finalBody, recipientId);
       if (!finalBody.startsWith('AUDIO:')) {
-        sendEmailNotification(`Reply: ${selectedConv.subject}`, finalBody).catch(err => console.warn('Email dispatch failed:', err));
+        sendEmailNotification(`Reply: ${selectedConv.subject}`, finalBody).catch(err => console.warn(err));
       }
 
       setReplyText('');
@@ -161,12 +170,12 @@ export default function InboxPage() {
     }
   };
 
-  const handleDeleteMessage = async (messageId: string) => {
-    if (!confirm('Are you sure you want to delete this message?')) return;
+  const handleDeleteSingleMessage = async (messageId: string) => {
+    if (!confirm('Delete this message?')) return;
     try {
       const { error } = await supabase.from('messages').delete().eq('id', messageId);
       if (error) {
-        alert('Could not delete message.');
+        alert('Could not delete message. Check database RLS permissions.');
         return;
       }
       if (selectedConv) loadMessages(selectedConv.id);
@@ -175,7 +184,38 @@ export default function InboxPage() {
     }
   };
 
-  // Voice Note Recording with Audio Data Fallback
+  const toggleSelectConversation = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setSelectedConvIds(prev => 
+      prev.includes(id) ? prev.filter(item => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleBulkDeleteConversations = async () => {
+    if (selectedConvIds.length === 0) return;
+    if (!confirm(`Are you sure you want to delete ${selectedConvIds.length} conversation(s)?`)) return;
+
+    setIsBulkDeleting(true);
+    try {
+      await supabase.from('messages').delete().in('conversation_id', selectedConvIds);
+      const { error } = await supabase.from('conversations').delete().in('id', selectedConvIds);
+
+      if (error) {
+        alert('Could not delete selected conversations.');
+      } else {
+        if (selectedConv && selectedConvIds.includes(selectedConv.id)) {
+          setSelectedConv(null);
+        }
+        setSelectedConvIds([]);
+        await loadConversations();
+      }
+    } catch (err) {
+      console.error('Bulk delete error:', err);
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -190,12 +230,10 @@ export default function InboxPage() {
         const { data, error } = await supabase.storage.from('messages').upload(fileName, audioBlob);
 
         if (error) {
-          // Inline Data URL fallback if storage bucket isn't ready
           const reader = new FileReader();
           reader.readAsDataURL(audioBlob);
           reader.onloadend = () => {
-            const base64Audio = reader.result as string;
-            handleSendReply(`AUDIO:${base64Audio}`);
+            handleSendReply(`AUDIO:${reader.result as string}`);
           };
         } else {
           const { data: publicUrl } = supabase.storage.from('messages').getPublicUrl(fileName);
@@ -232,14 +270,16 @@ export default function InboxPage() {
 
     const subject = newSubject.trim();
     const body = newMessage.trim();
+    const targetUserId = isAdmin && selectedRecipientId ? selectedRecipientId : profile.id;
+    const recipientId = isAdmin ? selectedRecipientId : adminId;
 
     try {
-      const id = await createConversation(profile.id, subject, 'direct', undefined, body, adminId);
-      
-      sendEmailNotification(subject, body).catch(err => console.warn('Email dispatch failed:', err));
+      const id = await createConversation(targetUserId, subject, 'direct', undefined, body, recipientId);
+      sendEmailNotification(subject, body).catch(err => console.warn(err));
 
       setNewSubject('');
       setNewMessage('');
+      setSelectedRecipientId('');
       setShowNewModal(false);
 
       await loadConversations();
@@ -255,7 +295,7 @@ export default function InboxPage() {
       }
     } catch (err) {
       console.error('Create conversation error:', err);
-      alert('Could not send message. Please check connection or permissions.');
+      alert('Could not send message.');
     } finally {
       setCreating(false);
     }
@@ -266,62 +306,92 @@ export default function InboxPage() {
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12">
-        <div className="flex items-center justify-between mb-10">
+        <div className="flex items-center justify-between mb-8">
           <div>
-            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— {isAdmin ? 'Admin Console' : 'Inbox'}</p>
+            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-2">— {isAdmin ? 'Admin Console' : 'Inbox'}</p>
             <h1 className="font-display text-4xl font-bold text-ink tracking-tight">Messages</h1>
           </div>
-          {!isAdmin && (
+          <div className="flex items-center gap-3">
+            {selectedConvIds.length > 0 && (
+              <button 
+                onClick={handleBulkDeleteConversations} 
+                disabled={isBulkDeleting}
+                className="btn-primary bg-red-600 border-red-600 hover:bg-red-700 text-white inline-flex items-center gap-2 px-4 py-3 text-xs uppercase tracking-wide-sm">
+                {isBulkDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                Delete ({selectedConvIds.length})
+              </button>
+            )}
             <button onClick={() => setShowNewModal(true)} className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm">
               <Plus className="w-3.5 h-3.5" /> New Message
             </button>
-          )}
+          </div>
         </div>
 
         {conversations.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="w-16 h-16 border border-line flex items-center justify-center text-ink-300 mb-6"><Mail className="w-7 h-7" /></div>
             <h3 className="font-display text-xl text-ink mb-1">No messages yet</h3>
-            <p className="text-sm text-ink-400 mb-6">{isAdmin ? 'No user queries submitted yet.' : 'Start a conversation with the platform admin.'}</p>
-            {!isAdmin && (
-              <button onClick={() => setShowNewModal(true)} className="btn-primary px-6 py-3 text-xs uppercase tracking-wide-sm">Contact Admin</button>
-            )}
+            <p className="text-sm text-ink-400 mb-6">{isAdmin ? 'Start a conversation with a registered user.' : 'Start a conversation with the platform admin.'}</p>
+            <button onClick={() => setShowNewModal(true)} className="btn-primary px-6 py-3 text-xs uppercase tracking-wide-sm">
+              {isAdmin ? 'New Message' : 'Contact Admin'}
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 border border-line min-h-[500px]">
             {/* Conversation List */}
             <div className={`lg:col-span-1 border-r border-line ${selectedConv ? 'hidden lg:block' : ''}`}>
+              <div className="p-3 border-b border-line bg-paper-200/40 flex items-center justify-between text-xs text-ink-400 font-medium">
+                <span>Select for bulk delete</span>
+                {conversations.length > 0 && (
+                  <button 
+                    onClick={() => {
+                      if (selectedConvIds.length === conversations.length) {
+                        setSelectedConvIds([]);
+                      } else {
+                        setSelectedConvIds(conversations.map(c => c.id));
+                      }
+                    }} 
+                    className="hover:text-ink underline">
+                    {selectedConvIds.length === conversations.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                )}
+              </div>
               <div className="divide-y divide-line">
                 {conversations.map((conv) => {
                   const unreadCount = (conv as any).messages?.filter(
                     (m: any) => !m.read && m.sender_id !== profile?.id
                   ).length || 0;
+                  const isSelected = selectedConvIds.includes(conv.id);
 
                   return (
-                    <button key={conv.id} onClick={() => setSelectedConv(conv)}
-                      className={`w-full text-left p-5 transition-colors relative ${selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'}`}>
-                      <div className="flex items-start justify-between gap-3 mb-1">
-                        <span className={`text-sm truncate ${unreadCount > 0 ? 'font-bold text-ink' : 'font-medium text-ink-400'}`}>
-                          {conv.subject}
-                        </span>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {unreadCount > 0 && (
-                            <span className="bg-accent text-white text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider">
-                              Unread
-                            </span>
-                          )}
-                          <span className="text-xs text-ink-300">
-                            {conv.created_at ? new Date(conv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'Recent'}
+                    <div 
+                      key={conv.id} 
+                      onClick={() => setSelectedConv(conv)}
+                      className={`w-full text-left p-5 transition-colors relative cursor-pointer flex items-start gap-3 ${selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'}`}>
+                      <button 
+                        onClick={(e) => toggleSelectConversation(conv.id, e)}
+                        className="mt-0.5 text-ink-400 hover:text-ink flex-shrink-0"
+                        title="Select conversation">
+                        {isSelected ? <CheckSquare className="w-4 h-4 text-accent" /> : <UncheckedSquare className="w-4 h-4" />}
+                      </button>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <span className={`text-sm truncate ${unreadCount > 0 ? 'font-bold text-ink' : 'font-medium text-ink-400'}`}>
+                            {conv.subject}
+                          </span>
+                          <span className="text-xs text-ink-300 flex-shrink-0">
+                            {conv.created_at ? new Date(conv.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
                           </span>
                         </div>
+                        {isAdmin && (
+                          <p className="text-xs text-accent font-medium mb-1 flex items-center gap-1">
+                            <User className="w-3 h-3" /> {(conv as any).user?.full_name || 'User'}
+                          </p>
+                        )}
+                        <p className="text-xs text-ink-400 truncate">{conv.type === 'booking' ? 'Booking discussion' : 'Direct message'}</p>
                       </div>
-                      {isAdmin && (
-                        <p className="text-xs text-accent font-medium mb-1 flex items-center gap-1">
-                          <User className="w-3 h-3" /> {(conv as any).user?.full_name || 'User'}
-                        </p>
-                      )}
-                      <p className="text-xs text-ink-400 truncate">{conv.type === 'booking' ? 'Booking discussion' : 'Direct message'}</p>
-                    </button>
+                    </div>
                   );
                 })}
               </div>
@@ -353,15 +423,20 @@ export default function InboxPage() {
                         const audioUrl = isAudio ? msg.body.replace('AUDIO:', '') : '';
 
                         return (
-                          <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group relative`}>
-                            <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
-                              <span className="text-[10px] text-ink-400 mb-0.5 px-1 flex items-center gap-2">
+                          <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group items-center gap-2`}>
+                            {/* Permanent Visible Delete Icon for Sender/Admin */}
+                            {(isOwn || isAdmin) && isOwn && (
+                              <button 
+                                onClick={() => handleDeleteSingleMessage(msg.id)} 
+                                className="text-red-500 hover:text-red-700 p-1 transition-colors flex-shrink-0" 
+                                title="Delete message">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
+
+                            <div className={`max-w-[80%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
+                              <span className="text-[10px] text-ink-400 mb-0.5 px-1">
                                 {isOwn ? 'You' : (msg as any).sender?.full_name || 'User'}
-                                {(isOwn || isAdmin) && (
-                                  <button onClick={() => handleDeleteMessage(msg.id)} className="opacity-0 group-hover:opacity-100 text-red-500 hover:text-red-700 transition-opacity" title="Delete message">
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                )}
                               </span>
 
                               <div className={`px-4 py-3 text-sm ${isOwn ? 'bg-ink text-paper' : 'bg-paper-200 text-ink border border-line'}`}>
@@ -376,6 +451,16 @@ export default function InboxPage() {
                                 {msg.created_at ? new Date(msg.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'Just now'}
                               </span>
                             </div>
+
+                            {/* Delete Icon on Left for Received Messages if Admin */}
+                            {(isOwn || isAdmin) && !isOwn && (
+                              <button 
+                                onClick={() => handleDeleteSingleMessage(msg.id)} 
+                                className="text-red-500 hover:text-red-700 p-1 transition-colors flex-shrink-0" 
+                                title="Delete message">
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         );
                       })
@@ -383,9 +468,8 @@ export default function InboxPage() {
                     <div ref={messagesEndRef} />
                   </div>
 
-                  {/* Reply Bar with Emoji & Voice Notes */}
+                  {/* Reply Bar */}
                   <div className="border-t border-line p-4 relative">
-                    {/* Emoji Picker Popup */}
                     {showEmojiPicker && (
                       <div className="absolute bottom-16 left-4 bg-paper border border-line p-3 shadow-lg rounded-lg grid grid-cols-8 gap-2 z-10 animate-fade-in">
                         {EMOJI_LIST.map((emoji) => (
@@ -420,7 +504,7 @@ export default function InboxPage() {
                             className="input-editorial flex-1 px-4 py-3 text-sm resize-none"
                             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
                           />
-                          <button type="button" onClick={startRecording} className="text-ink-400 hover:text-ink p-2" title="Hold/Click to Record Voice Note">
+                          <button type="button" onClick={startRecording} className="text-ink-400 hover:text-ink p-2" title="Record Voice Note">
                             <Mic className="w-5 h-5" />
                           </button>
                           <button onClick={() => handleSendReply()} disabled={sending || !replyText.trim()}
@@ -443,14 +527,29 @@ export default function InboxPage() {
         )}
       </div>
 
+      {/* New Message Modal with Admin Recipient Dropdown */}
       {showNewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-4" onClick={() => setShowNewModal(false)}>
           <div className="bg-paper border border-line max-w-md w-full p-8 animate-scale-in" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-6">
-              <h3 className="font-display text-xl font-bold text-ink">New Message to Admin</h3>
+              <h3 className="font-display text-xl font-bold text-ink">{isAdmin ? 'Start Conversation with User' : 'New Message to Admin'}</h3>
               <button onClick={() => setShowNewModal(false)} className="text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
             </div>
             <div className="space-y-4">
+              {isAdmin && (
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Select Recipient User</label>
+                  <select 
+                    value={selectedRecipientId} 
+                    onChange={(e) => setSelectedRecipientId(e.target.value)} 
+                    className="input-editorial w-full px-4 py-3 text-sm bg-paper">
+                    <option value="">-- Choose User --</option>
+                    {allUsers.map((u) => (
+                      <option key={u.id} value={u.id}>{u.full_name || u.email}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div>
                 <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Subject</label>
                 <input type="text" value={newSubject} onChange={(e) => setNewSubject(e.target.value)} className="input-editorial w-full px-4 py-3 text-sm" placeholder="What's this about?" />
@@ -459,7 +558,9 @@ export default function InboxPage() {
                 <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Message</label>
                 <textarea value={newMessage} onChange={(e) => setNewMessage(e.target.value)} rows={5} className="input-editorial w-full px-4 py-3 text-sm" placeholder="Write your message..." />
               </div>
-              <button onClick={handleCreateConversation} disabled={creating || !newSubject.trim() || !newMessage.trim()}
+              <button 
+                onClick={handleCreateConversation} 
+                disabled={creating || !newSubject.trim() || !newMessage.trim() || (isAdmin && !selectedRecipientId)}
                 className="btn-primary w-full flex items-center justify-center gap-2 py-3.5 text-xs uppercase tracking-wide-sm disabled:opacity-50">
                 {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Send Message
               </button>
