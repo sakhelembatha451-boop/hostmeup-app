@@ -147,16 +147,31 @@ export async function sendMessage(
     try {
       const { data: convData } = await supabase
         .from('conversations')
-        .select('user_id')
+        .select('user_id, booking_id, booking:booking_id(artist_id, host_id)')
         .eq('id', conversationId)
         .maybeSingle();
 
       if (convData) {
-        // If sender is the creator, target admin; otherwise target creator
-        if (convData.user_id === senderId) {
-          targetRecipientId = (await getAdminId()) || undefined;
+        const booking = convData.booking as any;
+        if (booking && (booking.artist_id || booking.host_id)) {
+          // If linked to a booking, recipient is the opposite party
+          targetRecipientId = senderId === booking.host_id ? booking.artist_id : booking.host_id;
         } else {
-          targetRecipientId = convData.user_id;
+          // Direct conversation: if sender is creator, attempt recipient check via last message or fallback to admin
+          if (convData.user_id === senderId) {
+            const { data: lastMsg } = await supabase
+              .from('messages')
+              .select('sender_id')
+              .eq('conversation_id', conversationId)
+              .neq('sender_id', senderId)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            targetRecipientId = lastMsg?.sender_id || (await getAdminId()) || undefined;
+          } else {
+            targetRecipientId = convData.user_id;
+          }
         }
       }
     } catch (lookupErr) {
