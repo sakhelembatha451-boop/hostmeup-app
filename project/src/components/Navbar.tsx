@@ -23,27 +23,62 @@ export default function Navbar() {
   };
 
   useEffect(() => {
-    if (!profile) return;
+    if (!profile?.id) return;
+
+    // Fetch initial notifications list
     const loadNotifications = async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('notifications')
         .select('*')
         .eq('user_id', profile.id)
         .order('created_at', { ascending: false })
         .limit(10);
-      const notifs = (data as Notification[]) || [];
-      setNotifications(notifs);
-      setUnreadCount(notifs.filter((n) => !n.read).length);
+
+      if (!error && data) {
+        const notifs = data as Notification[];
+        setNotifications(notifs);
+        setUnreadCount(notifs.filter((n) => !n.read).length);
+      }
     };
+
     loadNotifications();
+
+    // Set up Realtime listener for incoming messages and booking notifications
     const channel = supabase
-      .channel(`notifications:${profile.id}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` },
-        () => loadNotifications()
+      .channel(`user-notifications-${profile.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*', // Listen to INSERT (new notifications) and UPDATE (read status changes)
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${profile.id}`,
+        },
+        (payload) => {
+          if (payload.eventType === 'INSERT') {
+            const newNotif = payload.new as Notification;
+            setNotifications((prev) => [newNotif, ...prev.slice(0, 9)]);
+            if (!newNotif.read) {
+              setUnreadCount((count) => count + 1);
+            }
+          } else if (payload.eventType === 'UPDATE') {
+            const updatedNotif = payload.new as Notification;
+            setNotifications((prev) =>
+              prev.map((n) => (n.id === updatedNotif.id ? updatedNotif : n))
+            );
+            // Recalculate unread count
+            setUnreadCount((_) =>
+              notifications.filter((n) => (n.id === updatedNotif.id ? !updatedNotif.read : !n.read)).length
+            );
+          }
+        }
       )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [profile]);
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id]);
 
   const handleNotifClick = async (notif: Notification) => {
     await markNotificationRead(notif.id);
@@ -97,7 +132,7 @@ export default function Navbar() {
                   <button onClick={() => setNotifOpen(!notifOpen)} aria-label={`${unreadCount} unread notifications`} className="relative flex items-center text-ink-500 hover:text-ink transition-colors">
                     <Bell className="w-4 h-4" />
                     {unreadCount > 0 && (
-                      <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-accent text-white text-[10px] font-bold flex items-center justify-center rounded-full">{unreadCount}</span>
+                      <span className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-accent text-white text-[10px] font-bold flex items-center justify-center rounded-full animate-pulse">{unreadCount > 9 ? '9+' : unreadCount}</span>
                     )}
                   </button>
                   {notifOpen && (
