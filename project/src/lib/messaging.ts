@@ -131,7 +131,7 @@ export async function sendMessage(
     insertedData = data as Message;
   }
 
-  // Safely update conversation timestamp without blocking on error
+  // Update conversation timestamp
   try {
     await supabase
       .from('conversations')
@@ -141,15 +141,39 @@ export async function sendMessage(
     console.warn('Could not update conversation timestamp:', tsErr);
   }
 
-  // Safely dispatch notification to recipient without throwing errors
-  if (recipientId && recipientId !== senderId) {
+  // Resolve target recipient ID if not explicitly provided
+  let targetRecipientId = recipientId;
+  if (!targetRecipientId) {
+    try {
+      const { data: convData } = await supabase
+        .from('conversations')
+        .select('user_id')
+        .eq('id', conversationId)
+        .maybeSingle();
+
+      if (convData) {
+        // If sender is the creator, target admin; otherwise target creator
+        if (convData.user_id === senderId) {
+          targetRecipientId = (await getAdminId()) || undefined;
+        } else {
+          targetRecipientId = convData.user_id;
+        }
+      }
+    } catch (lookupErr) {
+      console.warn('Could not resolve conversation recipient for notification:', lookupErr);
+    }
+  }
+
+  // Dispatch bell notification to recipient
+  if (targetRecipientId && targetRecipientId !== senderId) {
     try {
       await createNotification(
-        recipientId,
+        targetRecipientId,
         'message',
         'New Message Received',
         body.length > 80 ? `${body.slice(0, 80)}...` : body,
-        `/inbox`
+        `/inbox`,
+        conversationId
       );
     } catch (notifErr) {
       console.warn('Notification dispatch ignored:', notifErr);
@@ -182,19 +206,38 @@ export async function createNotification(
   type: string,
   title: string,
   message: string,
-  link?: string
+  link?: string,
+  conversationId?: string,
+  bookingId?: string
 ): Promise<void> {
   try {
-    await supabase.from('notifications').insert([
-      {
-        user_id: userId,
-        type,
-        title,
-        message,
-        link,
-        read: false,
-      },
-    ]);
+    const notifPayload: Record<string, any> = {
+      user_id: userId,
+      type,
+      title,
+      message,
+      body: message, // Standardizes body/message fields
+      link,
+      read: false,
+    };
+
+    if (conversationId) notifPayload.conversation_id = conversationId;
+    if (bookingId) notifPayload.booking_id = bookingId;
+
+    const { error } = await supabase.from('notifications').insert([notifPayload]);
+
+    if (error) {
+      // Fallback: retry without optional relation columns if schema varies
+      console.warn('Initial notification insert failed, retrying simplified:', error);
+      await supabase.from('notifications').insert([
+        {
+          user_id: userId,
+          title,
+          body: message,
+          read: false,
+        },
+      ]);
+    }
   } catch (err) {
     console.warn('Could not create notification:', err);
   }
