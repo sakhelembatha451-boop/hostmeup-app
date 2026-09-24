@@ -1,126 +1,167 @@
 import { supabase } from './supabase';
+import type { Message, Conversation, Notification } from '@/types';
 
 /**
- * Retrieves the profile ID of the primary admin user.
+ * Gets the Admin User ID from profiles table
  */
 export async function getAdminId(): Promise<string | null> {
-  try {
-    // 1. Check for profile explicitly marked as admin
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'admin')
-      .limit(1)
-      .maybeSingle();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id')
+    .eq('role', 'admin')
+    .maybeSingle();
 
-    if (!error && data?.id) {
-      return data.id;
-    }
-
-    // 2. Fallback check for the specific admin email if role column query fails
-    const { data: fallbackData } = await supabase
+  if (error || !data) {
+    console.warn('Admin user profile query failed, attempting email lookup');
+    const { data: emailData } = await supabase
       .from('profiles')
       .select('id')
       .eq('email', 'sakhelembatha451@gmail.com')
       .maybeSingle();
-
-    return fallbackData?.id || null;
-  } catch (err) {
-    console.warn('Could not retrieve admin ID:', err);
-    return null;
+    return emailData?.id || null;
   }
+  return data.id;
 }
 
 /**
- * Creates a new conversation thread between a user and admin/host.
+ * Creates a new conversation thread
  */
 export async function createConversation(
   userId: string,
   subject: string,
   type: 'direct' | 'booking' = 'direct',
   bookingId?: string,
-  initialMessage?: string,
-  adminId?: string | null
+  initialMessageText?: string,
+  explicitAdminId?: string | null
 ): Promise<string | null> {
-  try {
-    const { data: conv, error: convErr } = await supabase
-      .from('conversations')
-      .insert({
+  const targetAdminId = explicitAdminId || (await getAdminId());
+
+  const { data: conv, error: convError } = await supabase
+    .from('conversations')
+    .insert([
+      {
         user_id: userId,
         subject,
         type,
         booking_id: bookingId || null,
-      })
-      .select()
-      .single();
+        status: 'open',
+      },
+    ])
+    .select()
+    .single();
 
-    if (convErr || !conv) {
-      console.error('Error inserting conversation record:', convErr);
-      throw convErr;
-    }
-
-    // If an initial message body was supplied, insert it into the thread
-    if (initialMessage) {
-      await sendMessage(conv.id, userId, initialMessage, adminId || undefined);
-    }
-
-    return conv.id;
-  } catch (err) {
-    console.error('Failed to create conversation:', err);
-    return null;
+  if (convError || !conv) {
+    console.error('Error creating conversation:', convError);
+    throw convError;
   }
+
+  if (initialMessageText && initialMessageText.trim().length > 0) {
+    await sendMessage(conv.id, userId, initialMessageText, targetAdminId || undefined);
+  }
+
+  return conv.id;
 }
 
 /**
- * Sends and saves a new message inside a specific conversation thread.
+ * Sends a message within a conversation thread
  */
 export async function sendMessage(
   conversationId: string,
   senderId: string,
   body: string,
-  receiverId?: string
-) {
-  try {
-    const { data, error } = await supabase
-      .from('messages')
-      .insert({
+  recipientId?: string
+): Promise<Message | null> {
+  const { data, error } = await supabase
+    .from('messages')
+    .insert([
+      {
         conversation_id: conversationId,
         sender_id: senderId,
-        receiver_id: receiverId || null,
         body,
-      })
-      .select()
-      .single();
+        read: false,
+      },
+    ])
+    .select()
+    .single();
 
-    if (error) {
-      console.error('Error inserting message record:', error);
-      throw error;
-    }
-
-    // Update conversation timestamp for sorting
-    await supabase
-      .from('conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', conversationId);
-
-    return data;
-  } catch (err) {
-    console.error('Failed to send message:', err);
-    throw err;
+  if (error) {
+    console.error('Error sending message:', error);
+    throw error;
   }
+
+  // Update conversation updated_at timestamp
+  await supabase
+    .from('conversations')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', conversationId);
+
+  // Send notification to recipient if provided
+  if (recipientId && recipientId !== senderId) {
+    await createNotification(
+      recipientId,
+      'message',
+      'New Message Received',
+      body.slice(0, 80) + (body.length > 80 ? '...' : ''),
+      `/inbox`
+    );
+  }
+
+  return data as Message;
 }
 
 /**
- * Marks unread messages in a thread as read by the current user.
+ * Marks messages in a conversation as read
  */
-export async function markMessagesRead(conversationId: string, userId: string) {
-  try {
-    await supabase
-      .from('messages')
-      .update({ read: true })
-      .eq('conversation_id', conversationId)
-      .neq('sender_id', userId);
-  } catch (err) {
-    console.error('Error updating read status:', err);
-  }
+export async function markMessagesRead(conversationId: string, userId: string): Promise<void> {
+  await supabase
+    .from('messages')
+    .update({ read: true })
+    .eq('conversation_id', conversationId)
+    .neq('sender_id', userId);
+}
+
+/**
+ * Creates an in-app notification
+ */
+export async function createNotification(
+  userId: string,
+  type: string,
+  title: string,
+  message: string,
+  link?: string
+): Promise<void> {
+  await supabase.from('notifications').insert([
+    {
+      user_id: userId,
+      type,
+      title,
+      message,
+      link,
+      read: false,
+    },
+  ]);
+}
+
+/**
+ * Marks a single notification as read (Required by Navbar.tsx)
+ */
+export async function markNotificationRead(notificationId: string): Promise<void> {
+  const { error } = await supabase
+    .from('notifications')
+    .update({ read: true })
+    .eq('id', notificationId);
+
+  if (error) console.error('Error marking notification read:', error);
+}
+
+/**
+ * Marks all notifications for a user as read (Required by Navbar.tsx)
+ */
+export async function markAllNotificationsRead(userId: string): Promise<void> {
+  const { error } = await supabase
+    .from('notifications')
+    .update({ read: true })
+    .eq('user_id', userId);
+
+  if (error) console.error('Error marking all notifications read:', error);
 }
