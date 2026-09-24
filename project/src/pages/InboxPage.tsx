@@ -46,7 +46,7 @@ export default function InboxPage() {
     try {
       await fetch(FORMSPREE_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           _replyto: recipientEmail || profile?.email || 'user@hostmeup.co.za',
           name: profile?.full_name || 'HostMeUp System',
@@ -69,7 +69,23 @@ export default function InboxPage() {
       if (isAdmin) {
         query = query.or('deleted_by_admin.is.null,deleted_by_admin.eq.false');
       } else {
-        query = query.eq('user_id', profile.id).or('deleted_by_user.is.null,deleted_by_user.eq.false');
+        // Fetch message threads where user participated (sent or received)
+        const { data: userMessages } = await supabase
+          .from('messages')
+          .select('conversation_id')
+          .eq('sender_id', profile.id);
+
+        const activeConvIds = Array.from(new Set((userMessages || []).map((m) => m.conversation_id)));
+
+        if (activeConvIds.length > 0) {
+          query = query
+            .or(`user_id.eq.${profile.id},id.in.(${activeConvIds.join(',')})`)
+            .or('deleted_by_user.is.null,deleted_by_user.eq.false');
+        } else {
+          query = query
+            .eq('user_id', profile.id)
+            .or('deleted_by_user.is.null,deleted_by_user.eq.false');
+        }
       }
 
       const { data, error } = await query.order('updated_at', { ascending: false });
@@ -294,7 +310,6 @@ export default function InboxPage() {
     }
 
     try {
-      // Always pass profile.id as the first parameter so current logged-in user owns creation
       const id = await createConversation(
         profile.id,
         subject,
@@ -322,9 +337,10 @@ export default function InboxPage() {
 
         if (newConv) setSelectedConv(newConv as Conversation);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Create conversation detailed error:', err);
-      alert(`Could not send message. ${err?.message || ''}`);
+      const errorMsg = err instanceof Error ? err.message : '';
+      alert(`Could not send message. ${errorMsg}`);
     } finally {
       setCreating(false);
     }
@@ -387,8 +403,12 @@ export default function InboxPage() {
               </div>
               <div className="divide-y divide-line">
                 {conversations.map((conv) => {
-                  const unreadCount = (conv as any).messages?.filter(
-                    (m: any) => !m.read && m.sender_id !== profile?.id
+                  const convWithDetails = conv as Conversation & {
+                    messages?: { read: boolean; sender_id: string }[];
+                    user?: Profile;
+                  };
+                  const unreadCount = convWithDetails.messages?.filter(
+                    (m) => !m.read && m.sender_id !== profile?.id
                   ).length || 0;
                   const isSelected = selectedConvIds.includes(conv.id);
 
@@ -415,7 +435,7 @@ export default function InboxPage() {
                         </div>
                         {isAdmin && (
                           <p className="text-xs text-accent font-medium mb-1 flex items-center gap-1">
-                            <User className="w-3 h-3" /> {(conv as any).user?.full_name || 'User'}
+                            <User className="w-3 h-3" /> {convWithDetails.user?.full_name || 'User'}
                           </p>
                         )}
                         <p className="text-xs text-ink-400 truncate">{conv.type === 'booking' ? 'Booking discussion' : 'Direct message'}</p>
@@ -434,7 +454,7 @@ export default function InboxPage() {
                     <div>
                       <h3 className="font-display text-lg font-semibold text-ink">{selectedConv.subject}</h3>
                       <p className="text-xs text-ink-400">
-                        Thread with {(selectedConv as any).user?.full_name || 'User'}
+                        Thread with {(selectedConv as Conversation & { user?: Profile }).user?.full_name || 'User'}
                       </p>
                     </div>
                     <button onClick={() => setSelectedConv(null)} className="lg:hidden text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
@@ -450,6 +470,7 @@ export default function InboxPage() {
                         const isOwn = msg.sender_id === profile?.id;
                         const isAudio = msg.body?.startsWith('AUDIO:');
                         const audioUrl = isAudio ? msg.body.replace('AUDIO:', '') : '';
+                        const msgWithSender = msg as Message & { sender?: Profile };
 
                         return (
                           <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group items-center gap-2`}>
@@ -464,7 +485,7 @@ export default function InboxPage() {
 
                             <div className={`max-w-[80%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
                               <span className="text-[10px] text-ink-400 mb-0.5 px-1">
-                                {isOwn ? 'You' : (msg as any).sender?.full_name || 'User'}
+                                {isOwn ? 'You' : msgWithSender.sender?.full_name || 'User'}
                               </span>
 
                               <div className={`px-4 py-3 text-sm ${isOwn ? 'bg-ink text-paper' : 'bg-paper-200 text-ink border border-line'}`}>
