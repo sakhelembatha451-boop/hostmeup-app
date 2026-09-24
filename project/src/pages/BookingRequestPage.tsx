@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck } from 'lucide-react';
 import type { ArtistWithProfile } from '@/types';
-import { getAdminId, createConversation } from '@/lib/messaging';
+import { getAdminId, createConversation, createNotification } from '@/lib/messaging';
 
 const EQUIPMENT_OPTIONS = ['PA System', 'Microphones', 'DJ Controller', 'Speakers', 'Mixing Board', 'Stage Lighting', 'Instruments', 'Cables', 'Drum Kit', 'Keyboard'];
 
@@ -87,19 +87,37 @@ export default function BookingRequestPage() {
     if (insertErr) { setError(insertErr.message); return; }
     if (data) {
       setCreatedBookingId(data.id);
-      // Auto-create a booking conversation thread and notify admin
+      
+      // Notify Admin and Talent
       try {
         const adminId = await getAdminId();
         const artistName = ap?.stage_name || artist?.full_name || 'Talent';
+        const hostName = profile.full_name || 'A host';
         const initialMsg = `New booking request for ${artistName} — ${eventName} on ${new Date(eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${location}. Duration: ${rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee'}. Total: ${formatCurrency(totalAmount)} | Deposit (40%): ${formatCurrency(depositAmount)}.`;
+        
+        // 1. Create message thread
         await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
-      } catch { /* non-fatal — booking still created */ }
+        
+        // 2. Send instant bell notification to the Talent/Artist
+        await createNotification(
+          id, // Artist profile ID
+          'booking',
+          'New Booking Request! 📅',
+          `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
+          '/artist-dashboard',
+          undefined,
+          data.id
+        );
+      } catch (err) {
+        console.warn('Non-fatal notification dispatch error:', err);
+      }
+
       setShowCheckout(true);
     }
   };
 
   const handlePayDeposit = async () => {
-    if (!createdBookingId) return;
+    if (!createdBookingId || !id) return;
     setPaying(true);
     // Mark deposit as paid and update status to 'confirmed'
     const { error: payErr } = await supabase.from('bookings')
@@ -107,6 +125,22 @@ export default function BookingRequestPage() {
       .eq('id', createdBookingId);
     setPaying(false);
     if (payErr) { setError(payErr.message); return; }
+
+    // Notify artist that deposit was paid and booking is locked in
+    try {
+      await createNotification(
+        id,
+        'booking',
+        'Booking Deposit Paid! 🎉',
+        `Deposit of ${formatCurrency(depositAmount)} for "${eventName}" has been paid. Your booking is confirmed!`,
+        '/artist-dashboard',
+        undefined,
+        createdBookingId
+      );
+    } catch (notifErr) {
+      console.warn('Could not dispatch deposit notification:', notifErr);
+    }
+
     // Show success and redirect
     setShowCheckout(false);
     setBookingCreated(true);
@@ -126,7 +160,7 @@ export default function BookingRequestPage() {
     <div className="min-h-screen flex items-center justify-center bg-paper px-4">
       <div className="text-center animate-scale-in">
         <div className="w-16 h-16 border border-accent-200 bg-accent-50 flex items-center justify-center text-accent mx-auto mb-6"><CheckCircle2 className="w-8 h-8" /></div>
-        <h2 className="font-display text-3xl font-bold text-ink mb-2">Booking Confirmed.</h2>
+        <h2 className="font-display text-3xl font-bold text-ink mb-2">Booking Request Sent.</h2>
         <p className="text-ink-400">Redirecting to your dashboard...</p>
       </div>
     </div>
