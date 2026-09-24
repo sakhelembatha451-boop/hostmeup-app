@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Message, Conversation, Notification } from '@/types';
+import type { Message, Conversation } from '@/types';
 
 /**
  * Gets the Admin User ID from profiles table
@@ -12,7 +12,6 @@ export async function getAdminId(): Promise<string | null> {
     .maybeSingle();
 
   if (error || !data) {
-    console.warn('Admin user profile query failed, attempting email lookup');
     const { data: emailData } = await supabase
       .from('profiles')
       .select('id')
@@ -63,7 +62,7 @@ export async function createConversation(
 }
 
 /**
- * Sends a message within a conversation thread
+ * Sends a message within a conversation thread & dispatches bell notification
  */
 export async function sendMessage(
   conversationId: string,
@@ -71,12 +70,11 @@ export async function sendMessage(
   body: string,
   recipientId?: string
 ): Promise<Message | null> {
-  // Construct message payload
   const payload: any = {
     conversation_id: conversationId,
     sender_id: senderId,
     body: body.trim(),
-    read: false
+    read: false,
   };
 
   const { data, error } = await supabase
@@ -86,53 +84,23 @@ export async function sendMessage(
     .single();
 
   if (error) {
-    console.error('Error sending message (First attempt):', error);
-    
-    // Fallback attempt: retry without the 'read' field if schema lacks it
-    delete payload.read;
-    const { data: fallbackData, error: fallbackError } = await supabase
-      .from('messages')
-      .insert([payload])
-      .select()
-      .single();
-
-    if (fallbackError) {
-      console.error('Error sending message (Fallback attempt):', fallbackError);
-      throw fallbackError;
-    }
-
-    // Update conversation updated_at timestamp
-    await supabase
-      .from('conversations')
-      .update({ updated_at: new Date().toISOString() })
-      .eq('id', conversationId);
-
-    if (recipientId && recipientId !== senderId) {
-      await createNotification(
-        recipientId,
-        'message',
-        'New Message Received',
-        body.slice(0, 80) + (body.length > 80 ? '...' : ''),
-        `/inbox`
-      );
-    }
-
-    return fallbackData as Message;
+    console.error('Error inserting message:', error);
+    throw error;
   }
 
-  // Update conversation updated_at timestamp
+  // Update conversation timestamp
   await supabase
     .from('conversations')
     .update({ updated_at: new Date().toISOString() })
     .eq('id', conversationId);
 
-  // Send notification to recipient if provided
+  // Dispatch notification to recipient
   if (recipientId && recipientId !== senderId) {
     await createNotification(
       recipientId,
       'message',
-      'New Message Received',
-      body.slice(0, 80) + (body.length > 80 ? '...' : ''),
+      'New Reply from Admin',
+      body.length > 80 ? `${body.slice(0, 80)}...` : body,
       `/inbox`
     );
   }
@@ -141,7 +109,7 @@ export async function sendMessage(
 }
 
 /**
- * Marks messages in a conversation as read
+ * Marks all unread messages in a thread as read for the active user
  */
 export async function markMessagesRead(conversationId: string, userId: string): Promise<void> {
   try {
@@ -151,12 +119,12 @@ export async function markMessagesRead(conversationId: string, userId: string): 
       .eq('conversation_id', conversationId)
       .neq('sender_id', userId);
   } catch (err) {
-    console.warn('Could not update messages read state:', err);
+    console.warn('Could not mark messages read:', err);
   }
 }
 
 /**
- * Creates an in-app notification
+ * Creates an in-app bell notification
  */
 export async function createNotification(
   userId: string,
@@ -181,26 +149,10 @@ export async function createNotification(
   }
 }
 
-/**
- * Marks a single notification as read (Required by Navbar.tsx)
- */
 export async function markNotificationRead(notificationId: string): Promise<void> {
-  const { error } = await supabase
-    .from('notifications')
-    .update({ read: true })
-    .eq('id', notificationId);
-
-  if (error) console.error('Error marking notification read:', error);
+  await supabase.from('notifications').update({ read: true }).eq('id', notificationId);
 }
 
-/**
- * Marks all notifications for a user as read (Required by Navbar.tsx)
- */
 export async function markAllNotificationsRead(userId: string): Promise<void> {
-  const { error } = await supabase
-    .from('notifications')
-    .update({ read: true })
-    .eq('user_id', userId);
-
-  if (error) console.error('Error marking all notifications read:', error);
+  await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
 }
