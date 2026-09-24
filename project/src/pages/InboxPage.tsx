@@ -28,7 +28,6 @@ export default function InboxPage() {
   // Audio recording state
   const [isRecording, setIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
   const [recordingTime, setRecordingTime] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -147,7 +146,9 @@ export default function InboxPage() {
 
     try {
       await sendMessage(selectedConv.id, profile.id, finalBody, recipientId);
-      sendEmailNotification(`Reply: ${selectedConv.subject}`, finalBody).catch(err => console.warn('Email dispatch failed:', err));
+      if (!finalBody.startsWith('AUDIO:')) {
+        sendEmailNotification(`Reply: ${selectedConv.subject}`, finalBody).catch(err => console.warn('Email dispatch failed:', err));
+      }
 
       setReplyText('');
       setShowEmojiPicker(false);
@@ -174,7 +175,7 @@ export default function InboxPage() {
     }
   };
 
-  // Voice Note Recording
+  // Voice Note Recording with Audio Data Fallback
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -184,12 +185,18 @@ export default function InboxPage() {
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = async () => {
         const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-        const fileName = `voicenotes/${Date.now()}.webm`;
+        const fileName = `${Date.now()}.webm`;
 
         const { data, error } = await supabase.storage.from('messages').upload(fileName, audioBlob);
+
         if (error) {
-          // If storage bucket is missing, send as placeholder audio indicator
-          handleSendReply('🎙️ Voice Note (Audio recording)');
+          // Inline Data URL fallback if storage bucket isn't ready
+          const reader = new FileReader();
+          reader.readAsDataURL(audioBlob);
+          reader.onloadend = () => {
+            const base64Audio = reader.result as string;
+            handleSendReply(`AUDIO:${base64Audio}`);
+          };
         } else {
           const { data: publicUrl } = supabase.storage.from('messages').getPublicUrl(fileName);
           handleSendReply(`AUDIO:${publicUrl.publicUrl}`);
@@ -347,7 +354,7 @@ export default function InboxPage() {
 
                         return (
                           <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} group relative`}>
-                            <div className={`max-w-[75%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
+                            <div className={`max-w-[85%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col`}>
                               <span className="text-[10px] text-ink-400 mb-0.5 px-1 flex items-center gap-2">
                                 {isOwn ? 'You' : (msg as any).sender?.full_name || 'User'}
                                 {(isOwn || isAdmin) && (
@@ -359,7 +366,7 @@ export default function InboxPage() {
 
                               <div className={`px-4 py-3 text-sm ${isOwn ? 'bg-ink text-paper' : 'bg-paper-200 text-ink border border-line'}`}>
                                 {isAudio ? (
-                                  <audio controls src={audioUrl} className="max-w-[220px]" />
+                                  <audio controls src={audioUrl} className="max-w-[240px] h-10" />
                                 ) : (
                                   msg.body
                                 )}
