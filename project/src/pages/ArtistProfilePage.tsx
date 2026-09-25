@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { 
   MapPin, 
@@ -14,13 +14,17 @@ import {
   Instagram, 
   X, 
   Shield, 
-  Save 
+  Save,
+  MessageSquare,
+  Calendar
 } from 'lucide-react';
 
 export default function ArtistProfilePage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const [artist, setArtist] = useState<any>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
@@ -46,6 +50,23 @@ export default function ArtistProfilePage() {
     if (user) {
       setCurrentUserId(user.id);
       fetchEmergencyContact(user.id);
+      fetchUserProfileRole(user.id);
+    }
+  };
+
+  const fetchUserProfileRole = async (userId: string) => {
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .single();
+        
+      if (data) {
+        setCurrentUserRole(data.role);
+      }
+    } catch (err) {
+      console.error('Error fetching user role:', err);
     }
   };
 
@@ -88,7 +109,7 @@ export default function ArtistProfilePage() {
     } catch (err: any) {
       console.error('Error fetching artist:', err.message);
       setError('Could not load artist profile.');
-    } fontFinally: {
+    } finally {
       setLoading(false);
     }
   };
@@ -121,6 +142,38 @@ export default function ArtistProfilePage() {
     }
   };
 
+  const handleContactUser = async () => {
+    if (!currentUserId || !artist) return;
+
+    const targetUserId = artist.user_id || artist.id;
+
+    // Check for existing conversation or route to admin inbox
+    const { data: convData } = await supabase
+      .from('conversations')
+      .select('id')
+      .or(`and(participant_1.eq.${currentUserId},participant_2.eq.${targetUserId}),and(participant_1.eq.${targetUserId},participant_2.eq.${currentUserId})`)
+      .maybeSingle();
+
+    if (convData?.id) {
+      navigate(`/admin/inbox?conversation=${convData.id}`);
+    } else {
+      const { data: newConv } = await supabase
+        .from('conversations')
+        .insert({
+          participant_1: currentUserId,
+          participant_2: targetUserId,
+        })
+        .select('id')
+        .single();
+
+      if (newConv) {
+        navigate(`/admin/inbox?conversation=${newConv.id}`);
+      } else {
+        navigate('/admin/inbox');
+      }
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center">
@@ -142,7 +195,8 @@ export default function ArtistProfilePage() {
     );
   }
 
-  const isOwner = currentUserId && artist.user_id && currentUserId === artist.user_id;
+  const isOwner = currentUserId && (artist.user_id === currentUserId || artist.id === currentUserId);
+  const isAdmin = currentUserRole === 'admin';
 
   const galleryImages: string[] = Array.isArray(artist.gallery_urls) && artist.gallery_urls.length > 0
     ? artist.gallery_urls
@@ -313,7 +367,11 @@ export default function ArtistProfilePage() {
           <div className="space-y-6">
             <div className="border border-line bg-paper-100 p-6 space-y-6">
               <h3 className="font-display text-lg font-bold text-ink">
-                {isOwner ? 'Your Artist Profile' : `Book ${artist.stage_name || 'Artist'}`}
+                {isOwner 
+                  ? 'Your Artist Profile' 
+                  : isAdmin 
+                  ? `Contact ${artist.stage_name || 'User'}` 
+                  : `Book ${artist.stage_name || 'Artist'}`}
               </h3>
               
               <div className="space-y-3 text-xs text-ink-600">
@@ -335,11 +393,21 @@ export default function ArtistProfilePage() {
                   <Edit3 className="w-4 h-4" />
                   Edit Profile
                 </Link>
+              ) : isAdmin ? (
+                <button
+                  type="button"
+                  onClick={handleContactUser}
+                  className="w-full text-center flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  Contact User
+                </button>
               ) : (
                 <Link
                   to={`/booking/${artist.id}`}
-                  className="w-full text-center block py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
+                  className="w-full text-center flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
                 >
+                  <Calendar className="w-4 h-4" />
                   Request Booking
                 </Link>
               )}
