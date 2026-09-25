@@ -28,35 +28,84 @@ export default function AdminInboxPage() {
   const [startingConv, setStartingConv] = useState(false);
 
   const loadConversations = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('conversations')
-      .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, role), booking:bookings(id, event_name, event_date, status, total_amount, deposit_amount, deposit_paid)')
-      .order('updated_at', { ascending: false });
-    if (error) { setConversations([]); }
-    else { setConversations((data as Conversation[]) || []); }
-    setLoading(false);
+    try {
+      const { data, error } = await supabase
+        .from('conversations')
+        .select(`
+          *,
+          user:profiles!user_id (
+            id,
+            full_name,
+            email,
+            avatar_url,
+            role
+          ),
+          booking:bookings (
+            id,
+            event_name,
+            event_date,
+            status,
+            total_amount,
+            deposit_amount,
+            deposit_paid
+          )
+        `)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error loading conversations:', error);
+        setConversations([]);
+      } else {
+        setConversations((data as Conversation[]) || []);
+      }
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
+      setConversations([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   const loadUsers = useCallback(async () => {
     if (!profile) return;
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .neq('id', profile.id)
-      .order('full_name', { ascending: true });
-    setAllUsers((data as Profile[]) || []);
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .neq('id', profile.id)
+        .order('full_name', { ascending: true });
+
+      if (error) throw error;
+      setAllUsers((data as Profile[]) || []);
+    } catch (err) {
+      console.error('Error loading users:', err);
+    }
   }, [profile]);
 
   const loadMessages = useCallback(async (convId: string) => {
     setMsgLoading(true);
-    const { data } = await supabase
-      .from('messages')
-      .select('*, sender:profiles!messages_sender_id_fkey(id, full_name, avatar_url)')
-      .eq('conversation_id', convId)
-      .order('created_at', { ascending: true });
-    setMessages((data as Message[]) || []);
-    setMsgLoading(false);
-    setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select(`
+          *,
+          sender:profiles!sender_id (
+            id,
+            full_name,
+            avatar_url
+          )
+        `)
+        .eq('conversation_id', convId)
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      setMessages((data as Message[]) || []);
+    } catch (err) {
+      console.error('Error loading messages:', err);
+    } finally {
+      setMsgLoading(false);
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
+    }
   }, []);
 
   useEffect(() => { 
@@ -90,55 +139,77 @@ export default function AdminInboxPage() {
       setReplyText('');
       await loadMessages(selectedConv.id);
       loadConversations();
-    } catch { /* ignore */ }
-    setSending(false);
+    } catch (err) {
+      console.error('Failed to send reply:', err);
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleStartConversation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRecipient || !newSubject.trim() || !initialMsg.trim() || !profile) return;
     setStartingConv(true);
+
     try {
       // 1. Insert conversation
       const { data: conv, error: convError } = await supabase
         .from('conversations')
-        .insert({
+        .insert([{
           user_id: selectedRecipient.id,
           subject: newSubject.trim(),
-          type: 'inquiry',
-          updated_at: new Date().toISOString()
-        })
-        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, role)')
+          type: 'inquiry'
+        }])
+        .select('id, user_id, subject, type, created_at, updated_at')
         .single();
 
-      if (convError) throw convError;
+      if (convError) {
+        console.error('Conversation insert error:', convError);
+        alert(`Failed to create conversation: ${convError.message}`);
+        setStartingConv(false);
+        return;
+      }
 
       if (conv) {
         // 2. Insert initial message
         const { error: msgError } = await supabase
           .from('messages')
-          .insert({
+          .insert([{
             conversation_id: conv.id,
             sender_id: profile.id,
             body: initialMsg.trim(),
             read: false
-          });
+          }]);
 
-        if (msgError) throw msgError;
+        if (msgError) {
+          console.error('Message insert error:', msgError);
+          alert(`Failed to create message: ${msgError.message}`);
+          setStartingConv(false);
+          return;
+        }
 
+        // Close modal and reset state
         setIsModalOpen(false);
         setSelectedRecipient(null);
         setNewSubject('');
         setInitialMsg('');
         setUserSearch('');
 
+        // Reload conversation list and set selected conversation
         await loadConversations();
-        setSelectedConv(conv);
+        
+        const fullConv: Conversation = {
+          ...conv,
+          user: selectedRecipient
+        };
+        setSelectedConv(fullConv);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to create conversation:', err);
+      alert(`Error: ${err?.message || 'Something went wrong'}`);
+    } finally {
+      setStartingConv(false);
     }
-    setStartingConv(false);
   };
 
   const filteredUsers = allUsers.filter(u => 
@@ -242,7 +313,9 @@ export default function AdminInboxPage() {
                           )}
                           <span className="font-medium text-ink text-sm truncate">{conv.user?.full_name || 'Unknown'}</span>
                         </div>
-                        <span className="text-xs text-ink-300 flex-shrink-0">{new Date(conv.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        <span className="text-xs text-ink-300 flex-shrink-0">
+                          {conv.updated_at ? new Date(conv.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                        </span>
                       </div>
                       <p className="text-sm text-ink-600 truncate mb-1">{conv.subject}</p>
                       <div className="flex items-center gap-2">
@@ -423,7 +496,7 @@ export default function AdminInboxPage() {
 
                 {/* Subject */}
                 <div>
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium font-medium">Subject</label>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium">Subject</label>
                   <input
                     type="text"
                     required
