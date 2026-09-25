@@ -18,9 +18,13 @@ export default function AdminInboxPage() {
   const [activeTab, setActiveTab] = useState<'inbox' | 'safety'>('inbox');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Selection & Deletion State
+  // Conversation Bulk Selection State
+  const [selectedConvIds, setSelectedConvIds] = useState<string[]>([]);
+  const [deletingConvs, setDeletingConvs] = useState(false);
+
+  // Message Selection State
   const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
-  const [deleting, setDeleting] = useState(false);
+  const [deletingMsgs, setDeletingMsgs] = useState(false);
 
   // New Message Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -139,40 +143,59 @@ export default function AdminInboxPage() {
     return () => { supabase.removeChannel(channel); };
   }, [selectedConv, loadMessages, loadConversations]);
 
-  // Delete an entire Conversation from the left pane
-  const handleDeleteConversation = async (e: React.MouseEvent, convId: string) => {
-    e.stopPropagation(); // Prevents clicking the card and opening it
+  // Toggle selection for conversations
+  const toggleSelectConv = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setSelectedConvIds((prev) =>
+      prev.includes(id) ? prev.filter((convId) => convId !== id) : [...prev, id]
+    );
+  };
 
-    if (!confirm('Are you sure you want to delete this entire conversation thread and all its messages?')) return;
-
-    try {
-      // 1. Delete associated messages first
-      await supabase.from('messages').delete().eq('conversation_id', convId);
-
-      // 2. Delete conversation record
-      const { error } = await supabase.from('conversations').delete().eq('id', convId);
-      if (error) throw error;
-
-      // 3. Update state
-      setConversations((prev) => prev.filter((c) => c.id !== convId));
-      if (selectedConv?.id === convId) {
-        setSelectedConv(null);
-        setMessages([]);
-      }
-    } catch (err: any) {
-      console.error('Failed to delete conversation:', err);
-      alert(`Delete failed: ${err.message || 'Unknown error'}`);
+  const toggleSelectAllConvs = () => {
+    if (selectedConvIds.length === conversations.length) {
+      setSelectedConvIds([]);
+    } else {
+      setSelectedConvIds(conversations.map((c) => c.id));
     }
   };
 
-  // Handle single and bulk message deletion
+  // Bulk Delete Conversations
+  const handleDeleteSelectedConvs = async () => {
+    if (!selectedConvIds.length) return;
+    if (!confirm(`Are you sure you want to delete ${selectedConvIds.length} conversation(s)?`)) return;
+
+    setDeletingConvs(true);
+    try {
+      // 1. Delete associated messages first
+      await supabase.from('messages').delete().in('conversation_id', selectedConvIds);
+
+      // 2. Delete conversations
+      const { error } = await supabase.from('conversations').delete().in('id', selectedConvIds);
+      if (error) throw error;
+
+      // 3. Reset state
+      setConversations((prev) => prev.filter((c) => !selectedConvIds.includes(c.id)));
+      if (selectedConv && selectedConvIds.includes(selectedConv.id)) {
+        setSelectedConv(null);
+        setMessages([]);
+      }
+      setSelectedConvIds([]);
+    } catch (err: any) {
+      console.error('Failed to delete conversations:', err);
+      alert(`Delete failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setDeletingConvs(false);
+    }
+  };
+
+  // Toggle selection for individual messages within open conversation
   const toggleSelectMessage = (id: string) => {
     setSelectedMsgIds((prev) =>
       prev.includes(id) ? prev.filter((msgId) => msgId !== id) : [...prev, id]
     );
   };
 
-  const toggleSelectAll = () => {
+  const toggleSelectAllMsgs = () => {
     if (selectedMsgIds.length === messages.length) {
       setSelectedMsgIds([]);
     } else {
@@ -184,7 +207,7 @@ export default function AdminInboxPage() {
     if (!idsToDelete.length) return;
     if (!confirm(`Are you sure you want to delete ${idsToDelete.length} message(s)?`)) return;
 
-    setDeleting(true);
+    setDeletingMsgs(true);
     try {
       const { error } = await supabase
         .from('messages')
@@ -199,7 +222,7 @@ export default function AdminInboxPage() {
       console.error('Failed to delete message(s):', err);
       alert(`Delete failed: ${err.message || 'Unknown error'}`);
     } finally {
-      setDeleting(false);
+      setDeletingMsgs(false);
     }
   };
 
@@ -290,7 +313,7 @@ export default function AdminInboxPage() {
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-6xl mx-auto px-6 lg:px-12 py-12">
-        {/* Header & Section Switcher */}
+        {/* Header & Main Actions */}
         <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-line pb-6">
           <div>
             <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Admin Control Center</p>
@@ -306,13 +329,25 @@ export default function AdminInboxPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             {activeTab === 'inbox' && (
-              <button
-                onClick={() => setIsModalOpen(true)}
-                className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink/90 transition-colors border border-ink"
-              >
-                <Plus className="w-4 h-4" />
-                New Message
-              </button>
+              <>
+                {selectedConvIds.length > 0 && (
+                  <button
+                    onClick={handleDeleteSelectedConvs}
+                    disabled={deletingConvs}
+                    className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm bg-red-600 text-white hover:bg-red-700 transition-colors border border-red-600 disabled:opacity-50"
+                  >
+                    {deletingConvs ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    DELETE ({selectedConvIds.length})
+                  </button>
+                )}
+                <button
+                  onClick={() => setIsModalOpen(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink/90 transition-colors border border-ink"
+                >
+                  <Plus className="w-4 h-4" />
+                  New Message
+                </button>
+              </>
             )}
             <button
               onClick={() => setActiveTab('inbox')}
@@ -365,51 +400,72 @@ export default function AdminInboxPage() {
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 border border-line min-h-[500px]">
               {/* Conversation list (Left Pane) */}
               <div className={`lg:col-span-1 border-r border-line ${selectedConv ? 'hidden lg:block' : ''}`}>
-                <div className="divide-y divide-line max-h-[600px] overflow-y-auto">
-                  {conversations.map((conv) => (
-                    <div
-                      key={conv.id}
-                      onClick={() => setSelectedConv(conv)}
-                      className={`group relative w-full text-left p-5 cursor-pointer transition-colors ${
-                        selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3 mb-1.5">
-                        <div className="flex items-center gap-2 min-w-0">
-                          {conv.user?.avatar_url ? (
-                            <img src={conv.user.avatar_url} alt={`Profile photo of ${conv.user?.full_name || 'user'}`} width={32} height={32} className="w-8 h-8 rounded-full object-cover border border-line flex-shrink-0" />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-ink text-paper flex items-center justify-center text-xs font-medium flex-shrink-0">{conv.user?.full_name?.[0]?.toUpperCase() || '?'}</div>
-                          )}
-                          <span className="font-medium text-ink text-sm truncate">{conv.user?.full_name || 'Unknown'}</span>
-                        </div>
-                        <span className="text-xs text-ink-300 flex-shrink-0">
-                          {conv.updated_at ? new Date(conv.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
-                        </span>
-                      </div>
-                      <p className="text-sm text-ink-600 truncate mb-1 pr-6">{conv.subject}</p>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          {conv.type === 'booking' ? (
-                            <span className="inline-flex items-center gap-1 text-xs text-accent"><Calendar className="w-3 h-3" /> Booking</span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs text-ink-400"><MessageSquare className="w-3 h-3" /> Direct</span>
-                          )}
-                          {conv.user?.role === 'artist' && <span className="text-xs text-ink-300">Artist</span>}
-                          {conv.user?.role === 'host' && <span className="text-xs text-ink-300">Host</span>}
-                        </div>
+                {/* Bulk Select bar for conversations */}
+                <div className="p-3 border-b border-line bg-paper-100 flex items-center justify-between text-xs text-ink-400">
+                  <span className="font-medium text-ink-600">
+                    {selectedConvIds.length > 0 ? `${selectedConvIds.length} Selected` : 'Select for bulk delete'}
+                  </span>
+                  <button
+                    onClick={toggleSelectAllConvs}
+                    className="font-semibold text-ink hover:underline"
+                  >
+                    {selectedConvIds.length === conversations.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
 
-                        {/* Delete Conversation Button */}
+                <div className="divide-y divide-line max-h-[600px] overflow-y-auto">
+                  {conversations.map((conv) => {
+                    const isConvSelected = selectedConvIds.includes(conv.id);
+
+                    return (
+                      <div
+                        key={conv.id}
+                        onClick={() => setSelectedConv(conv)}
+                        className={`group relative w-full text-left p-4 cursor-pointer transition-colors flex items-start gap-3 ${
+                          selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'
+                        }`}
+                      >
+                        {/* Conversation Checkbox */}
                         <button
-                          onClick={(e) => handleDeleteConversation(e, conv.id)}
-                          title="Delete entire conversation"
-                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                          onClick={(e) => toggleSelectConv(e, conv.id)}
+                          className="mt-1 text-ink-400 hover:text-ink flex-shrink-0"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          {isConvSelected ? (
+                            <CheckSquare className="w-4 h-4 text-ink" />
+                          ) : (
+                            <Square className="w-4 h-4" />
+                          )}
                         </button>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2 mb-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              {conv.user?.avatar_url ? (
+                                <img src={conv.user.avatar_url} alt={`Profile photo of ${conv.user?.full_name || 'user'}`} width={28} height={28} className="w-7 h-7 rounded-full object-cover border border-line flex-shrink-0" />
+                              ) : (
+                                <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center text-xs font-medium flex-shrink-0">{conv.user?.full_name?.[0]?.toUpperCase() || '?'}</div>
+                              )}
+                              <span className="font-medium text-ink text-sm truncate">{conv.user?.full_name || 'Unknown'}</span>
+                            </div>
+                            <span className="text-xs text-ink-300 flex-shrink-0">
+                              {conv.updated_at ? new Date(conv.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                            </span>
+                          </div>
+                          
+                          <p className="text-sm font-semibold text-ink truncate mb-1">{conv.subject}</p>
+                          
+                          <div className="flex items-center gap-2 text-xs text-ink-400">
+                            {conv.type === 'booking' ? (
+                              <span className="inline-flex items-center gap-1 text-accent"><Calendar className="w-3 h-3" /> Booking</span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-ink-400"><MessageSquare className="w-3 h-3" /> Direct</span>
+                            )}
+                            {conv.user?.role && <span className="capitalize">• {conv.user.role}</span>}
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 
@@ -429,11 +485,11 @@ export default function AdminInboxPage() {
                       <div className="flex items-center justify-between text-xs text-ink-400">
                         <span className="flex items-center gap-1"><User className="w-3 h-3" /> {selectedConv.user?.full_name}</span>
                         
-                        {/* Select All & Bulk Action Bar */}
+                        {/* Select All & Bulk Action Bar for Sub-Messages */}
                         {messages.length > 0 && (
                           <div className="flex items-center gap-3">
                             <button
-                              onClick={toggleSelectAll}
+                              onClick={toggleSelectAllMsgs}
                               className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink transition-colors"
                             >
                               {selectedMsgIds.length === messages.length ? (
@@ -441,16 +497,16 @@ export default function AdminInboxPage() {
                               ) : (
                                 <Square className="w-3.5 h-3.5" />
                               )}
-                              <span>Select All</span>
+                              <span>Select All Messages</span>
                             </button>
 
                             {selectedMsgIds.length > 0 && (
                               <button
                                 onClick={() => handleDeleteMessages(selectedMsgIds)}
-                                disabled={deleting}
+                                disabled={deletingMsgs}
                                 className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white font-medium rounded hover:bg-red-700 transition-colors disabled:opacity-50"
                               >
-                                {deleting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                                {deletingMsgs ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                 Delete Selected ({selectedMsgIds.length})
                               </button>
                             )}
