@@ -29,6 +29,7 @@ function DashboardRedirect() {
     );
   }
   if (!profile) return <Navigate to="/login" replace />;
+  if (profile.is_admin) return <Navigate to="/admin" replace />;
   return <Navigate to={profile.role === 'artist' ? '/artist-dashboard' : '/host-dashboard'} replace />;
 }
 
@@ -142,15 +143,7 @@ function AppRoutes() {
           path="/admin"
           element={
             <ProtectedRoute requireAdmin>
-              <AdminInboxPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/inbox"
-          element={
-            <ProtectedRoute requireAdmin>
-              <AdminInboxPage />
+              <AdminVerification />
             </ProtectedRoute>
           }
         />
@@ -159,6 +152,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminVerification />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/inbox"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminInboxPage />
             </ProtectedRoute>
           }
         />
