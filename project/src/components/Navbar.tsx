@@ -167,14 +167,18 @@ export default function Navbar() {
                   )}
                 </div>
                 <div className="w-px h-5 bg-line" />
-                <div className="flex items-center gap-2">
+                <Link 
+                  to={profile.role === 'artist' ? '/artist-profile/edit' : dashboardPath} 
+                  aria-label="Edit your profile" 
+                  className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+                >
                   {profile.avatar_url ? (
                     <img src={profile.avatar_url} alt={`Your profile photo`} width={32} height={32} className="w-8 h-8 rounded-full object-cover border border-line" />
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-ink text-paper flex items-center justify-center font-medium text-sm">{profile.full_name?.[0]?.toUpperCase() || '?'}</div>
                   )}
                   <span className="text-xs font-medium text-ink-600 max-w-[80px] truncate">{profile.full_name || 'User'}</span>
-                </div>
+                </Link>
                 <button onClick={handleSignOut} aria-label="Sign out of your account" className="flex items-center gap-1 text-xs font-medium text-ink-400 hover:text-ink transition-colors uppercase tracking-wide-sm">
                   <LogOut className="w-3.5 h-3.5" /> Exit
                 </button>
