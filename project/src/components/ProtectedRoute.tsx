@@ -1,3 +1,4 @@
+import React from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import type { UserRole } from '@/types';
@@ -33,13 +34,17 @@ export default function ProtectedRoute({ children, role, requireAdmin }: Protect
     );
   }
 
-  if (role && profile.role !== role) {
-    const redirectTo = profile.role === 'artist' ? '/artist-dashboard' : '/host-dashboard';
-    return <Navigate to={redirectTo} replace />;
+  // Check if route requires admin access
+  const isAdmin = profile.role === 'admin' || Boolean(profile.is_admin);
+
+  if (requireAdmin && !isAdmin) {
+    return <Navigate to="/inbox" replace />;
   }
 
-  if (requireAdmin && !profile.is_admin) {
-    return <Navigate to="/inbox" replace />;
+  // Admins are allowed to access host/artist protected routes, otherwise match role
+  if (role && profile.role !== role && !isAdmin) {
+    const redirectTo = profile.role === 'artist' ? '/artist-dashboard' : '/host-dashboard';
+    return <Navigate to={redirectTo} replace />;
   }
 
   return <>{children}</>;
