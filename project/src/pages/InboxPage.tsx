@@ -198,7 +198,7 @@ export default function InboxPage() {
 
     try {
       await sendMessage(selectedConv.id, profile.id, finalBody, recipientId);
-      if (!finalBody.startsWith('AUDIO:')) {
+      if (!finalBody.startsWith('AUDIO:') && !finalBody.startsWith('[VOICE_NOTE]')) {
         sendEmailNotification(`Reply: ${selectedConv.subject}`, finalBody).catch(err => console.warn(err));
       }
 
@@ -272,19 +272,19 @@ export default function InboxPage() {
       recorder.ondataavailable = (e) => chunks.push(e.data);
       recorder.onstop = async () => {
         const audioBlob = new Blob(chunks, { type: 'audio/webm' });
-        const fileName = `${Date.now()}.webm`;
+        const filePath = `voice_notes/voice_${Date.now()}.webm`;
 
-        const { error } = await supabase.storage.from('messages').upload(fileName, audioBlob);
+        const { error } = await supabase.storage.from('chat-audio').upload(filePath, audioBlob);
 
         if (error) {
           const reader = new FileReader();
           reader.readAsDataURL(audioBlob);
           reader.onloadend = () => {
-            handleSendReply(`AUDIO:${reader.result as string}`);
+            handleSendReply(`[VOICE_NOTE]${reader.result as string}`);
           };
         } else {
-          const { data: publicUrl } = supabase.storage.from('messages').getPublicUrl(fileName);
-          handleSendReply(`AUDIO:${publicUrl.publicUrl}`);
+          const { data: publicUrl } = supabase.storage.from('chat-audio').getPublicUrl(filePath);
+          handleSendReply(`[VOICE_NOTE]${publicUrl.publicUrl}`);
         }
         stream.getTracks().forEach((track) => track.stop());
       };
@@ -388,7 +388,6 @@ export default function InboxPage() {
 
         if (error) throw error;
 
-        // Optional Formspree emergency email dispatch
         sendEmailNotification(
           `🚨 URGENT EMERGENCY ALERT: ${selectedConv.subject}`,
           `User ${profile.full_name} (${profile.email}) triggered Emergency Support in thread ID: ${selectedConv.id}.`
@@ -596,8 +595,9 @@ export default function InboxPage() {
                     ) : (
                       messages.map((msg) => {
                         const isOwn = msg.sender_id === profile?.id;
-                        const isAudio = msg.body?.startsWith('AUDIO:');
-                        const audioUrl = isAudio ? msg.body.replace('AUDIO:', '') : '';
+                        const msgBody = msg.body || '';
+                        const isVoiceNote = msgBody.startsWith('[VOICE_NOTE]') || msgBody.startsWith('AUDIO:');
+                        const audioUrl = msgBody.replace('[VOICE_NOTE]', '').replace('AUDIO:', '');
                         const msgWithSender = msg as Message & { sender?: Profile };
 
                         return (
@@ -626,7 +626,7 @@ export default function InboxPage() {
                                     : 'bg-paper-200 text-ink border border-line rounded-bl-none'
                                 }`}
                               >
-                                {isAudio ? (
+                                {isVoiceNote ? (
                                   <audio controls src={audioUrl} className="max-w-[240px] h-10" />
                                 ) : (
                                   msg.body
