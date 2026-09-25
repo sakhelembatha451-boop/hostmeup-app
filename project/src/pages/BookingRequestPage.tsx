@@ -2,7 +2,7 @@ import { useState, useEffect, FormEvent, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck } from 'lucide-react';
+import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck, ShieldAlert } from 'lucide-react';
 import type { ArtistWithProfile } from '@/types';
 import { getAdminId, createConversation, createNotification } from '@/lib/messaging';
 
@@ -25,6 +25,12 @@ export default function BookingRequestPage() {
   const [bookingCreated, setBookingCreated] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
 
+  // Host Verification States
+  const [hostVerification, setHostVerification] = useState<{
+    is_identity_verified: boolean;
+    verification_status: 'pending' | 'approved' | 'rejected' | null;
+  } | null>(null);
+
   const [eventName, setEventName] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -37,11 +43,31 @@ export default function BookingRequestPage() {
   useEffect(() => {
     if (!id) return;
     (async () => {
-      const { data } = await supabase.from('profiles').select(`*, artist_profile:artist_profiles(*)`).eq('id', id).maybeSingle();
-      if (data) setArtist(data as ArtistWithProfile);
+      // 1. Fetch Talent Profile
+      const { data: artistData } = await supabase
+        .from('profiles')
+        .select(`*, artist_profile:artist_profiles(*)`)
+        .eq('id', id)
+        .maybeSingle();
+
+      if (artistData) setArtist(artistData as ArtistWithProfile);
+
+      // 2. Fetch Host Verification Status
+      if (profile?.id) {
+        const { data: hostData } = await supabase
+          .from('host_profiles')
+          .select('is_identity_verified, verification_status')
+          .eq('id', profile.id)
+          .maybeSingle();
+
+        if (hostData) {
+          setHostVerification(hostData);
+        }
+      }
+
       setLoading(false);
     })();
-  }, [id]);
+  }, [id, profile?.id]);
 
   const ap = artist?.artist_profile;
   const rateUnit = ap?.rate_unit || 'hour';
@@ -167,6 +193,7 @@ export default function BookingRequestPage() {
   );
 
   const noRateSet = !baseRate || baseRate <= 0;
+  const isHostVerified = hostVerification?.is_identity_verified || hostVerification?.verification_status === 'approved';
 
   return (
     <div className="min-h-screen bg-paper">
@@ -174,6 +201,26 @@ export default function BookingRequestPage() {
         <Link to={`/artists/${id}`} aria-label="Back to talent profile" className="inline-flex items-center gap-2 text-xs font-medium text-ink-400 hover:text-ink uppercase tracking-wide-sm mb-8 transition-colors">
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Profile
         </Link>
+
+        {/* Unverified Host Warning Banner */}
+        {!isHostVerified && (
+          <div className="flex items-start justify-between gap-3 p-4 mb-6 border border-amber-200 bg-amber-50 text-amber-900 text-xs">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 mt-0.5 text-amber-700 flex-shrink-0" />
+              <div>
+                <strong className="font-semibold block mb-0.5">Verification Recommended</strong>
+                <span>
+                  {hostVerification?.verification_status === 'pending'
+                    ? 'Your host verification is currently under review by our team.'
+                    : 'Your host identity is unverified. Verifying your profile increases booking acceptance rates from talent.'}
+                </span>
+              </div>
+            </div>
+            <Link to="/host-settings" className="font-semibold underline whitespace-nowrap text-amber-900 hover:text-amber-700">
+              Verify Now
+            </Link>
+          </div>
+        )}
 
         {/* Talent summary */}
         <div className="flex items-center gap-5 border border-line p-5 mb-8">
