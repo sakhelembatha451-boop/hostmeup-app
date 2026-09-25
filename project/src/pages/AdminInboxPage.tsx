@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { sendMessage, markMessagesRead } from '@/lib/messaging';
+import { sendMessage, markMessagesRead, createConversation } from '@/lib/messaging';
 import AdminSafetyPanel from '../components/AdminSafetyPanel';
-import { Loader2, Send, MessageSquare, X, Calendar, User, ArrowLeft, Shield } from 'lucide-react';
-import type { Conversation, Message } from '@/types';
+import { Loader2, Send, MessageSquare, X, Calendar, User, ArrowLeft, Shield, Plus, Search } from 'lucide-react';
+import type { Conversation, Message, Profile } from '@/types';
 
 export default function AdminInboxPage() {
   const { profile } = useAuth();
@@ -18,6 +18,15 @@ export default function AdminInboxPage() {
   const [activeTab, setActiveTab] = useState<'inbox' | 'safety'>('inbox');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // New Message Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [allUsers, setAllUsers] = useState<Profile[]>([]);
+  const [userSearch, setUserSearch] = useState('');
+  const [selectedRecipient, setSelectedRecipient] = useState<Profile | null>(null);
+  const [newSubject, setNewSubject] = useState('');
+  const [initialMsg, setInitialMsg] = useState('');
+  const [startingConv, setStartingConv] = useState(false);
+
   const loadConversations = useCallback(async () => {
     const { data, error } = await supabase
       .from('conversations')
@@ -27,6 +36,16 @@ export default function AdminInboxPage() {
     else { setConversations((data as Conversation[]) || []); }
     setLoading(false);
   }, []);
+
+  const loadUsers = useCallback(async () => {
+    if (!profile) return;
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .neq('id', profile.id)
+      .order('full_name', { ascending: true });
+    setAllUsers((data as Profile[]) || []);
+  }, [profile]);
 
   const loadMessages = useCallback(async (convId: string) => {
     setMsgLoading(true);
@@ -40,7 +59,10 @@ export default function AdminInboxPage() {
     setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   }, []);
 
-  useEffect(() => { loadConversations(); }, [loadConversations]);
+  useEffect(() => { 
+    loadConversations(); 
+    loadUsers();
+  }, [loadConversations, loadUsers]);
 
   useEffect(() => {
     if (!selectedConv || !profile) return;
@@ -72,6 +94,37 @@ export default function AdminInboxPage() {
     setSending(false);
   };
 
+  const handleStartConversation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedRecipient || !newSubject.trim() || !initialMsg.trim() || !profile) return;
+    setStartingConv(true);
+    try {
+      const conv = await createConversation(
+        selectedRecipient.id,
+        newSubject.trim(),
+        'inquiry'
+      );
+      if (conv) {
+        await sendMessage(conv.id, profile.id, initialMsg.trim(), selectedRecipient.id);
+        setIsModalOpen(false);
+        setSelectedRecipient(null);
+        setNewSubject('');
+        setInitialMsg('');
+        setUserSearch('');
+        await loadConversations();
+        setSelectedConv(conv);
+      }
+    } catch (err) {
+      console.error('Failed to create conversation', err);
+    }
+    setStartingConv(false);
+  };
+
+  const filteredUsers = allUsers.filter(u => 
+    (u.full_name || '').toLowerCase().includes(userSearch.toLowerCase()) ||
+    (u.email || '').toLowerCase().includes(userSearch.toLowerCase())
+  );
+
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
   return (
@@ -91,11 +144,20 @@ export default function AdminInboxPage() {
             </p>
           </div>
 
-          {/* Navigation Toggle Buttons */}
-          <div className="flex items-center gap-2">
+          {/* Navigation & Action Buttons */}
+          <div className="flex flex-wrap items-center gap-2">
+            {activeTab === 'inbox' && (
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink/90 transition-colors border border-ink"
+              >
+                <Plus className="w-4 h-4" />
+                New Message
+              </button>
+            )}
             <button
               onClick={() => setActiveTab('inbox')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wide-sm transition-colors border ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm transition-colors border ${
                 activeTab === 'inbox' 
                   ? 'bg-ink text-paper border-ink' 
                   : 'bg-paper text-ink border-line hover:bg-paper-200'
@@ -106,7 +168,7 @@ export default function AdminInboxPage() {
             </button>
             <button
               onClick={() => setActiveTab('safety')}
-              className={`flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wide-sm transition-colors border ${
+              className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm transition-colors border ${
                 activeTab === 'safety' 
                   ? 'bg-ink text-paper border-ink' 
                   : 'bg-paper text-ink border-line hover:bg-paper-200'
@@ -128,10 +190,19 @@ export default function AdminInboxPage() {
         {/* Tab 2: Admin Inbox */}
         {activeTab === 'inbox' && (
           conversations.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 text-center">
-              <div className="w-16 h-16 border border-line flex items-center justify-center text-ink-300 mb-6"><MessageSquare className="w-7 h-7" /></div>
+            <div className="flex flex-col items-center justify-center py-24 text-center border border-line bg-paper-100">
+              <div className="w-16 h-16 border border-line flex items-center justify-center text-ink-300 mb-6 bg-paper">
+                <MessageSquare className="w-7 h-7" />
+              </div>
               <h3 className="font-display text-xl text-ink mb-1">No conversations yet</h3>
-              <p className="text-sm text-ink-400">When users send messages, they'll appear here.</p>
+              <p className="text-sm text-ink-400 mb-6">Start a conversation directly with any artist or host.</p>
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="btn-primary flex items-center gap-2 px-6 py-3 text-xs uppercase tracking-wide-sm"
+              >
+                <Plus className="w-4 h-4" />
+                Start First Message
+              </button>
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 border border-line min-h-[500px]">
@@ -251,12 +322,131 @@ export default function AdminInboxPage() {
                 ) : (
                   <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
                     <MessageSquare className="w-10 h-10 text-ink-200 mb-4" />
-                    <p className="text-sm text-ink-400">Select a conversation to view and reply to messages.</p>
+                    <p className="text-sm text-ink-400">Select a conversation or click "+ New Message" to talk to a user.</p>
                   </div>
                 )}
               </div>
             </div>
           )
+        )}
+
+        {/* Start New Conversation Modal */}
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
+            <div className="bg-paper border border-line w-full max-w-lg p-6 relative shadow-xl">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="absolute top-4 right-4 text-ink-400 hover:text-ink"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <h2 className="font-display text-2xl font-bold text-ink mb-1">New Message</h2>
+              <p className="text-xs text-ink-400 uppercase tracking-wide-sm mb-6">Send a direct message to any platform user</p>
+
+              <form onSubmit={handleStartConversation} className="space-y-4">
+                {/* Select User */}
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium">Select Recipient</label>
+                  {!selectedRecipient ? (
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <Search className="w-4 h-4 absolute left-3 top-3 text-ink-400" />
+                        <input
+                          type="text"
+                          placeholder="Search users by name or email..."
+                          value={userSearch}
+                          onChange={(e) => setUserSearch(e.target.value)}
+                          className="input-editorial w-full pl-9 pr-4 py-2 text-sm"
+                        />
+                      </div>
+                      <div className="max-h-40 overflow-y-auto border border-line divide-y divide-line bg-paper-100">
+                        {filteredUsers.length === 0 ? (
+                          <div className="p-3 text-xs text-ink-400 text-center">No matching users found</div>
+                        ) : (
+                          filteredUsers.map((u) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => setSelectedRecipient(u)}
+                              className="w-full text-left p-2.5 hover:bg-paper-200 transition-colors flex items-center justify-between"
+                            >
+                              <div>
+                                <p className="text-sm font-medium text-ink">{u.full_name || 'Unnamed User'}</p>
+                                <p className="text-xs text-ink-400">{u.email}</p>
+                              </div>
+                              <span className="text-[10px] uppercase tracking-wide-sm border border-line px-2 py-0.5 text-ink-400 bg-paper">
+                                {u.role || 'user'}
+                              </span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between p-3 border border-ink bg-paper-200">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">{selectedRecipient.full_name}</p>
+                        <p className="text-xs text-ink-400">{selectedRecipient.email}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRecipient(null)}
+                        className="text-xs text-accent hover:underline font-medium"
+                      >
+                        Change
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Subject */}
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium">Subject</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Account Support / Platform Update"
+                    value={newSubject}
+                    onChange={(e) => setNewSubject(e.target.value)}
+                    className="input-editorial w-full px-4 py-2.5 text-sm"
+                  />
+                </div>
+
+                {/* Initial Message */}
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium">Message Body</label>
+                  <textarea
+                    required
+                    rows={4}
+                    placeholder="Type your message..."
+                    value={initialMsg}
+                    onChange={(e) => setInitialMsg(e.target.value)}
+                    className="input-editorial w-full px-4 py-2.5 text-sm resize-none"
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex justify-end gap-3 pt-4 border-t border-line">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-5 py-2.5 text-xs font-semibold uppercase tracking-wide-sm border border-line text-ink hover:bg-paper-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={startingConv || !selectedRecipient || !newSubject.trim() || !initialMsg.trim()}
+                    className="btn-primary px-6 py-2.5 text-xs font-semibold uppercase tracking-wide-sm flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {startingConv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    Send Message
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
         )}
       </div>
     </div>
