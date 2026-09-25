@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Calendar, MapPin, Clock, Loader2, Package, FileText, CalendarPlus, DollarSign, CheckCircle2 } from 'lucide-react';
+import { Calendar, MapPin, Clock, Loader2, Package, FileText, CalendarPlus, DollarSign, CheckCircle2, ShieldAlert } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
+import HostStatusBadge from '@/components/HostStatusBadge';
 
 type BookingWithArtist = Booking & { artist?: { id: string; full_name: string; avatar_url: string | null; location: string } };
 
@@ -20,30 +21,51 @@ export default function HostDashboard() {
   const [filter, setFilter] = useState<string>('all');
   const [payingId, setPayingId] = useState<string | null>(null);
 
-  const loadBookings = useCallback(async () => {
+  // Host Verification State
+  const [hostVerification, setHostVerification] = useState<{
+    is_identity_verified: boolean;
+    verification_status: 'pending' | 'approved' | 'rejected' | null;
+  } | null>(null);
+
+  const loadData = useCallback(async () => {
     if (!profile) return;
-    const { data, error } = await supabase
+
+    // 1. Fetch Bookings
+    const { data: bookingsData, error } = await supabase
       .from('bookings')
       .select(`*, artist:profiles!bookings_artist_id_fkey(id, full_name, avatar_url, location)`)
       .eq('host_id', profile.id)
       .order('created_at', { ascending: false });
+
     if (error) { setBookings([]); }
-    else { setBookings((data as BookingWithArtist[]) || []); }
+    else { setBookings((bookingsData as BookingWithArtist[]) || []); }
+
+    // 2. Fetch Host Verification Status
+    const { data: hostData } = await supabase
+      .from('host_profiles')
+      .select('is_identity_verified, verification_status')
+      .eq('id', profile.id)
+      .maybeSingle();
+
+    if (hostData) {
+      setHostVerification(hostData);
+    }
+
     setLoading(false);
   }, [profile]);
 
-  useEffect(() => { loadBookings(); }, [loadBookings]);
+  useEffect(() => { loadData(); }, [loadData]);
 
   const updateBookingStatus = async (id: string, status: string) => {
     await supabase.from('bookings').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
-    loadBookings();
+    loadData();
   };
 
   const payDeposit = async (id: string) => {
     setPayingId(id);
     await supabase.from('bookings').update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', id);
     setPayingId(null);
-    loadBookings();
+    loadData();
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
@@ -55,15 +77,44 @@ export default function HostDashboard() {
     declined: bookings.filter((b) => b.status === 'declined').length,
   };
 
+  const isHostVerified = hostVerification?.is_identity_verified || hostVerification?.verification_status === 'approved';
+
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12">
+        
+        {/* Verification Alert Banner */}
+        {!isHostVerified && (
+          <div className="flex items-start justify-between gap-3 p-4 mb-8 border border-amber-200 bg-amber-50 text-amber-900 text-xs">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 mt-0.5 text-amber-700 flex-shrink-0" />
+              <div>
+                <strong className="font-semibold block mb-0.5">Identity Verification Recommended</strong>
+                <span>
+                  {hostVerification?.verification_status === 'pending'
+                    ? 'Your host verification is currently under review.'
+                    : 'Get verified to increase trust and booking acceptance rates from top talent.'}
+                </span>
+              </div>
+            </div>
+            <Link to="/host-settings" className="font-semibold underline whitespace-nowrap text-amber-900 hover:text-amber-700">
+              Verify Identity
+            </Link>
+          </div>
+        )}
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-10">
           <div>
             <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Host Dashboard</p>
-            <h1 className="font-display text-4xl font-bold text-ink mb-1 tracking-tight">Your Bookings</h1>
+            <div className="flex items-center gap-3 mb-1">
+              <h1 className="font-display text-4xl font-bold text-ink tracking-tight">Your Bookings</h1>
+              <HostStatusBadge 
+                isVerified={hostVerification?.is_identity_verified}
+                verificationStatus={hostVerification?.verification_status}
+              />
+            </div>
             <p className="text-ink-400">Track your booking requests and payment status.</p>
           </div>
           <Link to="/artists" aria-label="Browse and book talent" className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm">
