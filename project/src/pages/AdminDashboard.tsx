@@ -1,109 +1,194 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ShieldCheck, Mail, Settings, Users, Calendar, Loader2 } from 'lucide-react';
+import { Calendar, MapPin, Clock, Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
+import type { Booking } from '@/types';
+import { StatusBadge } from '@/components/UI';
+
+type AdminBookingView = Booking & {
+  host?: {
+    full_name: string;
+    email?: string;
+  };
+  artist?: {
+    stage_name?: string;
+    full_name: string;
+  };
+};
+
+function formatCurrency(n: number | null) {
+  if (n == null) return 'R0';
+  return `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
 
 export default function AdminDashboard() {
-  const [stats, setStats] = useState({
-    pendingVerifications: 0,
-    totalBookings: 0,
-    totalArtists: 0,
-  });
+  const [bookings, setBookings] = useState<AdminBookingView[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<string>('all');
+
+  const loadAllBookings = useCallback(async () => {
+    setLoading(true);
+    const { data, error } = await supabase
+      .from('bookings')
+      .select(`
+        *,
+        host:profiles!bookings_host_id_fkey(full_name, email),
+        artist:profiles!bookings_artist_id_fkey(full_name)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (!error && data) {
+      setBookings(data as unknown as AdminBookingView[]);
+    } else {
+      setBookings([]);
+    }
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    async function loadAdminStats() {
-      try {
-        const { count: pendingCount } = await supabase
-          .from('host_profiles')
-          .select('*', { count: 'exact', head: true })
-          .eq('verification_status', 'pending');
+    loadAllBookings();
+  }, [loadAllBookings]);
 
-        const { count: bookingsCount } = await supabase
-          .from('bookings')
-          .select('*', { count: 'exact', head: true });
+  const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
 
-        const { count: artistsCount } = await supabase
-          .from('artist_profiles')
-          .select('*', { count: 'exact', head: true });
-
-        setStats({
-          pendingVerifications: pendingCount || 0,
-          totalBookings: bookingsCount || 0,
-          totalArtists: artistsCount || 0,
-        });
-      } catch (err) {
-        console.error('Error loading admin stats:', err);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    loadAdminStats();
-  }, []);
+  // Platform Metrics
+  const totalVolume = bookings.reduce((sum, b) => sum + (b.total_amount || 0), 0);
+  const totalDepositsCollected = bookings
+    .filter((b) => b.deposit_paid)
+    .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
+  const totalOutstandingBalance = bookings
+    .filter((b) => b.status === 'confirmed' || b.status === 'accepted')
+    .reduce((sum, b) => {
+      const remaining = (b.total_amount || 0) - (b.deposit_paid ? (b.deposit_amount || 0) : 0);
+      return sum + Math.max(0, remaining);
+    }, 0);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-paper flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-ink-400" />
+      <div className="flex items-center justify-center min-h-screen bg-paper">
+        <Loader2 className="w-6 h-6 text-ink animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
-      <div className="max-w-5xl mx-auto space-y-8">
-        <div>
-          <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-2">— System Management</p>
-          <h1 className="font-display text-3xl font-bold text-ink">Admin Portal</h1>
-          <p className="text-xs text-ink-500 mt-1">Manage platform verifications, messages, and configurations.</p>
+    <div className="min-h-screen bg-paper">
+      <div className="max-w-6xl mx-auto px-6 lg:px-12 py-12">
+        <div className="mb-8">
+          <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-2">— Admin Control Center</p>
+          <h1 className="font-display text-4xl font-bold text-ink mb-1">Global Bookings Overview</h1>
+          <p className="text-ink-400">Track all host booking requests, deposits paid, and remaining balances.</p>
         </div>
 
-        {/* Quick Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 border-y border-line py-6">
+        {/* Global Financial Summary */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10 border-y border-line py-6">
           <div>
-            <div className="font-display text-3xl font-bold text-accent">{stats.pendingVerifications}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400 mt-1">Pending Verifications</div>
+            <div className="font-display text-3xl font-bold text-ink mb-1">{formatCurrency(totalVolume)}</div>
+            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Total Booking Value</div>
           </div>
           <div>
-            <div className="font-display text-3xl font-bold text-ink">{stats.totalBookings}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400 mt-1">Total Bookings</div>
+            <div className="font-display text-3xl font-bold text-accent mb-1">{formatCurrency(totalDepositsCollected)}</div>
+            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Deposits Paid (40%)</div>
           </div>
           <div>
-            <div className="font-display text-3xl font-bold text-ink-500">{stats.totalArtists}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400 mt-1">Registered Artists</div>
+            <div className="font-display text-3xl font-bold text-ink-500 mb-1">{formatCurrency(totalOutstandingBalance)}</div>
+            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Remaining Balance Due</div>
           </div>
         </div>
 
-        {/* Management Action Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <Link to="/admin/verifications" className="border border-line p-6 hover:border-ink transition-all bg-paper flex flex-col justify-between space-y-4">
-            <div>
-              <ShieldCheck className="w-6 h-6 text-accent mb-3" />
-              <h3 className="font-display text-lg font-bold text-ink">Identity Verifications</h3>
-              <p className="text-xs text-ink-500 mt-1">Review uploaded documents and approve host status.</p>
-            </div>
-            <span className="text-xs font-semibold uppercase tracking-wide-sm text-accent">Review Requests →</span>
-          </Link>
-
-          <Link to="/admin/inbox" className="border border-line p-6 hover:border-ink transition-all bg-paper flex flex-col justify-between space-y-4">
-            <div>
-              <Mail className="w-6 h-6 text-ink-400 mb-3" />
-              <h3 className="font-display text-lg font-bold text-ink">Platform Inbox</h3>
-              <p className="text-xs text-ink-500 mt-1">View incoming platform inquiries and admin support messages.</p>
-            </div>
-            <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink">Open Inbox →</span>
-          </Link>
-
-          <Link to="/admin/settings" className="border border-line p-6 hover:border-ink transition-all bg-paper flex flex-col justify-between space-y-4">
-            <div>
-              <Settings className="w-6 h-6 text-ink-400 mb-3" />
-              <h3 className="font-display text-lg font-bold text-ink">System Settings</h3>
-              <p className="text-xs text-ink-500 mt-1">Configure platform rates, deposit requirements, and general policies.</p>
-            </div>
-            <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink">Manage Settings →</span>
-          </Link>
+        {/* Filters */}
+        <div className="flex flex-wrap gap-2 mb-8">
+          {['all', 'pending', 'confirmed', 'accepted', 'declined'].map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}
+            >
+              {f} ({f === 'all' ? bookings.length : bookings.filter((b) => b.status === f).length})
+            </button>
+          ))}
         </div>
+
+        {/* Bookings Table/List */}
+        {filtered.length === 0 ? (
+          <div className="p-12 text-center border border-line bg-paper">
+            <p className="text-ink-400">No booking requests found for this filter.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {filtered.map((booking) => {
+              const total = booking.total_amount || 0;
+              const deposit = booking.deposit_amount || 0;
+              const remaining = booking.deposit_paid ? total - deposit : total;
+
+              return (
+                <div key={booking.id} className="border border-line p-6 bg-paper hover:border-ink/20 transition-all">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+                    {/* Event & User Details */}
+                    <div className="space-y-2 flex-1">
+                      <div className="flex items-center gap-3">
+                        <h3 className="font-display text-xl font-bold text-ink">{booking.event_name}</h3>
+                        <StatusBadge status={booking.status} />
+                      </div>
+
+                      <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-ink-500">
+                        <p><strong>Host:</strong> {booking.host?.full_name || 'N/A'}</p>
+                        <p><strong>Talent:</strong> {booking.artist?.full_name || 'N/A'}</p>
+                      </div>
+
+                      <div className="flex flex-wrap gap-4 text-xs text-ink-400 pt-1">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3.5 h-3.5" />
+                          {new Date(booking.event_date).toLocaleDateString('en-ZA', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                        {booking.start_time && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3.5 h-3.5" />
+                            {booking.start_time}
+                          </span>
+                        )}
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5" />
+                          {booking.location}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Financial Breakdown Card */}
+                    <div className="border border-line bg-paper-200 p-4 min-w-[300px]">
+                      <div className="grid grid-cols-3 gap-3 text-center">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide-sm text-ink-400">Total</p>
+                          <p className="font-display font-semibold text-ink text-sm">{formatCurrency(total)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide-sm text-accent">Deposit (40%)</p>
+                          <p className="font-display font-semibold text-accent text-sm">{formatCurrency(deposit)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide-sm text-ink-400">Left Due</p>
+                          <p className="font-display font-semibold text-ink-500 text-sm">{formatCurrency(remaining)}</p>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 pt-2 border-t border-line flex items-center justify-between text-xs">
+                        <span className="text-ink-400 font-medium">Payment Status:</span>
+                        {booking.deposit_paid ? (
+                          <span className="text-accent flex items-center gap-1 font-semibold">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Deposit Paid
+                          </span>
+                        ) : (
+                          <span className="text-amber-600 flex items-center gap-1 font-semibold">
+                            <AlertCircle className="w-3.5 h-3.5" /> Deposit Unpaid
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
