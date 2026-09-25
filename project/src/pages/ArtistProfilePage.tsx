@@ -1,7 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { MapPin, Clock, ArrowLeft, Loader2, Music2, ShieldCheck, Edit3, ExternalLink, Globe, Instagram, X } from 'lucide-react';
+import { 
+  MapPin, 
+  Clock, 
+  ArrowLeft, 
+  Loader2, 
+  Music2, 
+  ShieldCheck, 
+  Edit3, 
+  ExternalLink, 
+  Globe, 
+  Instagram, 
+  X, 
+  Shield, 
+  Save 
+} from 'lucide-react';
 
 export default function ArtistProfilePage() {
   const { id } = useParams<{ id: string }>();
@@ -12,6 +26,13 @@ export default function ArtistProfilePage() {
   
   // State for image lightbox modal
   const [activeImage, setActiveImage] = useState<string | null>(null);
+
+  // Emergency Contact State
+  const [emergencyName, setEmergencyName] = useState('');
+  const [emergencyPhone, setEmergencyPhone] = useState('');
+  const [emergencyRelationship, setEmergencyRelationship] = useState('');
+  const [savingEmergency, setSavingEmergency] = useState(false);
+  const [emergencyMessage, setEmergencyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     checkCurrentUser();
@@ -24,6 +45,30 @@ export default function ArtistProfilePage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       setCurrentUserId(user.id);
+      fetchEmergencyContact(user.id);
+    }
+  };
+
+  const fetchEmergencyContact = async (userId: string) => {
+    try {
+      const { data, error: fetchErr } = await supabase
+        .from('profiles')
+        .select('emergency_contact_name, emergency_contact_phone, emergency_contact_relationship')
+        .eq('id', userId)
+        .single();
+
+      if (fetchErr && fetchErr.code !== 'PGRST116') {
+        console.error('Error fetching emergency details:', fetchErr.message);
+        return;
+      }
+
+      if (data) {
+        setEmergencyName(data.emergency_contact_name || '');
+        setEmergencyPhone(data.emergency_contact_phone || '');
+        setEmergencyRelationship(data.emergency_contact_relationship || '');
+      }
+    } catch (err: any) {
+      console.error('Error in fetchEmergencyContact:', err.message);
     }
   };
 
@@ -45,6 +90,34 @@ export default function ArtistProfilePage() {
       setError('Could not load artist profile.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveEmergencyContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUserId) return;
+
+    try {
+      setSavingEmergency(true);
+      setEmergencyMessage(null);
+
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          emergency_contact_name: emergencyName,
+          emergency_contact_phone: emergencyPhone,
+          emergency_contact_relationship: emergencyRelationship
+        })
+        .eq('id', currentUserId);
+
+      if (updateError) throw updateError;
+
+      setEmergencyMessage({ type: 'success', text: 'Emergency contact updated successfully.' });
+    } catch (err: any) {
+      console.error('Error updating emergency contact:', err.message);
+      setEmergencyMessage({ type: 'error', text: 'Failed to save emergency contact.' });
+    } finally {
+      setSavingEmergency(false);
     }
   };
 
@@ -70,7 +143,7 @@ export default function ArtistProfilePage() {
   }
 
   const isOwner = currentUserId && artist.user_id && currentUserId === artist.user_id;
-  // Ensure we get the correct uploaded gallery photos array first from gallery_urls
+
   const galleryImages: string[] = Array.isArray(artist.gallery_urls) && artist.gallery_urls.length > 0
     ? artist.gallery_urls
     : Array.isArray(artist.gallery) && artist.gallery.length > 0
@@ -80,12 +153,11 @@ export default function ArtistProfilePage() {
     : Array.isArray(artist.media_urls)
     ? artist.media_urls
     : [];
-  // Extract social links from nested object or direct columns
+
   const instagram = artist.social_links?.instagram || artist.instagram || artist.instagram_url;
   const spotify = artist.social_links?.spotify || artist.spotify || artist.spotify_url;
   const soundcloud = artist.social_links?.soundcloud || artist.soundcloud || artist.soundcloud_url;
   const youtube = artist.social_links?.youtube || artist.youtube || artist.youtube_url;
-  
 
   return (
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
@@ -103,7 +175,7 @@ export default function ArtistProfilePage() {
               {artist.cover_url || artist.avatar_url ? (
                 <img
                   src={artist.cover_url || artist.avatar_url}
-                  alt={artist.stage_name}
+                  alt={artist.stage_name || 'Artist Image'}
                   className="w-full h-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
                   onClick={() => setActiveImage(artist.cover_url || artist.avatar_url)}
                 />
@@ -146,7 +218,7 @@ export default function ArtistProfilePage() {
               </p>
             </div>
 
-            {/* Gallery Photos (Clickable Lightbox Grid) */}
+            {/* Gallery Photos */}
             {galleryImages.length > 0 && (
               <div className="border-t border-line pt-6">
                 <h3 className="font-display text-lg font-bold text-ink mb-4">Gallery & Portfolio</h3>
@@ -184,57 +256,58 @@ export default function ArtistProfilePage() {
                 </a>
               </div>
             )}
+
+            {/* Social & Streaming Links */}
+            {(instagram || spotify || soundcloud || youtube) && (
+              <div className="space-y-4 pt-6 border-t border-line">
+                <h3 className="text-xs uppercase tracking-wide-sm font-semibold text-ink-500">
+                  Social & Streaming Media
+                </h3>
+                <div className="flex flex-wrap gap-4">
+                  {spotify && (
+                    <a
+                      href={spotify.startsWith('http') ? spotify : `https://${spotify}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                      Spotify
+                    </a>
+                  )}
+                  {instagram && (
+                    <a
+                      href={instagram.startsWith('http') ? instagram : `https://instagram.com/${instagram.replace('@', '')}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                      Instagram
+                    </a>
+                  )}
+                  {soundcloud && (
+                    <a
+                      href={soundcloud.startsWith('http') ? soundcloud : `https://${soundcloud}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                      SoundCloud
+                    </a>
+                  )}
+                  {youtube && (
+                    <a
+                      href={youtube.startsWith('http') ? youtube : `https://${youtube}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
+                    >
+                      YouTube
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
-         {/* Social & Streaming Links */}
-        {(instagram || spotify || soundcloud || youtube) && (
-          <div className="space-y-4 pt-6 border-t border-line">
-            <h3 className="text-xs uppercase tracking-wide-sm font-semibold text-ink-500">
-              Social & Streaming Media
-            </h3>
-            <div className="flex flex-wrap gap-4">
-              {spotify && (
-                <a
-                  href={spotify.startsWith('http') ? spotify : `https://${spotify}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
-                >
-                  Spotify
-                </a>
-              )}
-              {instagram && (
-                <a
-                  href={instagram.startsWith('http') ? instagram : `https://instagram.com/${instagram.replace('@', '')}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
-                >
-                  Instagram
-                </a>
-              )}
-              {soundcloud && (
-                <a
-                  href={soundcloud.startsWith('http') ? soundcloud : `https://${soundcloud}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
-                >
-                  SoundCloud
-                </a>
-              )}
-              {youtube && (
-                <a
-                  href={youtube.startsWith('http') ? youtube : `https://${youtube}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
-                >
-                  YouTube
-                </a>
-              )}
-            </div>
-          </div>
-        )} 
 
           {/* Sidebar */}
           <div className="space-y-6">
@@ -272,7 +345,77 @@ export default function ArtistProfilePage() {
               )}
             </div>
 
-            {/* Social Links */}
+            {/* Emergency Safety Protocols Form (Visible to Owner) */}
+            {isOwner && (
+              <div className="border border-line bg-paper p-6 space-y-4">
+                <div className="flex items-center gap-2 border-b border-line pb-3">
+                  <Shield className="w-4 h-4 text-ink" />
+                  <h4 className="text-xs uppercase tracking-wide-sm font-bold text-ink">Emergency Contact Details</h4>
+                </div>
+                
+                <form onSubmit={handleSaveEmergencyContact} className="space-y-3">
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wide-sm text-ink-500 mb-1 font-semibold">
+                      Contact Name
+                    </label>
+                    <input
+                      type="text"
+                      value={emergencyName}
+                      onChange={(e) => setEmergencyName(e.target.value)}
+                      placeholder="e.g. Sibusiso Mbatha"
+                      className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wide-sm text-ink-500 mb-1 font-semibold">
+                      Contact Phone (WhatsApp)
+                    </label>
+                    <input
+                      type="tel"
+                      value={emergencyPhone}
+                      onChange={(e) => setEmergencyPhone(e.target.value)}
+                      placeholder="e.g. +27 82 123 4567"
+                      className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wide-sm text-ink-500 mb-1 font-semibold">
+                      Relationship
+                    </label>
+                    <input
+                      type="text"
+                      value={emergencyRelationship}
+                      onChange={(e) => setEmergencyRelationship(e.target.value)}
+                      placeholder="e.g. Parent / Spouse / Manager"
+                      className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
+                    />
+                  </div>
+
+                  {emergencyMessage && (
+                    <p className={`text-[11px] font-medium ${emergencyMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
+                      {emergencyMessage.text}
+                    </p>
+                  )}
+
+                  <button
+                    type="submit"
+                    disabled={savingEmergency}
+                    className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 disabled:opacity-50 transition-colors"
+                  >
+                    {savingEmergency ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    {savingEmergency ? 'Saving...' : 'Save Safety Contact'}
+                  </button>
+                </form>
+              </div>
+            )}
+
+            {/* Links & Socials Sidebar Panel */}
             {(artist.website_url || artist.instagram_url) && (
               <div className="border border-line bg-paper p-6 space-y-3">
                 <h4 className="text-xs uppercase tracking-wide-sm font-bold text-ink mb-2">Links & Socials</h4>
