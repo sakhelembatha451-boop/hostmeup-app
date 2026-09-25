@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { LogOut, LayoutDashboard, User, Menu, X, Bell, Mail, Shield } from 'lucide-react';
+import { LogOut, LayoutDashboard, User, Menu, X, Bell, Mail, Shield, ShieldCheck } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { markNotificationRead, markAllNotificationsRead } from '@/lib/messaging';
@@ -14,7 +14,13 @@ export default function Navbar() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
-  const dashboardPath = profile?.role === 'artist' ? '/artist-dashboard' : '/host-dashboard';
+  // Dynamic dashboard path based on role and admin status
+  const dashboardPath = profile?.is_admin
+    ? '/admin'
+    : profile?.role === 'artist'
+    ? '/artist-dashboard'
+    : '/host-dashboard';
+
   const inboxPath = profile?.is_admin ? '/admin/inbox' : '/inbox';
 
   const handleSignOut = async () => {
@@ -115,9 +121,15 @@ export default function Navbar() {
                     <User className="w-3.5 h-3.5" /> Profile
                   </Link>
                 )}
+                {/* Admin Management Navigation */}
+                {profile.is_admin && (
+                  <Link to="/admin/verifications" aria-label="Admin Verifications" className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
+                    <ShieldCheck className="w-3.5 h-3.5 text-accent" /> Verifications
+                  </Link>
+                )}
                 {/* Inbox */}
                 <Link to={inboxPath} aria-label={profile.is_admin ? 'Go to admin inbox' : 'Go to your inbox'} className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
-                  <Mail className="w-3.5 h-3.5" /> {profile.is_admin ? 'Admin' : 'Inbox'}
+                  <Mail className="w-3.5 h-3.5" /> {profile.is_admin ? 'Admin Inbox' : 'Inbox'}
                 </Link>
                 {profile.is_admin && (
                   <Link to="/admin/settings" aria-label="Admin settings" className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm">
@@ -210,6 +222,7 @@ export default function Navbar() {
                 <Link to="/artists" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Browse</Link>
                 <Link to={dashboardPath} onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Dashboard</Link>
                 {profile.role === 'artist' && <Link to="/artist-profile/edit" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Profile</Link>}
+                {profile.is_admin && <Link to="/admin/verifications" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Verifications</Link>}
                 <Link to={inboxPath} onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">{profile.is_admin ? 'Admin Inbox' : 'Inbox'}</Link>
                 {profile.is_admin && <Link to="/admin/settings" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">Admin Settings</Link>}
                 <Link to="/legal" onClick={() => setMenuOpen(false)} className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm">T&C's</Link>
