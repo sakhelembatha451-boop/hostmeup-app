@@ -32,19 +32,22 @@ export default function ArtistsPage() {
       let query = supabase.from('artist_profiles').select('*');
 
       if (selectedCategory !== 'ALL') {
-        query = query.contains('categories', [selectedCategory]);
+        query = query.or(`categories.cs.{${selectedCategory}},categories.cs.{${selectedCategory.toLowerCase()}}`);
       }
 
       if (locationSearch.trim()) {
-        query = query.ilike('location_city', `%${locationSearch.trim()}%`);
+        const search = locationSearch.trim();
+        query = query.or(`location_city.ilike.%${search}%,location_province.ilike.%${search}%`);
       }
 
-      if (minRate) {
-        query = query.gte('hourly_rate', parseFloat(minRate));
+      const minVal = parseFloat(minRate);
+      if (!isNaN(minVal) && minVal > 0) {
+        query = query.gte('hourly_rate', minVal);
       }
 
-      if (maxRate) {
-        query = query.lte('hourly_rate', parseFloat(maxRate));
+      const maxVal = parseFloat(maxRate);
+      if (!isNaN(maxVal) && maxVal > 0) {
+        query = query.lte('hourly_rate', maxVal);
       }
 
       const { data, error } = await query;
