@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { sendMessage, markMessagesRead } from '@/lib/messaging';
@@ -29,35 +29,40 @@ export default function AdminInboxPage() {
 
   const loadConversations = useCallback(async () => {
     try {
-      const { data, error } = await supabase
+      // 1. Fetch conversations without inner join dependencies
+      const { data: convs, error: convError } = await supabase
         .from('conversations')
-        .select(`
-          *,
-          user:profiles!user_id (
-            id,
-            full_name,
-            email,
-            avatar_url,
-            role
-          ),
-          booking:bookings (
-            id,
-            event_name,
-            event_date,
-            status,
-            total_amount,
-            deposit_amount,
-            deposit_paid
-          )
-        `)
+        .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Error loading conversations:', error);
+      if (convError) throw convError;
+
+      if (!convs || convs.length === 0) {
         setConversations([]);
-      } else {
-        setConversations((data as Conversation[]) || []);
+        return;
       }
+
+      // 2. Map profiles manually to avoid foreign key alias failures
+      const userIds = Array.from(new Set(convs.map((c) => c.user_id).filter(Boolean)));
+      
+      let profilesMap: Record<string, Profile> = {};
+      if (userIds.length > 0) {
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, full_name, email, avatar_url, role')
+          .in('id', userIds);
+
+        if (profilesData) {
+          profilesMap = profilesData.reduce((acc, p) => ({ ...acc, [p.id]: p as Profile }), {});
+        }
+      }
+
+      const mappedConversations = convs.map((c) => ({
+        ...c,
+        user: profilesMap[c.user_id] || null,
+      }));
+
+      setConversations(mappedConversations as Conversation[]);
     } catch (err) {
       console.error('Failed to load conversations:', err);
       setConversations([]);
