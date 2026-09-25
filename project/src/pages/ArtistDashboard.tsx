@@ -5,8 +5,21 @@ import { useAuth } from '@/context/AuthContext';
 import { Calendar, MapPin, Clock, Loader2, Package, FileText, Check, X, User, ExternalLink, DollarSign } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
+import HostStatusBadge from '@/components/HostStatusBadge';
 
-type BookingWithHost = Booking & { host?: { id: string; full_name: string; avatar_url: string | null; location: string } };
+type BookingWithHost = Booking & {
+  host?: {
+    id: string;
+    full_name: string;
+    avatar_url: string | null;
+    location: string;
+    host_profile?: {
+      company_name?: string | null;
+      is_identity_verified?: boolean;
+      verification_status?: 'pending' | 'approved' | 'rejected' | null;
+    } | null;
+  };
+};
 
 function formatCurrency(n: number | null) {
   if (n == null) return '—';
@@ -21,13 +34,29 @@ export default function ArtistDashboard() {
 
   const loadBookings = useCallback(async () => {
     if (!profile) return;
+
+    // Select query updated to retrieve host_profile verification details
     const { data, error } = await supabase
       .from('bookings')
-      .select(`*, host:profiles!bookings_host_id_fkey(id, full_name, avatar_url, location)`)
+      .select(`
+        *,
+        host:profiles!bookings_host_id_fkey(
+          id,
+          full_name,
+          avatar_url,
+          location,
+          host_profile:host_profiles(
+            company_name,
+            is_identity_verified,
+            verification_status
+          )
+        )
+      `)
       .eq('artist_id', profile.id)
       .order('created_at', { ascending: false });
+
     if (error) { setBookings([]); }
-    else { setBookings((data as BookingWithHost[]) || []); }
+    else { setBookings((data as unknown as BookingWithHost[]) || []); }
     setLoading(false);
   }, [profile]);
 
@@ -130,8 +159,18 @@ export default function ArtistDashboard() {
                       <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
                     )}
                     <div>
-                      <div className="font-display font-semibold text-ink">{booking.host?.full_name || 'Host'}</div>
-                      <div className="text-xs text-ink-400 mt-0.5">Request from host</div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-display font-semibold text-ink">
+                          {booking.host?.host_profile?.company_name || booking.host?.full_name || 'Host'}
+                        </span>
+                        <HostStatusBadge
+                          isVerified={booking.host?.host_profile?.is_identity_verified}
+                          verificationStatus={booking.host?.host_profile?.verification_status}
+                        />
+                      </div>
+                      <div className="text-xs text-ink-400 mt-0.5">
+                        {booking.host?.host_profile?.company_name ? `Host: ${booking.host.full_name}` : 'Request from host'}
+                      </div>
                     </div>
                   </div>
 
