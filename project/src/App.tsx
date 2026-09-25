@@ -11,9 +11,11 @@ import ArtistProfileEditPage from '@/pages/ArtistProfileEditPage';
 import BookingRequestPage from '@/pages/BookingRequestPage';
 import HostDashboard from '@/pages/HostDashboard';
 import ArtistDashboard from '@/pages/ArtistDashboard';
+import HostSettingsPage from '@/pages/HostSettingsPage';
 import InboxPage from '@/pages/InboxPage';
 import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminSettingsPage from '@/pages/AdminSettingsPage';
+import AdminVerification from '@/pages/AdminVerification';
 import Legal from '@/components/Legal';
 import { Loader2 } from 'lucide-react';
 
@@ -103,6 +105,14 @@ function AppRoutes() {
           }
         />
         <Route
+          path="/host-settings"
+          element={
+            <ProtectedRoute role="host">
+              <HostSettingsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
           path="/artist-dashboard"
           element={
             <ProtectedRoute role="artist">
@@ -141,6 +151,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminInboxPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/verifications"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminVerification />
             </ProtectedRoute>
           }
         />
