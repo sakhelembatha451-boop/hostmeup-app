@@ -88,7 +88,7 @@ export default function ArtistProfilePage() {
     } catch (err: any) {
       console.error('Error fetching artist:', err.message);
       setError('Could not load artist profile.');
-    } finally {
+    } fontFinally: {
       setLoading(false);
     }
   };
