@@ -120,7 +120,6 @@ export default function AdminInboxPage() {
           .insert({
             conversation_id: conv.id,
             sender_id: profile.id,
-            recipient_id: selectedRecipient.id,
             body: initialMsg.trim(),
             read: false
           });
@@ -424,7 +423,7 @@ export default function AdminInboxPage() {
 
                 {/* Subject */}
                 <div>
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium">Subject</label>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium font-medium">Subject</label>
                   <input
                     type="text"
                     required
