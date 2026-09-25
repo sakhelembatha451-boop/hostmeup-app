@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import HostVerificationForm from '@/components/HostVerificationForm';
-import { Shield, User, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 
 export default function HostSettingsPage() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -49,6 +49,15 @@ export default function HostSettingsPage() {
       <div className="min-h-screen bg-paper py-20 px-6 text-center">
         <h2 className="font-display text-xl font-bold text-ink">Access Denied</h2>
         <p className="text-sm text-ink-500 mt-2">Please log in to manage your account settings.</p>
+      </div>
+    );
+  }
+
+  if (userRole && userRole !== 'host') {
+    return (
+      <div className="min-h-screen bg-paper py-20 px-6 text-center">
+        <h2 className="font-display text-xl font-bold text-ink">Host Access Only</h2>
+        <p className="text-sm text-ink-500 mt-2">This settings page is only available for host accounts.</p>
       </div>
     );
   }
