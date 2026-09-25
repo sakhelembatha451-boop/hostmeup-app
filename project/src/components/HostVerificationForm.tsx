@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Shield, Upload, CheckCircle, Loader2, Building2 } from 'lucide-react';
+import { Shield, Upload, CheckCircle, Loader2, Building2, Clock, AlertCircle } from 'lucide-react';
 
 export default function HostVerificationForm({ hostId }: { hostId: string }) {
   // Required Personal Identity Fields
@@ -15,22 +15,67 @@ export default function HostVerificationForm({ hostId }: { hostId: string }) {
   const [vatNo, setVatNo] = useState('');
   const [liquorLicenseFile, setLiquorLicenseFile] = useState<File | null>(null);
 
+  // Loading & Verification Status States
+  const [loadingInitial, setLoadingInitial] = useState(true);
   const [uploading, setUploading] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState<'pending' | 'approved' | 'rejected' | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Check if host has already submitted documents on component mount
+  useEffect(() => {
+    const fetchVerificationStatus = async () => {
+      if (!hostId) {
+        setLoadingInitial(false);
+        return;
+      }
+
+      try {
+        const { data, error } = await supabase
+          .from('host_profiles')
+          .select('full_legal_name, id_number, verification_status, is_identity_verified')
+          .eq('id', hostId)
+          .maybeSingle();
+
+        if (error) {
+          console.error('Error fetching verification status:', error.message);
+        } else if (data) {
+          if (data.is_identity_verified) {
+            setVerificationStatus('approved');
+          } else if (data.verification_status) {
+            setVerificationStatus(data.verification_status as 'pending' | 'approved' | 'rejected');
+          }
+
+          if (data.full_legal_name) setLegalName(data.full_legal_name);
+          if (data.id_number) setIdNumber(data.id_number);
+        }
+      } catch (err: any) {
+        console.error('Unexpected error fetching status:', err.message);
+      } finally {
+        setLoadingInitial(false);
+      }
+    };
+
+    fetchVerificationStatus();
+  }, [hostId]);
 
   const uploadDocument = async (file: File, folder: string) => {
     const fileExt = file.name.split('.').pop();
     const filePath = `${folder}/${hostId}_${Date.now()}.${fileExt}`;
     const { error } = await supabase.storage.from('verification-docs').upload(filePath, file);
     if (error) throw error;
-    
+
     const { data } = supabase.storage.from('verification-docs').getPublicUrl(filePath);
     return data.publicUrl;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!idFile) return alert('Please attach your personal ID document.');
+    setErrorMessage(null);
+
+    if (!idFile) {
+      setErrorMessage('Please attach your personal ID document.');
+      return;
+    }
 
     try {
       setUploading(true);
@@ -52,35 +97,54 @@ export default function HostVerificationForm({ hostId }: { hostId: string }) {
 
       const { error } = await supabase
         .from('host_profiles')
-        .update({
+        .upsert({
+          id: hostId,
           full_legal_name: legalName,
           id_number: idNumber,
           id_document_url: idUrl,
           proof_of_address_url: addressUrl,
-          // Optional compliance details (saved as string or null)
           company_registration_number: isBusiness && companyRegNo ? companyRegNo : null,
           vat_number: isBusiness && vatNo ? vatNo : null,
           liquor_license_url: liquorLicenseUrl,
           verification_status: 'pending'
-        })
-        .eq('id', hostId);
+        });
 
       if (error) throw error;
-      setSubmitted(true);
+      setVerificationStatus('pending');
     } catch (err: any) {
       console.error('Upload failed:', err.message);
-      alert('Failed to submit verification details.');
+      setErrorMessage(err.message || 'Failed to submit verification details.');
     } finally {
       setUploading(false);
     }
   };
 
-  if (submitted) {
+  if (loadingInitial) {
+    return (
+      <div className="p-8 border border-line bg-paper flex items-center justify-center">
+        <Loader2 className="w-6 h-6 animate-spin text-ink-400" />
+      </div>
+    );
+  }
+
+  if (verificationStatus === 'approved') {
     return (
       <div className="p-6 bg-paper-100 border border-line text-center space-y-3">
         <CheckCircle className="w-10 h-10 text-green-600 mx-auto" />
-        <h3 className="font-bold text-ink text-sm">Identity Verification Submitted</h3>
-        <p className="text-xs text-ink-500">Our team is reviewing your safety documents.</p>
+        <h3 className="font-bold text-ink text-sm">Identity Verified</h3>
+        <p className="text-xs text-ink-500">Your host profile is fully verified for talent booking safety.</p>
+      </div>
+    );
+  }
+
+  if (verificationStatus === 'pending') {
+    return (
+      <div className="p-6 bg-paper-100 border border-line text-center space-y-3">
+        <Clock className="w-10 h-10 text-amber-600 mx-auto" />
+        <h3 className="font-bold text-ink text-sm">Verification Pending Review</h3>
+        <p className="text-xs text-ink-500">
+          Your documents have been submitted successfully. Our team is currently reviewing them.
+        </p>
       </div>
     );
   }
@@ -96,6 +160,13 @@ export default function HostVerificationForm({ hostId }: { hostId: string }) {
           </h3>
         </div>
 
+        {errorMessage && (
+          <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-700 text-xs">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+
         <div>
           <label className="block text-[10px] uppercase font-bold text-ink-500 mb-1">
             Full Legal Name <span className="text-red-500">*</span>
@@ -106,7 +177,7 @@ export default function HostVerificationForm({ hostId }: { hostId: string }) {
             value={legalName}
             onChange={(e) => setLegalName(e.target.value)}
             placeholder="As shown on official ID"
-            className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink"
+            className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
           />
         </div>
 
@@ -120,7 +191,7 @@ export default function HostVerificationForm({ hostId }: { hostId: string }) {
             value={idNumber}
             onChange={(e) => setIdNumber(e.target.value)}
             placeholder="e.g. 980101XXXXXXXXX"
-            className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink"
+            className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
           />
         </div>
 
@@ -168,9 +239,9 @@ export default function HostVerificationForm({ hostId }: { hostId: string }) {
             id="isBusiness"
             checked={isBusiness}
             onChange={(e) => setIsBusiness(e.target.checked)}
-            className="accent-ink"
+            className="accent-ink cursor-pointer"
           />
-          <label htmlFor="isBusiness" className="text-xs text-ink-600 cursor-pointer">
+          <label htmlFor="isBusiness" className="text-xs text-ink-600 cursor-pointer select-none">
             Registering as a venue business or legal entity
           </label>
         </div>
@@ -186,7 +257,7 @@ export default function HostVerificationForm({ hostId }: { hostId: string }) {
                 value={companyRegNo}
                 onChange={(e) => setCompanyRegNo(e.target.value)}
                 placeholder="e.g. 2021/123456/07"
-                className="w-full bg-paper border border-line px-3 py-2 text-xs text-ink"
+                className="w-full bg-paper border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
               />
             </div>
 
@@ -199,7 +270,7 @@ export default function HostVerificationForm({ hostId }: { hostId: string }) {
                 value={vatNo}
                 onChange={(e) => setVatNo(e.target.value)}
                 placeholder="e.g. 4010203040"
-                className="w-full bg-paper border border-line px-3 py-2 text-xs text-ink"
+                className="w-full bg-paper border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
               />
             </div>
 
@@ -221,7 +292,7 @@ export default function HostVerificationForm({ hostId }: { hostId: string }) {
       <button
         type="submit"
         disabled={uploading}
-        className="w-full flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase font-semibold tracking-wide hover:bg-ink-800 disabled:opacity-50 transition-colors"
+        className="w-full flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase font-semibold tracking-wide hover:bg-ink-800 disabled:opacity-50 transition-colors cursor-pointer"
       >
         {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
         {uploading ? 'Submitting Documents...' : 'Submit Verification'}
