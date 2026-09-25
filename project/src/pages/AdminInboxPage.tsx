@@ -139,7 +139,33 @@ export default function AdminInboxPage() {
     return () => { supabase.removeChannel(channel); };
   }, [selectedConv, loadMessages, loadConversations]);
 
-  // Handle single and bulk deletion logic
+  // Delete an entire Conversation from the left pane
+  const handleDeleteConversation = async (e: React.MouseEvent, convId: string) => {
+    e.stopPropagation(); // Prevents clicking the card and opening it
+
+    if (!confirm('Are you sure you want to delete this entire conversation thread and all its messages?')) return;
+
+    try {
+      // 1. Delete associated messages first
+      await supabase.from('messages').delete().eq('conversation_id', convId);
+
+      // 2. Delete conversation record
+      const { error } = await supabase.from('conversations').delete().eq('id', convId);
+      if (error) throw error;
+
+      // 3. Update state
+      setConversations((prev) => prev.filter((c) => c.id !== convId));
+      if (selectedConv?.id === convId) {
+        setSelectedConv(null);
+        setMessages([]);
+      }
+    } catch (err: any) {
+      console.error('Failed to delete conversation:', err);
+      alert(`Delete failed: ${err.message || 'Unknown error'}`);
+    }
+  };
+
+  // Handle single and bulk message deletion
   const toggleSelectMessage = (id: string) => {
     setSelectedMsgIds((prev) =>
       prev.includes(id) ? prev.filter((msgId) => msgId !== id) : [...prev, id]
@@ -337,12 +363,17 @@ export default function AdminInboxPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 border border-line min-h-[500px]">
-              {/* Conversation list */}
+              {/* Conversation list (Left Pane) */}
               <div className={`lg:col-span-1 border-r border-line ${selectedConv ? 'hidden lg:block' : ''}`}>
                 <div className="divide-y divide-line max-h-[600px] overflow-y-auto">
                   {conversations.map((conv) => (
-                    <button key={conv.id} onClick={() => setSelectedConv(conv)}
-                      className={`w-full text-left p-5 transition-colors ${selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'}`}>
+                    <div
+                      key={conv.id}
+                      onClick={() => setSelectedConv(conv)}
+                      className={`group relative w-full text-left p-5 cursor-pointer transition-colors ${
+                        selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'
+                      }`}
+                    >
                       <div className="flex items-start justify-between gap-3 mb-1.5">
                         <div className="flex items-center gap-2 min-w-0">
                           {conv.user?.avatar_url ? (
@@ -356,22 +387,33 @@ export default function AdminInboxPage() {
                           {conv.updated_at ? new Date(conv.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
                         </span>
                       </div>
-                      <p className="text-sm text-ink-600 truncate mb-1">{conv.subject}</p>
-                      <div className="flex items-center gap-2">
-                        {conv.type === 'booking' ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-accent"><Calendar className="w-3 h-3" /> Booking</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs text-ink-400"><MessageSquare className="w-3 h-3" /> Direct</span>
-                        )}
-                        {conv.user?.role === 'artist' && <span className="text-xs text-ink-300">Artist</span>}
-                        {conv.user?.role === 'host' && <span className="text-xs text-ink-300">Host</span>}
+                      <p className="text-sm text-ink-600 truncate mb-1 pr-6">{conv.subject}</p>
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          {conv.type === 'booking' ? (
+                            <span className="inline-flex items-center gap-1 text-xs text-accent"><Calendar className="w-3 h-3" /> Booking</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs text-ink-400"><MessageSquare className="w-3 h-3" /> Direct</span>
+                          )}
+                          {conv.user?.role === 'artist' && <span className="text-xs text-ink-300">Artist</span>}
+                          {conv.user?.role === 'host' && <span className="text-xs text-ink-300">Host</span>}
+                        </div>
+
+                        {/* Delete Conversation Button */}
+                        <button
+                          onClick={(e) => handleDeleteConversation(e, conv.id)}
+                          title="Delete entire conversation"
+                          className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
-                    </button>
+                    </div>
                   ))}
                 </div>
               </div>
 
-              {/* Message thread */}
+              {/* Message thread (Right Pane) */}
               <div className={`lg:col-span-2 flex flex-col ${selectedConv ? '' : 'hidden lg:flex'}`}>
                 {selectedConv ? (
                   <>
