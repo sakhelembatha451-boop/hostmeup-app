@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Calendar, MapPin, Clock, Loader2, Package, FileText, Check, X, User, ExternalLink, ShieldCheck } from 'lucide-react';
+import { Calendar, MapPin, Clock, Loader2, Package, FileText, Check, X, ExternalLink, ShieldCheck } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
@@ -22,37 +22,19 @@ type BookingWithHost = Booking & {
 };
 
 function formatCurrency(n: number | null) {
-  if (n == null) return '—';
-  return new Intl.NumberFormat('en-ZA', { 
-    style: 'currency', 
-    currency: 'ZAR', 
-    minimumFractionDigits: 0, 
-    maximumFractionDigits: 2 
-  }).format(n);
+  if (n == null) return 'R0';
+  return `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
 export default function ArtistDashboard() {
   const { profile } = useAuth();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
-  const [artistProfile, setArtistProfile] = useState<{ bio?: string | null; location?: string | null; stage_name?: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
 
   const loadDashboardData = useCallback(async () => {
     if (!profile) return;
 
-    // 1. Fetch artist profile details to double check completion status
-    const { data: artistData } = await supabase
-      .from('artist_profiles')
-      .select('bio, location, stage_name')
-      .eq('id', profile.id)
-      .maybeSingle();
-
-    if (artistData) {
-      setArtistProfile(artistData);
-    }
-
-    // 2. Select query updated to retrieve host_profile verification details
     const { data, error } = await supabase
       .from('bookings')
       .select(`
@@ -99,11 +81,6 @@ export default function ArtistDashboard() {
     declined: bookings.filter((b) => b.status === 'declined').length,
   };
 
-  // Check if profile is missing bio or location across main profile or artist_profiles
-  const bioValue = artistProfile?.bio || profile?.bio;
-  const locationValue = artistProfile?.location || profile?.location;
-  const isProfileIncomplete = !bioValue || !locationValue;
-
   // Total earnings from confirmed/accepted bookings
   const totalEarnings = bookings.filter((b) => b.status === 'confirmed' || b.status === 'accepted').reduce((sum, b) => sum + (b.total_amount || 0), 0);
   const depositedAmount = bookings.filter((b) => b.deposit_paid).reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
@@ -123,20 +100,6 @@ export default function ArtistDashboard() {
             <ExternalLink className="w-3.5 h-3.5" /> View Public Profile
           </Link>
         </div>
-
-        {/* Profile completion check */}
-        {isProfileIncomplete && (
-          <div className="border border-accent-200 bg-accent-50 p-5 mb-8 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 border border-accent-200 bg-paper flex items-center justify-center text-accent"><User className="w-5 h-5" /></div>
-              <div>
-                <div className="font-semibold text-ink text-sm">Complete your profile</div>
-                <div className="text-xs text-ink-500">Add your bio and location to attract more hosts</div>
-              </div>
-            </div>
-            <Link to="/artist-profile/edit" aria-label="Edit your profile" className="text-sm font-semibold text-accent hover:text-accent-600 uppercase tracking-wide-sm">Edit Profile →</Link>
-          </div>
-        )}
 
         {/* Earnings + Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10 border-y border-line py-6">
