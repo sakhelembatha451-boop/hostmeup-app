@@ -1,5 +1,5 @@
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { AuthProvider } from '@/context/AuthContext';
+import { BrowserRouter, Routes, Route, useLocation, Navigate, Link } from 'react-router-dom';
+import { AuthProvider, useAuth } from '@/context/AuthContext';
 import Navbar from '@/components/Navbar';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import LandingPage from '@/pages/LandingPage';
@@ -14,8 +14,6 @@ import ArtistDashboard from '@/pages/ArtistDashboard';
 import InboxPage from '@/pages/InboxPage';
 import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminSettingsPage from '@/pages/AdminSettingsPage';
-import { useAuth } from '@/context/AuthContext';
-import { Navigate, Link } from 'react-router-dom';
 import Legal from '@/components/Legal';
 import { Loader2 } from 'lucide-react';
 
@@ -42,16 +40,16 @@ function Layout({ children }: { children: React.ReactNode }) {
           <span className="font-display text-lg font-bold text-ink">HostMeUp</span>
           <p className="text-xs text-ink-400 uppercase tracking-wide-sm">Connecting Creative Talent & Event Hosts</p>
           <p className="text-xs text-ink-400">Designed & Developed by Sakhele Mbatha</p>
-<a
-  href="https://www.instagram.com/hostmeup_mzansi/"
-  target="_blank"
-  rel="noopener noreferrer"
-  aria-label="Follow HostMeUp on Instagram (opens in a new tab)"
-  className="hover:underline flex items-center gap-1 text-emerald-800"
->
-  Instagram
-</a>
-          </div>
+          <a
+            href="https://www.instagram.com/hostmeup_mzansi/"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Follow HostMeUp on Instagram (opens in a new tab)"
+            className="hover:underline flex items-center gap-1 text-emerald-800"
+          >
+            Instagram
+          </a>
+        </div>
       </footer>
     </div>
   );
@@ -128,6 +126,16 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+
+        {/* ADMIN ROUTES */}
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminInboxPage />
+            </ProtectedRoute>
+          }
+        />
         <Route
           path="/admin/inbox"
           element={
@@ -139,12 +147,13 @@ function AppRoutes() {
         <Route
           path="/admin/settings"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requireAdmin>
               <AdminSettingsPage />
             </ProtectedRoute>
           }
         />
-       <Route path="/legal" element={<Legal />} /> 
+
+        <Route path="/legal" element={<Legal />} />
         <Route
           path="*"
           element={
