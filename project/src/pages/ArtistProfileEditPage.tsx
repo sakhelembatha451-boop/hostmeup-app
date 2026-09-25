@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon, Music, Film } from 'lucide-react';
 import type { Category, Genre } from '@/types';
 
 const CATEGORIES: Category[] = ['Singer', 'Producer', 'Performer', 'Model', 'Photographer', 'Beauty Professional'];
@@ -135,7 +135,7 @@ export default function ArtistProfileEditPage() {
     }
   };
 
-  // Gallery Files Upload Handler (Auto Save)
+  // Gallery Files Upload Handler (Auto Save - Supports Photos, Audio & Video)
   const handleGalleryFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -151,7 +151,7 @@ export default function ArtistProfileEditPage() {
       setGalleryUrls(updatedGallery);
       await supabase.from('artist_profiles').upsert({ user_id: profile?.id, gallery_urls: updatedGallery, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
     } catch (err: any) {
-      setError(err.message || 'Failed to upload gallery image');
+      setError(err.message || 'Failed to upload gallery media');
     } finally {
       setUploadingGallery(false);
     }
@@ -229,6 +229,14 @@ export default function ArtistProfileEditPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Media type detector helper
+  const getMediaType = (url: string) => {
+    const cleanUrl = url.split('?')[0].toLowerCase();
+    if (cleanUrl.match(/\.(mp3|wav|ogg|m4a|aac)$/)) return 'audio';
+    if (cleanUrl.match(/\.(mp4|webm|mov|m4v)$/)) return 'video';
+    return 'image';
   };
 
   if (loading) {
@@ -433,24 +441,24 @@ export default function ArtistProfileEditPage() {
               </div>
             </div>
 
-            {/* Gallery File Upload */}
+            {/* Gallery Media Upload (Images, Audio & Videos) */}
             <div className="space-y-3 pt-4">
-              <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Gallery Photos</label>
+              <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Portfolio Media (Photos, Audio & Video)</label>
               <label className="cursor-pointer border-2 border-dashed border-line hover:border-ink p-6 text-center block transition-colors bg-paper-100">
                 {uploadingGallery ? (
                   <div className="flex items-center justify-center gap-2 text-xs uppercase tracking-wide-sm text-ink-600">
-                    <Loader2 className="w-5 h-5 animate-spin" /> Uploading media...
+                    <Loader2 className="w-5 h-5 animate-spin" /> Uploading portfolio media...
                   </div>
                 ) : (
                   <div className="flex flex-col items-center gap-2">
                     <Upload className="w-6 h-6 text-ink-500" />
-                    <span className="text-xs uppercase tracking-wide-sm font-semibold text-ink">Click to browse & upload gallery media</span>
-                    <span className="text-xs text-ink-400">Files automatically save upon selection</span>
+                    <span className="text-xs uppercase tracking-wide-sm font-semibold text-ink">Click to browse & upload media</span>
+                    <span className="text-xs text-ink-400">Supports Images, MP3/Audio, and MP4/Video files</span>
                   </div>
                 )}
                 <input
                   type="file"
-                  accept="image/*"
+                  accept="image/*,audio/*,video/*"
                   multiple
                   className="hidden"
                   onChange={handleGalleryFilesChange}
@@ -459,19 +467,36 @@ export default function ArtistProfileEditPage() {
               </label>
 
               {galleryUrls.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mt-4">
-                  {galleryUrls.map((url, i) => (
-                    <div key={i} className="relative group aspect-square bg-paper-200 border border-line overflow-hidden">
-                      <img src={url} alt={`Gallery ${i}`} className="w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveGalleryUrl(i)}
-                        className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded-none opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-4">
+                  {galleryUrls.map((url, i) => {
+                    const mediaType = getMediaType(url);
+                    return (
+                      <div key={i} className="relative group aspect-square bg-paper-200 border border-line overflow-hidden flex flex-col items-center justify-center">
+                        {mediaType === 'image' && (
+                          <img src={url} alt={`Portfolio Media ${i}`} className="w-full h-full object-cover" />
+                        )}
+
+                        {mediaType === 'video' && (
+                          <video src={url} controls className="w-full h-full object-cover" />
+                        )}
+
+                        {mediaType === 'audio' && (
+                          <div className="w-full h-full p-2 flex flex-col items-center justify-center bg-paper-300 text-center">
+                            <Music className="w-8 h-8 text-ink-600 mb-2" />
+                            <audio src={url} controls className="w-full h-8 max-w-[90%]" />
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveGalleryUrl(i)}
+                          className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-none opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
