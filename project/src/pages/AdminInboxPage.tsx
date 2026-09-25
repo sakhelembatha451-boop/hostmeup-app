@@ -3,8 +3,14 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { sendMessage, markMessagesRead } from '@/lib/messaging';
 import AdminSafetyPanel from '../components/AdminSafetyPanel';
-import { Loader2, Send, MessageSquare, X, Calendar, User, ArrowLeft, Shield, Plus, Search, Trash2, CheckSquare, Square } from 'lucide-react';
+import { 
+  Loader2, Send, MessageSquare, X, Calendar, User, ArrowLeft, 
+  Shield, Plus, Search, Trash2, CheckSquare, Square, Mic, Square as StopIcon, Smile 
+} from 'lucide-react';
 import type { Conversation, Message, Profile } from '@/types';
+
+// Common Emojis Preset
+const EMOJI_LIST = ['😊', '😂', '👍', '❤️', '🔥', '🙏', '🙌', '🎉', '💡', '✨', '👋', '👀', '💯', '👏'];
 
 export default function AdminInboxPage() {
   const { profile } = useAuth();
@@ -17,6 +23,18 @@ export default function AdminInboxPage() {
   const [sending, setSending] = useState(false);
   const [activeTab, setActiveTab] = useState<'inbox' | 'safety'>('inbox');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Emoji Picker State
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // Audio Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Conversation Bulk Selection State
   const [selectedConvIds, setSelectedConvIds] = useState<string[]>([]);
@@ -143,7 +161,101 @@ export default function AdminInboxPage() {
     return () => { supabase.removeChannel(channel); };
   }, [selectedConv, loadMessages, loadConversations]);
 
-  // Toggle selection for conversations
+  // Audio Recording Handlers
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(audioBlob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+      alert('Microphone permission is required to record voice notes.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+  };
+
+  const cancelVoiceNote = () => {
+    setAudioBlob(null);
+    setRecordingTime(0);
+    setIsRecording(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const uploadAndSendVoiceNote = async () => {
+    if (!audioBlob || !selectedConv || !profile) return;
+    setUploadingAudio(true);
+
+    try {
+      const fileName = `voice_${Date.now()}.webm`;
+      const filePath = `voice_notes/${fileName}`;
+
+      // Upload to Supabase Storage Bucket
+      const { error: uploadError } = await supabase.storage
+        .from('chat-audio')
+        .upload(filePath, audioBlob);
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('chat-audio')
+        .getPublicUrl(filePath);
+
+      const audioUrl = publicUrlData.publicUrl;
+
+      // Send message containing audio HTML element URL markdown
+      await sendMessage(
+        selectedConv.id, 
+        profile.id, 
+        `[VOICE_NOTE]${audioUrl}`, 
+        selectedConv.user_id
+      );
+
+      setAudioBlob(null);
+      setRecordingTime(0);
+      await loadMessages(selectedConv.id);
+      loadConversations();
+    } catch (err: any) {
+      console.error('Failed to send voice note:', err);
+      alert(`Failed to send voice note: ${err.message || 'Error uploading file'}`);
+    } finally {
+      setUploadingAudio(false);
+    }
+  };
+
+  // Add Emoji to text area
+  const addEmoji = (emoji: string) => {
+    setReplyText((prev) => prev + emoji);
+    setShowEmojiPicker(false);
+  };
+
+  // Selection handlers for conversations
   const toggleSelectConv = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     setSelectedConvIds((prev) =>
@@ -166,14 +278,10 @@ export default function AdminInboxPage() {
 
     setDeletingConvs(true);
     try {
-      // 1. Delete associated messages first
       await supabase.from('messages').delete().in('conversation_id', selectedConvIds);
-
-      // 2. Delete conversations
       const { error } = await supabase.from('conversations').delete().in('id', selectedConvIds);
       if (error) throw error;
 
-      // 3. Reset state
       setConversations((prev) => prev.filter((c) => !selectedConvIds.includes(c.id)));
       if (selectedConv && selectedConvIds.includes(selectedConv.id)) {
         setSelectedConv(null);
@@ -188,7 +296,7 @@ export default function AdminInboxPage() {
     }
   };
 
-  // Toggle selection for individual messages within open conversation
+  // Selection handlers for individual messages
   const toggleSelectMessage = (id: string) => {
     setSelectedMsgIds((prev) =>
       prev.includes(id) ? prev.filter((msgId) => msgId !== id) : [...prev, id]
@@ -258,14 +366,13 @@ export default function AdminInboxPage() {
         .single();
 
       if (convError) {
-        console.error('Conversation insert error:', convError);
         alert(`Failed to create conversation: ${convError.message}`);
         setStartingConv(false);
         return;
       }
 
       if (conv) {
-        const { error: msgError } = await supabase
+        await supabase
           .from('messages')
           .insert([{
             conversation_id: conv.id,
@@ -274,13 +381,6 @@ export default function AdminInboxPage() {
             read: false
           }]);
 
-        if (msgError) {
-          console.error('Message insert error:', msgError);
-          alert(`Failed to create message: ${msgError.message}`);
-          setStartingConv(false);
-          return;
-        }
-
         setIsModalOpen(false);
         setSelectedRecipient(null);
         setNewSubject('');
@@ -288,12 +388,7 @@ export default function AdminInboxPage() {
         setUserSearch('');
 
         await loadConversations();
-        
-        const fullConv: Conversation = {
-          ...conv,
-          user: selectedRecipient
-        };
-        setSelectedConv(fullConv);
+        setSelectedConv({ ...conv, user: selectedRecipient } as Conversation);
       }
     } catch (err: any) {
       console.error('Failed to create conversation:', err);
@@ -313,7 +408,7 @@ export default function AdminInboxPage() {
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-6xl mx-auto px-6 lg:px-12 py-12">
-        {/* Header & Main Actions */}
+        {/* Header & Actions */}
         <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-line pb-6">
           <div>
             <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Admin Control Center</p>
@@ -352,9 +447,7 @@ export default function AdminInboxPage() {
             <button
               onClick={() => setActiveTab('inbox')}
               className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm transition-colors border ${
-                activeTab === 'inbox' 
-                  ? 'bg-ink text-paper border-ink' 
-                  : 'bg-paper text-ink border-line hover:bg-paper-200'
+                activeTab === 'inbox' ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink border-line hover:bg-paper-200'
               }`}
             >
               <MessageSquare className="w-4 h-4" />
@@ -363,9 +456,7 @@ export default function AdminInboxPage() {
             <button
               onClick={() => setActiveTab('safety')}
               className={`flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm transition-colors border ${
-                activeTab === 'safety' 
-                  ? 'bg-ink text-paper border-ink' 
-                  : 'bg-paper text-ink border-line hover:bg-paper-200'
+                activeTab === 'safety' ? 'bg-ink text-paper border-ink' : 'bg-paper text-ink border-line hover:bg-paper-200'
               }`}
             >
               <Shield className="w-4 h-4" />
@@ -374,11 +465,7 @@ export default function AdminInboxPage() {
           </div>
         </div>
 
-        {activeTab === 'safety' && (
-          <div className="mt-6">
-            <AdminSafetyPanel />
-          </div>
-        )}
+        {activeTab === 'safety' && <div className="mt-6"><AdminSafetyPanel /></div>}
 
         {activeTab === 'inbox' && (
           conversations.length === 0 ? (
@@ -398,17 +485,13 @@ export default function AdminInboxPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 border border-line min-h-[500px]">
-              {/* Conversation list (Left Pane) */}
+              {/* Left Pane - Conversations */}
               <div className={`lg:col-span-1 border-r border-line ${selectedConv ? 'hidden lg:block' : ''}`}>
-                {/* Bulk Select bar for conversations */}
                 <div className="p-3 border-b border-line bg-paper-100 flex items-center justify-between text-xs text-ink-400">
                   <span className="font-medium text-ink-600">
                     {selectedConvIds.length > 0 ? `${selectedConvIds.length} Selected` : 'Select for bulk delete'}
                   </span>
-                  <button
-                    onClick={toggleSelectAllConvs}
-                    className="font-semibold text-ink hover:underline"
-                  >
+                  <button onClick={toggleSelectAllConvs} className="font-semibold text-ink hover:underline">
                     {selectedConvIds.length === conversations.length ? 'Deselect All' : 'Select All'}
                   </button>
                 </div>
@@ -416,7 +499,6 @@ export default function AdminInboxPage() {
                 <div className="divide-y divide-line max-h-[600px] overflow-y-auto">
                   {conversations.map((conv) => {
                     const isConvSelected = selectedConvIds.includes(conv.id);
-
                     return (
                       <div
                         key={conv.id}
@@ -425,23 +507,15 @@ export default function AdminInboxPage() {
                           selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'
                         }`}
                       >
-                        {/* Conversation Checkbox */}
-                        <button
-                          onClick={(e) => toggleSelectConv(e, conv.id)}
-                          className="mt-1 text-ink-400 hover:text-ink flex-shrink-0"
-                        >
-                          {isConvSelected ? (
-                            <CheckSquare className="w-4 h-4 text-ink" />
-                          ) : (
-                            <Square className="w-4 h-4" />
-                          )}
+                        <button onClick={(e) => toggleSelectConv(e, conv.id)} className="mt-1 text-ink-400 hover:text-ink flex-shrink-0">
+                          {isConvSelected ? <CheckSquare className="w-4 h-4 text-ink" /> : <Square className="w-4 h-4" />}
                         </button>
 
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2 mb-1">
                             <div className="flex items-center gap-2 min-w-0">
                               {conv.user?.avatar_url ? (
-                                <img src={conv.user.avatar_url} alt={`Profile photo of ${conv.user?.full_name || 'user'}`} width={28} height={28} className="w-7 h-7 rounded-full object-cover border border-line flex-shrink-0" />
+                                <img src={conv.user.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover border border-line flex-shrink-0" />
                               ) : (
                                 <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center text-xs font-medium flex-shrink-0">{conv.user?.full_name?.[0]?.toUpperCase() || '?'}</div>
                               )}
@@ -469,11 +543,10 @@ export default function AdminInboxPage() {
                 </div>
               </div>
 
-              {/* Message thread (Right Pane) */}
+              {/* Right Pane - Chat Window */}
               <div className={`lg:col-span-2 flex flex-col ${selectedConv ? '' : 'hidden lg:flex'}`}>
                 {selectedConv ? (
                   <>
-                    {/* Thread header */}
                     <div className="border-b border-line p-5">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-3">
@@ -484,28 +557,14 @@ export default function AdminInboxPage() {
                       </div>
                       <div className="flex items-center justify-between text-xs text-ink-400">
                         <span className="flex items-center gap-1"><User className="w-3 h-3" /> {selectedConv.user?.full_name}</span>
-                        
-                        {/* Select All & Bulk Action Bar for Sub-Messages */}
                         {messages.length > 0 && (
                           <div className="flex items-center gap-3">
-                            <button
-                              onClick={toggleSelectAllMsgs}
-                              className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink transition-colors"
-                            >
-                              {selectedMsgIds.length === messages.length ? (
-                                <CheckSquare className="w-3.5 h-3.5 text-ink" />
-                              ) : (
-                                <Square className="w-3.5 h-3.5" />
-                              )}
+                            <button onClick={toggleSelectAllMsgs} className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink">
+                              {selectedMsgIds.length === messages.length ? <CheckSquare className="w-3.5 h-3.5 text-ink" /> : <Square className="w-3.5 h-3.5" />}
                               <span>Select All Messages</span>
                             </button>
-
                             {selectedMsgIds.length > 0 && (
-                              <button
-                                onClick={() => handleDeleteMessages(selectedMsgIds)}
-                                disabled={deletingMsgs}
-                                className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white font-medium rounded hover:bg-red-700 transition-colors disabled:opacity-50"
-                              >
+                              <button onClick={() => handleDeleteMessages(selectedMsgIds)} disabled={deletingMsgs} className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50">
                                 {deletingMsgs ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
                                 Delete Selected ({selectedMsgIds.length})
                               </button>
@@ -515,7 +574,7 @@ export default function AdminInboxPage() {
                       </div>
                     </div>
 
-                    {/* Messages List */}
+                    {/* Message Log */}
                     <div className="flex-1 overflow-y-auto p-5 space-y-4 min-h-[300px] max-h-[400px]">
                       {msgLoading ? (
                         <div className="flex items-center justify-center py-12"><Loader2 className="w-5 h-5 text-ink animate-spin" /></div>
@@ -525,19 +584,13 @@ export default function AdminInboxPage() {
                         messages.map((msg) => {
                           const isOwn = msg.sender_id === profile?.id;
                           const isSelected = selectedMsgIds.includes(msg.id);
+                          const isVoiceNote = msg.body?.startsWith('[VOICE_NOTE]');
+                          const voiceUrl = isVoiceNote ? msg.body.replace('[VOICE_NOTE]', '') : '';
 
                           return (
                             <div key={msg.id} className={`group flex items-start gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                              {/* Selection Checkbox */}
-                              <button
-                                onClick={() => toggleSelectMessage(msg.id)}
-                                className={`mt-2 text-ink-300 hover:text-ink transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                              >
-                                {isSelected ? (
-                                  <CheckSquare className="w-4 h-4 text-ink" />
-                                ) : (
-                                  <Square className="w-4 h-4" />
-                                )}
+                              <button onClick={() => toggleSelectMessage(msg.id)} className={`mt-2 text-ink-300 hover:text-ink transition-opacity ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                {isSelected ? <CheckSquare className="w-4 h-4 text-ink" /> : <Square className="w-4 h-4" />}
                               </button>
 
                               <div className={`max-w-[75%] flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
@@ -545,15 +598,16 @@ export default function AdminInboxPage() {
                                 
                                 <div className="relative group/msg">
                                   <div className={`px-4 py-3 text-sm ${isOwn ? 'bg-ink text-paper' : 'bg-paper-200 text-ink border border-line'} ${isSelected ? 'ring-2 ring-ink' : ''}`}>
-                                    {msg.body}
+                                    {isVoiceNote ? (
+                                      <div className="flex items-center gap-2 py-1">
+                                        <audio controls src={voiceUrl} className="max-w-[200px] h-8" />
+                                      </div>
+                                    ) : (
+                                      msg.body
+                                    )}
                                   </div>
 
-                                  {/* Individual Delete Button */}
-                                  <button
-                                    onClick={() => handleDeleteMessages([msg.id])}
-                                    title="Delete message"
-                                    className={`absolute top-1/2 -translate-y-1/2 opacity-0 group-hover/msg:opacity-100 transition-opacity p-1.5 rounded text-red-500 hover:bg-red-50 ${isOwn ? '-left-8' : '-right-8'}`}
-                                  >
+                                  <button onClick={() => handleDeleteMessages([msg.id])} title="Delete message" className={`absolute top-1/2 -translate-y-1/2 opacity-0 group-hover/msg:opacity-100 transition-opacity p-1.5 text-red-500 hover:bg-red-50 ${isOwn ? '-left-8' : '-right-8'}`}>
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
@@ -569,20 +623,88 @@ export default function AdminInboxPage() {
                       <div ref={messagesEndRef} />
                     </div>
 
-                    {/* Reply box */}
-                    <div className="border-t border-line p-4 flex items-end gap-3">
-                      <textarea
-                        value={replyText}
-                        onChange={(e) => setReplyText(e.target.value)}
-                        rows={1}
-                        placeholder="Type your reply..."
-                        className="input-editorial flex-1 px-4 py-3 text-sm resize-none"
-                        onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
-                      />
-                      <button onClick={handleSendReply} disabled={sending || !replyText.trim()}
-                        className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm disabled:opacity-50 flex-shrink-0">
-                        {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send
-                      </button>
+                    {/* Chat Controls (Emoji, Voice Note & Reply Bar) */}
+                    <div className="border-t border-line p-4 relative">
+                      {/* Emoji Selector Popup */}
+                      {showEmojiPicker && (
+                        <div className="absolute bottom-16 left-4 bg-paper border border-line p-3 shadow-lg flex flex-wrap gap-2 max-w-xs z-20">
+                          {EMOJI_LIST.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => addEmoji(emoji)}
+                              className="text-lg p-1 hover:bg-paper-200 rounded transition-colors"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Voice Note Recording Preview */}
+                      {isRecording || audioBlob ? (
+                        <div className="flex items-center justify-between bg-paper-200 border border-line p-3">
+                          <div className="flex items-center gap-3">
+                            <span className="w-3 h-3 rounded-full bg-red-600 animate-pulse" />
+                            <span className="text-xs font-mono text-ink">
+                              {isRecording ? `Recording... 00:${recordingTime < 10 ? `0${recordingTime}` : recordingTime}` : 'Voice Note Ready'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {isRecording ? (
+                              <button onClick={stopRecording} className="p-2 bg-red-600 text-white rounded hover:bg-red-700">
+                                <StopIcon className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <>
+                                <button onClick={cancelVoiceNote} className="px-3 py-1.5 text-xs border border-line text-ink hover:bg-paper-100">
+                                  Cancel
+                                </button>
+                                <button onClick={uploadAndSendVoiceNote} disabled={uploadingAudio} className="btn-primary px-4 py-1.5 text-xs flex items-center gap-2">
+                                  {uploadingAudio ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send Voice
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                            className="p-3 text-ink-400 hover:text-ink border border-line bg-paper-100 hover:bg-paper-200 transition-colors"
+                            title="Insert emoji"
+                          >
+                            <Smile className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={startRecording}
+                            className="p-3 text-ink-400 hover:text-ink border border-line bg-paper-100 hover:bg-paper-200 transition-colors"
+                            title="Record Voice Note"
+                          >
+                            <Mic className="w-4 h-4" />
+                          </button>
+
+                          <textarea
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            rows={1}
+                            placeholder="Type your message..."
+                            className="input-editorial flex-1 px-4 py-3 text-sm resize-none"
+                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
+                          />
+
+                          <button
+                            onClick={handleSendReply}
+                            disabled={sending || !replyText.trim()}
+                            className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm disabled:opacity-50 flex-shrink-0"
+                          >
+                            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </>
                 ) : (
@@ -596,14 +718,11 @@ export default function AdminInboxPage() {
           )
         )}
 
-        {/* Start New Conversation Modal */}
+        {/* Modal Start Conversation */}
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
             <div className="bg-paper border border-line w-full max-w-lg p-6 relative shadow-xl">
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="absolute top-4 right-4 text-ink-400 hover:text-ink"
-              >
+              <button onClick={() => setIsModalOpen(false)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
                 <X className="w-5 h-5" />
               </button>
 
@@ -654,11 +773,7 @@ export default function AdminInboxPage() {
                         <p className="text-sm font-semibold text-ink">{selectedRecipient.full_name}</p>
                         <p className="text-xs text-ink-400">{selectedRecipient.email}</p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRecipient(null)}
-                        className="text-xs text-accent hover:underline font-medium"
-                      >
+                      <button type="button" onClick={() => setSelectedRecipient(null)} className="text-xs text-accent hover:underline font-medium">
                         Change
                       </button>
                     </div>
@@ -690,11 +805,7 @@ export default function AdminInboxPage() {
                 </div>
 
                 <div className="flex justify-end gap-3 pt-4 border-t border-line">
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="px-5 py-2.5 text-xs font-semibold uppercase tracking-wide-sm border border-line text-ink hover:bg-paper-200"
-                  >
+                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 text-xs font-semibold uppercase tracking-wide-sm border border-line text-ink hover:bg-paper-200">
                     Cancel
                   </button>
                   <button
