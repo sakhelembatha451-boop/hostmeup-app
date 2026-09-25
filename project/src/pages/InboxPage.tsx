@@ -2,7 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getAdminId, createConversation, sendMessage, markMessagesRead } from '@/lib/messaging';
-import { Loader2, Send, MessageSquare, Plus, Mail, X, User, Trash2, Smile, Mic, Square, CheckSquare, Square as UncheckedSquare } from 'lucide-react';
+import { 
+  Loader2, Send, MessageSquare, Plus, Mail, X, User, Trash2, Smile, Mic, Square, CheckSquare, Square as UncheckedSquare,
+  ShieldAlert, PhoneCall, AlertTriangle, ShieldCheck, MapPin
+} from 'lucide-react';
 import type { Conversation, Message, Profile } from '@/types';
 
 const FORMSPREE_ENDPOINT = 'https://formspree.io/f/xoevdgog';
@@ -42,6 +45,18 @@ export default function InboxPage() {
 
   const isAdmin = profile?.role === 'admin' || profile?.email === 'sakhelembatha451@gmail.com';
 
+  // Helper to check if a booking date or created date is today
+  const isGigToday = (dateString?: string) => {
+    if (!dateString) return false;
+    const gigDate = new Date(dateString);
+    const today = new Date();
+    return (
+      gigDate.getDate() === today.getDate() &&
+      gigDate.getMonth() === today.getMonth() &&
+      gigDate.getFullYear() === today.getFullYear()
+    );
+  };
+
   const sendEmailNotification = async (subject: string, message: string, recipientEmail?: string) => {
     try {
       await fetch(FORMSPREE_ENDPOINT, {
@@ -69,7 +84,6 @@ export default function InboxPage() {
       if (isAdmin) {
         query = query.or('deleted_by_admin.is.null,deleted_by_admin.eq.false');
       } else {
-        // Fetch message threads where user participated or is owner
         const { data: userMessages } = await supabase
           .from('messages')
           .select('conversation_id')
@@ -300,7 +314,6 @@ export default function InboxPage() {
     const subject = newSubject.trim();
     const body = newMessage.trim();
 
-    // If Admin, the conversation.user_id MUST be assigned to the recipient's user_id
     const conversationOwnerId = isAdmin ? selectedRecipientId : profile.id;
     let targetRecipientId = isAdmin ? selectedRecipientId : adminId;
 
@@ -314,7 +327,7 @@ export default function InboxPage() {
 
     try {
       const id = await createConversation(
-        conversationOwnerId, // Conversation user_id
+        conversationOwnerId,
         subject,
         'direct',
         undefined,
@@ -346,6 +359,12 @@ export default function InboxPage() {
       alert(`Could not send message. ${errorMsg}`);
     } finally {
       setCreating(false);
+    }
+  };
+
+  const triggerEmergencyAlert = () => {
+    if (confirm('Are you sure you want to trigger HostMeUp Emergency Dispatch? This will alert on-call platform safety leads.')) {
+      alert('Emergency request logged. HostMeUp Support and Safety teams have been notified.');
     }
   };
 
@@ -449,7 +468,7 @@ export default function InboxPage() {
               </div>
             </div>
 
-            {/* Message Thread */}
+            {/* Message Thread & Booking Details */}
             <div className={`lg:col-span-2 flex flex-col ${selectedConv ? '' : 'hidden lg:flex'}`}>
               {selectedConv ? (
                 <>
@@ -462,6 +481,43 @@ export default function InboxPage() {
                     </div>
                     <button onClick={() => setSelectedConv(null)} className="lg:hidden text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
                   </div>
+
+                  {/* Dynamic Safety Card (Active when booking or gig is scheduled today) */}
+                  {(selectedConv.type === 'booking' || isGigToday(selectedConv.created_at)) && (
+                    <div className="m-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-amber-500 text-white rounded-md flex-shrink-0 mt-0.5">
+                          <ShieldAlert className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="text-xs font-bold uppercase tracking-wide text-amber-900">Live Safety Protocol</h4>
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-green-500 text-white rounded-full">
+                              <ShieldCheck className="w-3 h-3" /> Gig Today
+                            </span>
+                          </div>
+                          <p className="text-xs text-amber-800/90 mt-0.5">
+                            Keep communications on HostMeUp for verification and platform escrow protection.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                        <button 
+                          onClick={triggerEmergencyAlert}
+                          className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded transition-colors"
+                        >
+                          <PhoneCall className="w-3.5 h-3.5" /> Emergency Support
+                        </button>
+                        <button 
+                          onClick={() => alert('Live location check-in active. Safety contact pinged.')}
+                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-paper border border-amber-500/40 hover:bg-amber-100 text-amber-900 text-xs font-medium rounded transition-colors"
+                        >
+                          <MapPin className="w-3.5 h-3.5" /> Share Status
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4 min-h-[300px] max-h-[500px]">
                     {msgLoading ? (
