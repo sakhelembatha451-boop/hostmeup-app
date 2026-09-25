@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { sendMessage, markMessagesRead, createConversation } from '@/lib/messaging';
+import { sendMessage, markMessagesRead } from '@/lib/messaging';
 import AdminSafetyPanel from '../components/AdminSafetyPanel';
 import { Loader2, Send, MessageSquare, X, Calendar, User, ArrowLeft, Shield, Plus, Search } from 'lucide-react';
 import type { Conversation, Message, Profile } from '@/types';
@@ -70,7 +70,7 @@ export default function AdminInboxPage() {
     markMessagesRead(selectedConv.id, profile.id);
   }, [selectedConv, loadMessages, profile]);
 
-  // Realtime
+  // Realtime subscription
   useEffect(() => {
     if (!selectedConv) return;
     const channel = supabase
@@ -99,23 +99,45 @@ export default function AdminInboxPage() {
     if (!selectedRecipient || !newSubject.trim() || !initialMsg.trim() || !profile) return;
     setStartingConv(true);
     try {
-      const conv = await createConversation(
-        selectedRecipient.id,
-        newSubject.trim(),
-        'inquiry'
-      );
+      // 1. Insert conversation
+      const { data: conv, error: convError } = await supabase
+        .from('conversations')
+        .insert({
+          user_id: selectedRecipient.id,
+          subject: newSubject.trim(),
+          type: 'inquiry',
+          updated_at: new Date().toISOString()
+        })
+        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, role)')
+        .single();
+
+      if (convError) throw convError;
+
       if (conv) {
-        await sendMessage(conv.id, profile.id, initialMsg.trim(), selectedRecipient.id);
+        // 2. Insert initial message
+        const { error: msgError } = await supabase
+          .from('messages')
+          .insert({
+            conversation_id: conv.id,
+            sender_id: profile.id,
+            recipient_id: selectedRecipient.id,
+            body: initialMsg.trim(),
+            read: false
+          });
+
+        if (msgError) throw msgError;
+
         setIsModalOpen(false);
         setSelectedRecipient(null);
         setNewSubject('');
         setInitialMsg('');
         setUserSearch('');
+
         await loadConversations();
         setSelectedConv(conv);
       }
     } catch (err) {
-      console.error('Failed to create conversation', err);
+      console.error('Failed to create conversation:', err);
     }
     setStartingConv(false);
   };
@@ -257,7 +279,7 @@ export default function AdminInboxPage() {
                           <span className="flex items-center gap-1 text-accent"><Calendar className="w-3 h-3" /> {selectedConv.booking.event_name}</span>
                         )}
                       </div>
-                      {/* Booking pricing summary for admin */}
+                      {/* Booking pricing summary */}
                       {selectedConv.type === 'booking' && selectedConv.booking && (
                         <div className="mt-3 grid grid-cols-3 gap-3 border border-line p-3 bg-paper-200">
                           <div>
