@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Calendar, MapPin, Clock, Loader2, Package, FileText, Check, X, User, ExternalLink, DollarSign } from 'lucide-react';
+import { Calendar, MapPin, Clock, Loader2, Package, FileText, Check, X, User, ExternalLink, ShieldCheck } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
@@ -23,19 +23,36 @@ type BookingWithHost = Booking & {
 
 function formatCurrency(n: number | null) {
   if (n == null) return '—';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+  return new Intl.NumberFormat('en-ZA', { 
+    style: 'currency', 
+    currency: 'ZAR', 
+    minimumFractionDigits: 0, 
+    maximumFractionDigits: 2 
+  }).format(n);
 }
 
 export default function ArtistDashboard() {
   const { profile } = useAuth();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
+  const [artistProfile, setArtistProfile] = useState<{ bio?: string | null; location?: string | null; stage_name?: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
 
-  const loadBookings = useCallback(async () => {
+  const loadDashboardData = useCallback(async () => {
     if (!profile) return;
 
-    // Select query updated to retrieve host_profile verification details
+    // 1. Fetch artist profile details to double check completion status
+    const { data: artistData } = await supabase
+      .from('artist_profiles')
+      .select('bio, location, stage_name')
+      .eq('id', profile.id)
+      .maybeSingle();
+
+    if (artistData) {
+      setArtistProfile(artistData);
+    }
+
+    // 2. Select query updated to retrieve host_profile verification details
     const { data, error } = await supabase
       .from('bookings')
       .select(`
@@ -55,16 +72,22 @@ export default function ArtistDashboard() {
       .eq('artist_id', profile.id)
       .order('created_at', { ascending: false });
 
-    if (error) { setBookings([]); }
-    else { setBookings((data as unknown as BookingWithHost[]) || []); }
+    if (error) { 
+      setBookings([]); 
+    } else { 
+      setBookings((data as unknown as BookingWithHost[]) || []); 
+    }
+    
     setLoading(false);
   }, [profile]);
 
-  useEffect(() => { loadBookings(); }, [loadBookings]);
+  useEffect(() => { 
+    loadDashboardData(); 
+  }, [loadDashboardData]);
 
   const updateBookingStatus = async (id: string, status: string) => {
     await supabase.from('bookings').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
-    loadBookings();
+    loadDashboardData();
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
@@ -75,6 +98,11 @@ export default function ArtistDashboard() {
     accepted: bookings.filter((b) => b.status === 'accepted').length,
     declined: bookings.filter((b) => b.status === 'declined').length,
   };
+
+  // Check if profile is missing bio or location across main profile or artist_profiles
+  const bioValue = artistProfile?.bio || profile?.bio;
+  const locationValue = artistProfile?.location || profile?.location;
+  const isProfileIncomplete = !bioValue || !locationValue;
 
   // Total earnings from confirmed/accepted bookings
   const totalEarnings = bookings.filter((b) => b.status === 'confirmed' || b.status === 'accepted').reduce((sum, b) => sum + (b.total_amount || 0), 0);
@@ -97,7 +125,7 @@ export default function ArtistDashboard() {
         </div>
 
         {/* Profile completion check */}
-        {(!profile?.bio || !profile?.location) && (
+        {isProfileIncomplete && (
           <div className="border border-accent-200 bg-accent-50 p-5 mb-8 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 border border-accent-200 bg-paper flex items-center justify-center text-accent"><User className="w-5 h-5" /></div>
@@ -209,7 +237,7 @@ export default function ArtistDashboard() {
                         </div>
                         {booking.deposit_paid && (
                           <div className="flex items-center gap-1.5 mt-3 text-xs text-accent">
-                            <DollarSign className="w-3.5 h-3.5" /> Deposit received — booking is financially secured.
+                            <ShieldCheck className="w-3.5 h-3.5" /> Deposit received — booking is financially secured.
                           </div>
                         )}
                       </div>
