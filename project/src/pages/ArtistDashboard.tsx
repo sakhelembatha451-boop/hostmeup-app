@@ -35,32 +35,107 @@ export default function ArtistDashboard() {
   const loadDashboardData = useCallback(async () => {
     if (!profile) return;
 
-    const { data, error } = await supabase
-      .from('bookings')
-      .select(`
-        *,
-        host:profiles!bookings_host_id_fkey(
-          id,
-          full_name,
-          avatar_url,
-          location,
-          host_profile:host_profiles(
-            company_name,
-            is_identity_verified,
-            verification_status
-          )
-        )
-      `)
-      .eq('artist_id', profile.id)
-      .order('created_at', { ascending: false });
+    setLoading(true);
 
-    if (error) { 
-      setBookings([]); 
-    } else { 
-      setBookings((data as unknown as BookingWithHost[]) || []); 
+    try {
+      // 1. Fetch artist profile ID (in case artist_id in booking matches artist_profiles.id rather than profile.id)
+      const { data: artistProfile } = await supabase
+        .from('artist_profiles')
+        .select('id')
+        .eq('user_id', profile.id)
+        .maybeSingle();
+
+      const targetArtistIds = Array.from(new Set([profile.id, artistProfile?.id].filter(Boolean)));
+
+      let rawBookings: any[] = [];
+      let fetchError: any = null;
+
+      // 2. Primary attempt: Query 'bookings' with explicit FK relationships
+      const res1 = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          host:profiles!bookings_host_id_fkey(
+            id,
+            full_name,
+            avatar_url,
+            location,
+            host_profile:host_profiles(
+              company_name,
+              is_identity_verified,
+              verification_status
+            )
+          )
+        `)
+        .in('artist_id', targetArtistIds)
+        .order('created_at', { ascending: false });
+
+      if (res1.error) {
+        // Retry without explicit foreign key alias in case schema cache has a mismatch
+        const res1Retry = await supabase
+          .from('bookings')
+          .select('*')
+          .in('artist_id', targetArtistIds)
+          .order('created_at', { ascending: false });
+
+        if (!res1Retry.error && res1Retry.data) {
+          rawBookings = res1Retry.data;
+        } else {
+          fetchError = res1Retry.error || res1.error;
+        }
+      } else if (res1.data) {
+        rawBookings = res1.data;
+      }
+
+      // 3. Fallback attempt: Query 'booking' table if 'bookings' fails or returns empty
+      if (rawBookings.length === 0 || fetchError) {
+        const res2 = await supabase
+          .from('booking')
+          .select('*')
+          .in('artist_id', targetArtistIds)
+          .order('created_at', { ascending: false });
+
+        if (!res2.error && res2.data) {
+          rawBookings = res2.data;
+        }
+      }
+
+      // 4. Hydrate Host and Host Profile details manually if FK auto-join wasn't performed
+      if (rawBookings.length > 0) {
+        const hostIds = Array.from(new Set(rawBookings.map((b) => b.host_id).filter(Boolean)));
+
+        if (hostIds.length > 0) {
+          const { data: hostProfiles } = await supabase
+            .from('profiles')
+            .select(`
+              id,
+              full_name,
+              avatar_url,
+              location,
+              host_profile:host_profiles(
+                company_name,
+                is_identity_verified,
+                verification_status
+              )
+            `)
+            .in('id', hostIds);
+
+          const hostMap = new Map((hostProfiles || []).map((h) => [h.id, h]));
+
+          rawBookings = rawBookings.map((b) => ({
+            ...b,
+            host: b.host || hostMap.get(b.host_id) || null,
+          }));
+        }
+      }
+
+      setBookings(rawBookings as BookingWithHost[]);
+    } catch (err) {
+      console.error('Error loading artist dashboard data:', err);
+      setBookings([]);
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   }, [profile]);
 
   useEffect(() => { 
@@ -68,7 +143,19 @@ export default function ArtistDashboard() {
   }, [loadDashboardData]);
 
   const updateBookingStatus = async (id: string, status: string) => {
-    await supabase.from('bookings').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+    // Attempt update on 'bookings', fall back to 'booking'
+    const { error } = await supabase
+      .from('bookings')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', id);
+
+    if (error && error.message?.includes("Could not find the table")) {
+      await supabase
+        .from('booking')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
+    }
+
     loadDashboardData();
   };
 
