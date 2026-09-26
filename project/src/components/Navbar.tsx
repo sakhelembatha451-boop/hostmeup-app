@@ -1,6 +1,6 @@
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { LogOut, LayoutDashboard, User, Menu, X, Bell, Mail, Shield, ShieldCheck } from 'lucide-react';
+import { LogOut, LayoutDashboard, User, Menu, X, Bell, Mail, Shield, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { markNotificationRead, markAllNotificationsRead } from '@/lib/messaging';
@@ -166,13 +166,22 @@ export default function Navbar() {
                 )}
                 {/* Admin Management Navigation */}
                 {profile.is_admin && (
-                  <Link
-                    to="/admin/verifications"
-                    aria-label="Admin Verifications"
-                    className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
-                  >
-                    <ShieldCheck className="w-3.5 h-3.5 text-accent" /> Verifications
-                  </Link>
+                  <>
+                    <Link
+                      to="/admin/verifications"
+                      aria-label="Admin Verifications"
+                      className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-accent" /> Verifications
+                    </Link>
+                    <Link
+                      to="/admin/safety"
+                      aria-label="Admin Safety Hub"
+                      className="flex items-center gap-1 text-xs font-medium text-amber-700 hover:text-amber-800 transition-colors uppercase tracking-wide-sm font-semibold"
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Safety
+                    </Link>
+                  </>
                 )}
                 {/* Inbox */}
                 <Link
@@ -384,13 +393,22 @@ export default function Navbar() {
                   </Link>
                 )}
                 {profile.is_admin && (
-                  <Link
-                    to="/admin/verifications"
-                    onClick={() => setMenuOpen(false)}
-                    className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm"
-                  >
-                    Verifications
-                  </Link>
+                  <>
+                    <Link
+                      to="/admin/verifications"
+                      onClick={() => setMenuOpen(false)}
+                      className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm"
+                    >
+                      Verifications
+                    </Link>
+                    <Link
+                      to="/admin/safety"
+                      onClick={() => setMenuOpen(false)}
+                      className="block py-2.5 text-sm font-semibold text-amber-700 hover:text-amber-800 uppercase tracking-wide-sm"
+                    >
+                      Safety
+                    </Link>
+                  </>
                 )}
                 <Link
                   to={inboxPath}
