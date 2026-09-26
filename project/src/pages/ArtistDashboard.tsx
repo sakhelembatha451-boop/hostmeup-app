@@ -22,6 +22,8 @@ type BookingWithHost = Booking & {
     location: string;
     email?: string;
     phone?: string;
+    is_verified?: boolean;
+    verified?: boolean;
     host_profile?: {
       company_name?: string | null;
       is_identity_verified?: boolean;
@@ -84,6 +86,8 @@ export default function ArtistDashboard() {
             location,
             email,
             phone,
+            is_verified,
+            verified,
             host_profile:host_profiles(
               company_name,
               is_identity_verified,
@@ -135,6 +139,8 @@ export default function ArtistDashboard() {
               location,
               email,
               phone,
+              is_verified,
+              verified,
               host_profile:host_profiles(
                 company_name,
                 is_identity_verified,
@@ -163,7 +169,7 @@ export default function ArtistDashboard() {
     } catch (err) {
       console.error('Error loading artist dashboard data:', err);
       setBookings([]);
-    } fontally: {
+    } finally {
       setLoading(false);
     }
   }, [profile]);
@@ -317,166 +323,178 @@ export default function ArtistDashboard() {
             actionTo={bookings.length === 0 ? "/artist-profile/edit" : undefined} />
         ) : (
           <div className="space-y-6">
-            {filtered.map((booking) => (
-              <div key={booking.id} className="border border-line p-6 animate-fade-in transition-all hover:border-ink/20 bg-paper">
-                <div className="flex flex-col sm:flex-row sm:items-start gap-6">
-                  
-                  {/* Host info */}
-                  <div className="flex items-center gap-4 flex-shrink-0">
-                    {booking.host?.avatar_url ? (
-                      <img src={booking.host.avatar_url} alt={`Profile photo of ${booking.host?.full_name || 'host'}`} width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
-                    ) : (
-                      <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
-                    )}
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-display font-semibold text-ink">
-                          {booking.host?.host_profile?.company_name || booking.host?.full_name || 'Host'}
-                        </span>
-                        <HostStatusBadge
-                          isVerified={booking.host?.host_profile?.is_identity_verified}
-                          verificationStatus={booking.host?.host_profile?.verification_status}
-                        />
+            {filtered.map((booking) => {
+              const isHostVerified = 
+                booking.host?.host_profile?.is_identity_verified ||
+                booking.host?.host_profile?.verification_status === 'approved' ||
+                booking.host?.is_verified ||
+                booking.host?.verified;
+
+              const verificationStatus = isHostVerified 
+                ? 'approved' 
+                : booking.host?.host_profile?.verification_status;
+
+              return (
+                <div key={booking.id} className="border border-line p-6 animate-fade-in transition-all hover:border-ink/20 bg-paper">
+                  <div className="flex flex-col sm:flex-row sm:items-start gap-6">
+                    
+                    {/* Host info */}
+                    <div className="flex items-center gap-4 flex-shrink-0">
+                      {booking.host?.avatar_url ? (
+                        <img src={booking.host.avatar_url} alt={`Profile photo of ${booking.host?.full_name || 'host'}`} width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
+                      )}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-display font-semibold text-ink">
+                            {booking.host?.host_profile?.company_name || booking.host?.full_name || 'Host'}
+                          </span>
+                          <HostStatusBadge
+                            isVerified={isHostVerified}
+                            verificationStatus={verificationStatus}
+                          />
+                        </div>
+                        <div className="text-xs text-ink-400 mt-0.5">
+                          {booking.host?.host_profile?.company_name ? `Host: ${booking.host.full_name}` : 'Request from host'}
+                        </div>
                       </div>
-                      <div className="text-xs text-ink-400 mt-0.5">
-                        {booking.host?.host_profile?.company_name ? `Host: ${booking.host.full_name}` : 'Request from host'}
+                    </div>
+
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between gap-3 mb-4">
+                        <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name}</h3>
+                        <StatusBadge status={booking.status} />
                       </div>
-                    </div>
-                  </div>
 
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between gap-3 mb-4">
-                      <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name}</h3>
-                      <StatusBadge status={booking.status} />
-                    </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
+                        <div className="flex items-center gap-1.5 text-ink-500"><Calendar className="w-3.5 h-3.5 text-ink-300" /><span>{new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
+                        {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
+                        <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration}</span></div>
+                        <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location}</span></div>
+                      </div>
 
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
-                      <div className="flex items-center gap-1.5 text-ink-500"><Calendar className="w-3.5 h-3.5 text-ink-300" /><span>{new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
-                      {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
-                      <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration}</span></div>
-                      <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location}</span></div>
-                    </div>
-
-                    {/* Pricing breakdown */}
-                    {booking.total_amount != null && (
-                      <div className="border border-line bg-paper-200 p-4 mb-4">
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Total Cost</p>
-                            <p className="font-display text-lg font-semibold text-ink">{formatCurrency(booking.total_amount)}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Deposit (40%)</p>
-                            <div className="flex items-center gap-1.5">
-                              <p className="font-display text-lg font-semibold text-accent">{formatCurrency(booking.deposit_amount)}</p>
-                              {booking.deposit_paid && <Check className="w-4 h-4 text-accent" />}
+                      {/* Pricing breakdown */}
+                      {booking.total_amount != null && (
+                        <div className="border border-line bg-paper-200 p-4 mb-4">
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Total Cost</p>
+                              <p className="font-display text-lg font-semibold text-ink">{formatCurrency(booking.total_amount)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Deposit (40%)</p>
+                              <div className="flex items-center gap-1.5">
+                                <p className="font-display text-lg font-semibold text-accent">{formatCurrency(booking.deposit_amount)}</p>
+                                {booking.deposit_paid && <Check className="w-4 h-4 text-accent" />}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Balance (60%)</p>
+                              <p className="font-display text-lg font-semibold text-ink-500">{formatCurrency(booking.total_amount != null && booking.deposit_amount != null ? booking.total_amount - booking.deposit_amount : null)}</p>
                             </div>
                           </div>
-                          <div>
-                            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Balance (60%)</p>
-                            <p className="font-display text-lg font-semibold text-ink-500">{formatCurrency(booking.total_amount != null && booking.deposit_amount != null ? booking.total_amount - booking.deposit_amount : null)}</p>
-                          </div>
+                          {booking.deposit_paid && (
+                            <div className="flex items-center gap-1.5 mt-3 text-xs text-accent">
+                              <ShieldCheck className="w-3.5 h-3.5" /> Deposit received — booking is financially secured.
+                            </div>
+                          )}
                         </div>
-                        {booking.deposit_paid && (
-                          <div className="flex items-center gap-1.5 mt-3 text-xs text-accent">
-                            <ShieldCheck className="w-3.5 h-3.5" /> Deposit received — booking is financially secured.
-                          </div>
-                        )}
-                      </div>
-                    )}
+                      )}
 
-                    {/* Equipment Tag List */}
-                    {booking.equipment_needed && booking.equipment_needed.length > 0 && (
-                      <div className="flex items-start gap-1.5 mb-3">
-                        <Package className="w-4 h-4 text-ink-300 mt-0.5" />
-                        <div className="flex flex-wrap gap-1.5">{booking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}</div>
-                      </div>
-                    )}
+                      {/* Equipment Tag List */}
+                      {booking.equipment_needed && booking.equipment_needed.length > 0 && (
+                        <div className="flex items-start gap-1.5 mb-3">
+                          <Package className="w-4 h-4 text-ink-300 mt-0.5" />
+                          <div className="flex flex-wrap gap-1.5">{booking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}</div>
+                        </div>
+                      )}
 
-                    {/* Action Footer Bar */}
-                    <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3">
-                      <button
-                        onClick={() => setSelectedBooking(booking)}
-                        className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
-                        <Eye className="w-3.5 h-3.5 text-ink-400" /> View Details
-                      </button>
+                      {/* Action Footer Bar */}
+                      <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3">
+                        <button
+                          onClick={() => setSelectedBooking(booking)}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
+                          <Eye className="w-3.5 h-3.5 text-ink-400" /> View Details
+                        </button>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        {/* Pending -> Accept / Decline */}
-                        {booking.status === 'pending' && (
-                          <>
-                            <button 
-                              onClick={() => updateBookingStatus(booking.id, 'declined')}
-                              disabled={updatingId === booking.id}
-                              className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
-                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Decline
-                            </button>
-                            <button 
-                              onClick={() => updateBookingStatus(booking.id, 'accepted')}
-                              disabled={updatingId === booking.id}
-                              className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
-                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
-                            </button>
-                          </>
-                        )}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* Pending -> Accept / Decline */}
+                          {booking.status === 'pending' && (
+                            <>
+                              <button 
+                                onClick={() => updateBookingStatus(booking.id, 'declined')}
+                                disabled={updatingId === booking.id}
+                                className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
+                                {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Decline
+                              </button>
+                              <button 
+                                onClick={() => updateBookingStatus(booking.id, 'accepted')}
+                                disabled={updatingId === booking.id}
+                                className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
+                                {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
+                              </button>
+                            </>
+                          )}
 
-                        {/* Confirmed -> Arrived / Message / Cancel / Report */}
-                        {(booking.status === 'confirmed' || booking.status === 'accepted') && (
-                          <>
-                            <button
-                              onClick={() => updateBookingStatus(booking.id, 'checked_in', { checked_in_at: new Date().toISOString() })}
-                              disabled={updatingId === booking.id}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                              <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (booking.conversation_id) {
-                                  navigate(`/inbox?conversation=${booking.conversation_id}`, { state: { conversationId: booking.conversation_id, recipientId: booking.host_id, bookingId: booking.id } });
-                                } else if (booking.host_id) {
-                                  navigate(`/inbox?user=${booking.host_id}`, { state: { recipientId: booking.host_id, bookingId: booking.id } });
-                                } else {
-                                  navigate('/inbox');
-                                }
-                              }}
-                              className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
-                              <MessageSquare className="w-3.5 h-3.5" /> Message Host
-                            </button>
-                            <button
-                              onClick={() => setReportBooking(booking)}
-                              className="text-xs text-amber-700 hover:text-amber-800 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
-                              <AlertTriangle className="w-3.5 h-3.5" /> Report Issue
-                            </button>
-                            <button
-                              onClick={() => setCancelBooking(booking)}
-                              className="text-xs text-red-600 hover:text-red-700 border border-red-200 px-2.5 py-1.5 rounded">
-                              Cancel
-                            </button>
-                          </>
-                        )}
+                          {/* Confirmed -> Arrived / Message / Cancel / Report */}
+                          {(booking.status === 'confirmed' || booking.status === 'accepted') && (
+                            <>
+                              <button
+                                onClick={() => updateBookingStatus(booking.id, 'checked_in', { checked_in_at: new Date().toISOString() })}
+                                disabled={updatingId === booking.id}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                                <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (booking.conversation_id) {
+                                    navigate(`/inbox?conversation=${booking.conversation_id}`, { state: { conversationId: booking.conversation_id, recipientId: booking.host_id, bookingId: booking.id } });
+                                  } else if (booking.host_id) {
+                                    navigate(`/inbox?user=${booking.host_id}`, { state: { recipientId: booking.host_id, bookingId: booking.id } });
+                                  } else {
+                                    navigate('/inbox');
+                                  }
+                                }}
+                                className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
+                                <MessageSquare className="w-3.5 h-3.5" /> Message Host
+                              </button>
+                              <button
+                                onClick={() => setReportBooking(booking)}
+                                className="text-xs text-amber-700 hover:text-amber-800 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
+                                <AlertTriangle className="w-3.5 h-3.5" /> Report Issue
+                              </button>
+                              <button
+                                onClick={() => setCancelBooking(booking)}
+                                className="text-xs text-red-600 hover:text-red-700 border border-red-200 px-2.5 py-1.5 rounded">
+                                Cancel
+                              </button>
+                            </>
+                          )}
 
-                        {/* Checked In -> Sign Out */}
-                        {booking.status === 'checked_in' && (
-                          <>
-                            <button
-                              onClick={() => updateBookingStatus(booking.id, 'completed', { completed_at: new Date().toISOString() })}
-                              disabled={updatingId === booking.id}
-                              className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                              <LogOut className="w-3.5 h-3.5" /> Complete & Sign Out
-                            </button>
-                            <button
-                              onClick={() => setReportBooking(booking)}
-                              className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
-                              <AlertTriangle className="w-3.5 h-3.5" /> Emergency/Issue
-                            </button>
-                          </>
-                        )}
+                          {/* Checked In -> Sign Out */}
+                          {booking.status === 'checked_in' && (
+                            <>
+                              <button
+                                onClick={() => updateBookingStatus(booking.id, 'completed', { completed_at: new Date().toISOString() })}
+                                disabled={updatingId === booking.id}
+                                className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                                <LogOut className="w-3.5 h-3.5" /> Complete & Sign Out
+                              </button>
+                              <button
+                                onClick={() => setReportBooking(booking)}
+                                className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
+                                <AlertTriangle className="w-3.5 h-3.5" /> Emergency/Issue
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
