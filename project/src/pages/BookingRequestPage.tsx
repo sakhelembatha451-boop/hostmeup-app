@@ -50,20 +50,26 @@ export default function BookingRequestPage() {
     if (!id) return;
     (async () => {
       try {
-        let resolvedProfileId = id;
+        setLoading(true);
+        let resolvedProfileId: string | null = id;
+        let artistData: any = null;
 
-        // 1. Try querying profiles directly
-        let { data: artistData } = await supabase
+        // Step 1: Attempt direct lookup on profiles by ID
+        const { data: pData } = await supabase
           .from('profiles')
           .select(`*, artist_profile:artist_profiles(*)`)
-          .eq('id', resolvedProfileId)
+          .eq('id', id)
           .maybeSingle();
 
-        // 2. Fallback: If not found in profiles, check if id is an artist_profiles record ID
+        if (pData?.artist_profile) {
+          artistData = pData;
+        }
+
+        // Step 2: If not found, check if `id` matches an artist_profiles primary key ID
         if (!artistData) {
           const { data: apData } = await supabase
             .from('artist_profiles')
-            .select('user_id')
+            .select('user_id, id')
             .eq('id', id)
             .maybeSingle();
 
@@ -79,7 +85,7 @@ export default function BookingRequestPage() {
           }
         }
 
-        // 3. Fallback: Check if id is a booking ID (e.g. redirected from booking action)
+        // Step 3: If still not found, check if `id` is a booking ID
         if (!artistData) {
           const { data: bookingData } = await supabase
             .from('bookings')
@@ -103,7 +109,7 @@ export default function BookingRequestPage() {
           setArtist(artistData as ArtistWithProfile);
         }
 
-        // Fetch Host Verification Status
+        // Step 4: Fetch Host Verification Status for logged-in user
         if (profile?.id) {
           const { data: hostData } = await supabase
             .from('host_profiles')
@@ -116,7 +122,7 @@ export default function BookingRequestPage() {
           }
         }
       } catch (err) {
-        console.error('Error fetching booking page data:', err);
+        console.error('Error loading booking request target:', err);
       } finally {
         setLoading(false);
       }
