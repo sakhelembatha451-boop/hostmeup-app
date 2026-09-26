@@ -36,13 +36,20 @@ export async function createConversation(
   initialMessage?: string,
   recipientId?: string
 ): Promise<string | null> {
+  // FIXED: If sender is Admin, target recipient must be user_id, participant2_id, or participant_id.
+  // We populate both user_id (target recipient) and participant fields so both users can read the conversation.
+  const targetUser = recipientId || userId;
+
   const { data: conv, error } = await supabase
     .from('conversations')
     .insert({
-      user_id: userId,
+      user_id: targetUser,               // Target recipient's ID so their UI inbox query picks it up
+      participant1_id: userId,          // Sender ID (Admin)
+      participant2_id: targetUser,      // Recipient ID (User)
       subject,
       type,
       booking_id: bookingId,
+      updated_at: new Date().toISOString(),
     })
     .select('id')
     .single();
