@@ -275,14 +275,12 @@ export default function InboxPage() {
     try {
       const updatePayload = isAdmin ? { deleted_by_admin: true } : { deleted_by_user: true };
       
-      // Attempt soft-delete on messages without throwing errors that block conversation updates
       try {
         await supabase.from('messages').update(updatePayload).in('conversation_id', selectedConvIds);
       } catch (msgErr) {
         console.warn('Soft-deleting underlying messages skipped or failed:', msgErr);
       }
 
-      // Perform soft-delete on conversations table
       const { error } = await supabase.from('conversations').update(updatePayload).in('id', selectedConvIds);
 
       if (error) {
@@ -540,13 +538,26 @@ export default function InboxPage() {
                     <div 
                       key={conv.id} 
                       onClick={() => setSelectedConv(conv)}
-                      className={`w-full text-left p-5 transition-colors relative cursor-pointer flex items-start gap-3 ${selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'}`}>
-                      <button 
-                        onClick={(e) => toggleSelectConversation(conv.id, e)}
-                        className="mt-0.5 text-ink-400 hover:text-ink flex-shrink-0"
-                        title="Select conversation">
-                        {isSelected ? <CheckSquare className="w-4 h-4 text-accent" /> : <UncheckedSquare className="w-4 h-4" />}
-                      </button>
+                      className={`w-full text-left p-5 transition-colors relative cursor-pointer flex items-start gap-3 min-h-[72px] ${selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'}`}>
+                      
+                      {/* Isolated Checkbox Wrapper */}
+                      <div 
+                        onClick={(e) => e.stopPropagation()} 
+                        className="flex items-center justify-center pt-0.5 flex-shrink-0"
+                      >
+                        <button 
+                          type="button"
+                          onClick={(e) => toggleSelectConversation(conv.id, e)}
+                          className="text-ink-400 hover:text-ink p-1 -m-1"
+                          title="Select conversation"
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-accent" />
+                          ) : (
+                            <UncheckedSquare className="w-4 h-4" />
+                          )}
+                        </button>
+                      </div>
 
                       <div className="flex-1 min-w-0">
                         <div className="flex items-start justify-between gap-2 mb-1">
