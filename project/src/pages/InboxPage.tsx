@@ -133,7 +133,6 @@ export default function InboxPage() {
         console.error('Error fetching messages from database:', error);
         setMessages([]);
       } else if (data) {
-        // Fetch profile names manually for senders to avoid schema relation issues
         const senderIds = Array.from(new Set(data.map((m) => m.sender_id).filter(Boolean)));
         let profileMap: Record<string, Profile> = {};
 
@@ -151,7 +150,6 @@ export default function InboxPage() {
           }
         }
 
-        // Standardize fields gracefully
         const formattedMessages = data.map((msg) => ({
           ...msg,
           body: msg.body || msg.content || '',
@@ -277,11 +275,19 @@ export default function InboxPage() {
     try {
       const updatePayload = isAdmin ? { deleted_by_admin: true } : { deleted_by_user: true };
       
-      await supabase.from('messages').update(updatePayload).in('conversation_id', selectedConvIds);
+      // Attempt soft-delete on messages without throwing errors that block conversation updates
+      try {
+        await supabase.from('messages').update(updatePayload).in('conversation_id', selectedConvIds);
+      } catch (msgErr) {
+        console.warn('Soft-deleting underlying messages skipped or failed:', msgErr);
+      }
+
+      // Perform soft-delete on conversations table
       const { error } = await supabase.from('conversations').update(updatePayload).in('id', selectedConvIds);
 
       if (error) {
-        alert('Could not remove conversations.');
+        console.error('Error soft-deleting conversations:', error);
+        alert(`Could not remove conversations: ${error.message}`);
       } else {
         if (selectedConv && selectedConvIds.includes(selectedConv.id)) {
           setSelectedConv(null);
@@ -724,9 +730,12 @@ export default function InboxPage() {
                           <button type="button" onClick={startRecording} className="text-ink-400 hover:text-ink p-2" title="Record Voice Note">
                             <Mic className="w-5 h-5" />
                           </button>
-                          <button onClick={() => handleSendReply()} disabled={sending || !replyText.trim()}
-                            className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm disabled:opacity-50 flex-shrink-0">
-                            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send
+                          <button 
+                            type="button" 
+                            onClick={() => handleSendReply()} 
+                            disabled={sending || !replyText.trim()} 
+                            className="btn-primary px-4 py-3 text-xs uppercase tracking-wide-sm inline-flex items-center gap-2 disabled:opacity-50">
+                            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                           </button>
                         </>
                       )}
@@ -734,58 +743,85 @@ export default function InboxPage() {
                   </div>
                 </>
               ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-                  <MessageSquare className="w-10 h-10 text-ink-200 mb-4" />
-                  <p className="text-sm text-ink-400">Select a conversation thread to view live messages.</p>
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-ink-400">
+                  <MessageSquare className="w-12 h-12 stroke-[1.5] mb-3 text-ink-300" />
+                  <p className="text-sm">Select a conversation from the left to view messages</p>
                 </div>
               )}
             </div>
           </div>
         )}
-      </div>
 
-      {/* New Message Modal */}
-      {showNewModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-4" onClick={() => setShowNewModal(false)}>
-          <div className="bg-paper border border-line max-w-md w-full p-8 animate-scale-in" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="font-display text-xl font-bold text-ink">{isAdmin ? 'Start Conversation with User' : 'New Message to Admin'}</h3>
-              <button onClick={() => setShowNewModal(false)} className="text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="space-y-4">
-              {isAdmin && (
-                <div>
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Select Recipient User</label>
-                  <select 
-                    value={selectedRecipientId} 
-                    onChange={(e) => setSelectedRecipientId(e.target.value)} 
-                    className="input-editorial w-full px-4 py-3 text-sm bg-paper">
-                    <option value="">-- Choose User --</option>
-                    {allUsers.map((u) => (
-                      <option key={u.id} value={u.id}>{u.full_name || u.email}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Subject</label>
-                <input type="text" value={newSubject} onChange={(e) => setNewSubject(e.target.value)} className="input-editorial w-full px-4 py-3 text-sm" placeholder="What's this about?" />
-              </div>
-              <div>
-                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Message</label>
-                <textarea value={newMessage} onChange={(e) => setNewMessage(e.target.value)} rows={5} className="input-editorial w-full px-4 py-3 text-sm" placeholder="Write your message..." />
-              </div>
-              <button 
-                onClick={handleCreateConversation}
-                disabled={creating || !newSubject.trim() || !newMessage.trim() || (isAdmin && !selectedRecipientId)}
-                className="btn-primary w-full py-3 text-xs uppercase tracking-wide-sm flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send Message
+        {/* New Conversation Modal */}
+        {showNewModal && (
+          <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-paper border border-line p-6 max-w-lg w-full shadow-2xl relative">
+              <button onClick={() => setShowNewModal(false)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
+                <X className="w-5 h-5" />
               </button>
+
+              <h2 className="font-display text-xl font-bold text-ink mb-4">
+                {isAdmin ? 'New Message to User' : 'Send Message to Admin'}
+              </h2>
+
+              <div className="space-y-4">
+                {isAdmin && (
+                  <div>
+                    <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Select Recipient</label>
+                    <select
+                      value={selectedRecipientId}
+                      onChange={(e) => setSelectedRecipientId(e.target.value)}
+                      className="input-editorial w-full px-3 py-2 text-sm bg-paper">
+                      <option value="">-- Choose User --</option>
+                      {allUsers.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.full_name || u.email} ({u.role || 'user'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Subject</label>
+                  <input
+                    type="text"
+                    value={newSubject}
+                    onChange={(e) => setNewSubject(e.target.value)}
+                    placeholder="Brief subject..."
+                    className="input-editorial w-full px-3 py-2 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Message</label>
+                  <textarea
+                    value={newMessage}
+                    onChange={(e) => setNewMessage(e.target.value)}
+                    rows={4}
+                    placeholder="Type your message..."
+                    className="input-editorial w-full px-3 py-2 text-sm resize-none"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-3 pt-2">
+                  <button type="button" onClick={() => setShowNewModal(false)} className="px-4 py-2 text-xs uppercase tracking-wide-sm text-ink-400 hover:text-ink">
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCreateConversation}
+                    disabled={creating || !newSubject.trim() || !newMessage.trim() || (isAdmin && !selectedRecipientId)}
+                    className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm inline-flex items-center gap-2 disabled:opacity-50">
+                    {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    Send Message
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
