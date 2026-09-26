@@ -114,6 +114,11 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        {/* Redirect old host profile path to settings */}
+        <Route
+          path="/host-profile/edit"
+          element={<Navigate to="/host-settings" replace />}
+        />
         <Route
           path="/artist-dashboard"
           element={
