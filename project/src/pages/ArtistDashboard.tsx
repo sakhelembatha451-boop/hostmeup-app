@@ -64,98 +64,98 @@ export default function ArtistDashboard() {
     }
 
     try {
+      // 1. Resolve current artist ID
       const { data: artistProfile } = await supabase
         .from('artist_profiles')
         .select('id')
         .eq('user_id', profile.id)
         .maybeSingle();
 
-      const targetArtistIds = Array.from(new Set([profile.id, artistProfile?.id].filter(Boolean)));
+      const targetArtistIds = Array.from(
+        new Set([profile.id, artistProfile?.id].filter(Boolean))
+      );
 
-      let rawBookings: any[] = [];
-      let fetchError: any = null;
-
-      const res1 = await supabase
+      // 2. Fetch raw bookings first
+      let { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
-        .select(`
-          *,
-          host:profiles!bookings_host_id_fkey(
-            id,
-            full_name,
-            avatar_url,
-            location,
-            email,
-            phone,
-            is_verified,
-            verified,
-            host_profile:host_profiles(
-              company_name,
-              is_identity_verified,
-              verification_status
-            )
-          )
-        `)
+        .select('*')
         .in('artist_id', targetArtistIds)
         .order('created_at', { ascending: false });
 
-      if (res1.error) {
-        const res1Retry = await supabase
-          .from('bookings')
-          .select('*')
-          .in('artist_id', targetArtistIds)
-          .order('created_at', { ascending: false });
-
-        if (!res1Retry.error && res1Retry.data) {
-          rawBookings = res1Retry.data;
-        } else {
-          fetchError = res1Retry.error || res1.error;
-        }
-      } else if (res1.data) {
-        rawBookings = res1.data;
-      }
-
-      if (rawBookings.length === 0 || fetchError) {
-        const res2 = await supabase
+      if (bookingsErr || !rawBookings || rawBookings.length === 0) {
+        const fallback = await supabase
           .from('booking')
           .select('*')
           .in('artist_id', targetArtistIds)
           .order('created_at', { ascending: false });
-
-        if (!res2.error && res2.data) {
-          rawBookings = res2.data;
+        if (fallback.data && fallback.data.length > 0) {
+          rawBookings = fallback.data;
         }
       }
 
-      if (rawBookings.length > 0) {
-        const hostIds = Array.from(new Set(rawBookings.map((b) => b.host_id).filter(Boolean)));
+      if (!rawBookings || rawBookings.length === 0) {
+        setBookings([]);
+        return;
+      }
 
-        if (hostIds.length > 0) {
-          const { data: hostProfiles } = await supabase
-            .from('profiles')
-            .select(`
-              id,
-              full_name,
-              avatar_url,
-              location,
-              email,
-              phone,
-              is_verified,
-              verified,
-              host_profile:host_profiles(
-                company_name,
-                is_identity_verified,
-                verification_status
-              )
-            `)
-            .in('id', hostIds);
+      // 3. Collect host identifiers
+      const hostIds = Array.from(
+        new Set(rawBookings.map((b) => b.host_id).filter(Boolean))
+      );
 
-          const hostMap = new Map((hostProfiles || []).map((h) => [h.id, h]));
+      if (hostIds.length > 0) {
+        // Query profiles by ID OR user_id
+        const { data: profileRecords } = await supabase
+          .from('profiles')
+          .select('*')
+          .in('id', hostIds);
 
-          rawBookings = rawBookings.map((b) => ({
+        // Query host_profiles by ID OR user_id
+        const { data: hostProfileRecords } = await supabase
+          .from('host_profiles')
+          .select('*')
+          .or(`id.in.(${hostIds.map(id => `"${id}"`).join(',')}),user_id.in.(${hostIds.map(id => `"${id}"`).join(',')})`);
+
+        // Build quick lookup maps
+        const profileMap = new Map((profileRecords || []).map((p) => [p.id, p]));
+        const hostProfileMap = new Map();
+
+        (hostProfileRecords || []).forEach((hp) => {
+          if (hp.id) hostProfileMap.set(hp.id, hp);
+          if (hp.user_id) hostProfileMap.set(hp.user_id, hp);
+        });
+
+        // 4. Attach resolved host data onto each booking
+        rawBookings = rawBookings.map((b) => {
+          const hp = hostProfileMap.get(b.host_id);
+          const p =
+            profileMap.get(b.host_id) ||
+            profileMap.get(hp?.user_id) ||
+            b.host ||
+            null;
+
+          const isVerified = Boolean(
+            hp?.is_identity_verified ||
+            hp?.verification_status === 'approved' ||
+            p?.is_verified ||
+            p?.verified
+          );
+
+          return {
             ...b,
-            host: b.host || hostMap.get(b.host_id) || null,
-          }));
-        }
+            host: {
+              id: p?.id || hp?.id || b.host_id,
+              full_name: p?.full_name || hp?.company_name || 'Host',
+              avatar_url: p?.avatar_url || null,
+              location: p?.location || hp?.location || '',
+              email: p?.email || '',
+              phone: p?.phone || '',
+              is_verified: isVerified,
+              verified: isVerified,
+              host_profile: hp || null,
+            },
+          };
+        });
       }
 
       const formattedBookings = rawBookings as BookingWithHost[];
