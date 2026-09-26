@@ -4,6 +4,7 @@ import { Loader2, CheckCircle, XCircle, ShieldAlert, FileText, ExternalLink } fr
 
 interface PendingHost {
   id: string;
+  user_id?: string;
   full_legal_name: string | null;
   id_document_url: string | null;
   id_type: string | null;
@@ -12,7 +13,7 @@ interface PendingHost {
   profiles?: {
     full_name: string;
     email: string;
-  };
+  } | null;
 }
 
 export default function AdminVerification() {
@@ -22,24 +23,70 @@ export default function AdminVerification() {
 
   const fetchSubmissions = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('host_profiles')
-      .select(`
-        id,
-        full_legal_name,
-        id_document_url,
-        id_type,
-        is_identity_verified,
-        verification_status,
-        profiles:id(full_name, email)
-      `)
-      .order('id', { ascending: false });
+    try {
+      // 1. Fetch host profiles that are pending review or not explicitly approved
+      let { data, error } = await supabase
+        .from('host_profiles')
+        .select(`
+          *,
+          profiles:user_id(full_name, email)
+        `)
+        .or('verification_status.eq.pending,verification_status.is.null')
+        .neq('verification_status', 'approved')
+        .order('updated_at', { ascending: false });
 
-    if (!error && data) {
-      // Cast data safely
-      setHosts(data as unknown as PendingHost[]);
+      // Fallback if foreign key alias fails or returns no relational data
+      if (error) {
+        const retry = await supabase
+          .from('host_profiles')
+          .select('*')
+          .or('verification_status.eq.pending,verification_status.is.null')
+          .neq('verification_status', 'approved');
+
+        if (!retry.error && retry.data) {
+          data = retry.data;
+          error = null;
+        }
+      }
+
+      let rawHosts: PendingHost[] = (data as unknown as PendingHost[]) || [];
+
+      // 2. Hydrate missing profile details manually if needed
+      if (rawHosts.length > 0) {
+        const userIds = Array.from(
+          new Set(rawHosts.map((h) => h.user_id || h.id).filter(Boolean))
+        );
+
+        if (userIds.length > 0) {
+          const { data: userProfiles } = await supabase
+            .from('profiles')
+            .select('id, full_name, email')
+            .in('id', userIds);
+
+          const profileMap = new Map((userProfiles || []).map((p) => [p.id, p]));
+
+          rawHosts = rawHosts.map((h) => ({
+            ...h,
+            profiles: h.profiles || profileMap.get(h.user_id || h.id) || null,
+          }));
+        }
+      }
+
+      // Filter to show records with submitted document URLs OR pending status
+      const validSubmissions = rawHosts.filter(
+        (host) =>
+          host.id_document_url ||
+          host.verification_status === 'pending' ||
+          host.full_legal_name
+      );
+
+      setHosts(validSubmissions);
+    } catch (err) {
+      console.error('Error fetching verification submissions:', err);
+      setHosts([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
@@ -48,10 +95,11 @@ export default function AdminVerification() {
 
   const handleReview = async (hostId: string, approve: boolean) => {
     setProcessingId(hostId);
-    
+
     const updates = {
       is_identity_verified: approve,
       verification_status: approve ? 'approved' : 'rejected',
+      updated_at: new Date().toISOString(),
     };
 
     const { error } = await supabase
@@ -94,23 +142,23 @@ export default function AdminVerification() {
           <div className="space-y-4">
             {hosts.map((host) => (
               <div key={host.id} className="border border-line p-6 bg-paper flex flex-col md:flex-row md:items-center justify-between gap-6">
-                
+
                 {/* Host Info */}
                 <div className="space-y-2">
                   <div className="flex items-center gap-3">
                     <h3 className="font-display text-lg font-bold text-ink">
                       {host.full_legal_name || host.profiles?.full_name || 'Unnamed Host'}
                     </h3>
-                    
+
                     {/* Verification Status Pill */}
                     <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 tracking-wider border ${
-                      host.verification_status === 'approved' 
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                      host.verification_status === 'approved'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                         : host.verification_status === 'rejected'
                         ? 'bg-red-50 text-red-800 border-red-200'
                         : 'bg-amber-50 text-amber-800 border-amber-200'
                     }`}>
-                      {host.verification_status || 'Unsubmitted'}
+                      {host.verification_status || 'Pending'}
                     </span>
                   </div>
 
@@ -121,10 +169,10 @@ export default function AdminVerification() {
                 {/* Actions & Document Link */}
                 <div className="flex flex-wrap items-center gap-3 border-t md:border-t-0 pt-4 md:pt-0 border-line">
                   {host.id_document_url ? (
-                    <a 
-                      href={host.id_document_url} 
-                      target="_blank" 
-                      rel="noopener noreferrer" 
+                    <a
+                      href={host.id_document_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
                     >
                       <FileText className="w-3.5 h-3.5" /> View ID Document <ExternalLink className="w-3 h-3 ml-1" />
