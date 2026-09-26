@@ -232,7 +232,8 @@ export default function BookingRequestPage() {
     setError('');
 
     if (typeof window.YocoSDK === 'undefined') {
-      await confirmDepositInDatabase();
+      setError('Yoco SDK is not loaded. Please ensure the payment gateway script is included.');
+      setPaying(false);
       return;
     }
 
@@ -256,8 +257,9 @@ export default function BookingRequestPage() {
         },
       });
     } catch (err: any) {
-      console.warn('Yoco SDK trigger fallback:', err);
-      await confirmDepositInDatabase();
+      console.error('Yoco SDK initialization failed:', err);
+      setError('Payment popup could not be initialized. Please try again.');
+      setPaying(false);
     }
   };
 
