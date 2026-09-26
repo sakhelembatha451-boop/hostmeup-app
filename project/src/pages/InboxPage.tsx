@@ -49,7 +49,6 @@ export default function InboxPage() {
 
   const isAdmin = profile?.role === 'admin' || profile?.email === 'sakhelembatha451@gmail.com';
 
-  // Helper to check if a booking date or created date is today
   const isGigToday = (dateString?: string) => {
     if (!dateString) return false;
     const gigDate = new Date(dateString);
@@ -88,30 +87,15 @@ export default function InboxPage() {
       if (isAdmin) {
         query = query.or('deleted_by_admin.is.null,deleted_by_admin.eq.false');
       } else {
-        const { data: userMessages } = await supabase
-          .from('messages')
-          .select('conversation_id')
-          .eq('sender_id', profile.id);
-
-        const activeConvIds = Array.from(new Set((userMessages || []).map((m) => m.conversation_id)));
-
-        if (activeConvIds.length > 0) {
-          query = query
-            .or(`user_id.eq.${profile.id},id.in.(${activeConvIds.join(',')})`)
-            .or('deleted_by_user.is.null,deleted_by_user.eq.false');
-        } else {
-          query = query
-            .eq('user_id', profile.id)
-            .or('deleted_by_user.is.null,deleted_by_user.eq.false');
-        }
+        query = query
+          .or(`user_id.eq.${profile.id},participant1_id.eq.${profile.id},participant2_id.eq.${profile.id}`)
+          .or('deleted_by_user.is.null,deleted_by_user.eq.false');
       }
 
       const { data, error } = await query.order('updated_at', { ascending: false });
 
       if (error) {
-        let fallbackQuery = supabase.from('conversations').select('*');
-        if (!isAdmin) fallbackQuery = fallbackQuery.eq('user_id', profile.id);
-        const { data: fallbackData } = await fallbackQuery;
+        const { data: fallbackData } = await supabase.from('conversations').select('*');
         setConversations((fallbackData as Conversation[]) || []);
       } else {
         setConversations((data as Conversation[]) || []);
@@ -366,7 +350,6 @@ export default function InboxPage() {
     }
   };
 
-  // --- Real-time Safety Database Integrations ---
   const triggerEmergencyAlert = async () => {
     if (!profile || !selectedConv) return;
 
@@ -595,7 +578,8 @@ export default function InboxPage() {
                     ) : (
                       messages.map((msg) => {
                         const isOwn = msg.sender_id === profile?.id;
-                        const msgBody = msg.body || '';
+                        // Dynamically fall back between content, body, or message columns
+                        const msgBody = (msg as { content?: string; body?: string; message?: string }).content || msg.body || (msg as { content?: string; body?: string; message?: string }).message || '';
                         const isVoiceNote = msgBody.startsWith('[VOICE_NOTE]') || msgBody.startsWith('AUDIO:');
                         const audioUrl = msgBody.replace('[VOICE_NOTE]', '').replace('AUDIO:', '');
                         const msgWithSender = msg as Message & { sender?: Profile };
@@ -629,7 +613,7 @@ export default function InboxPage() {
                                 {isVoiceNote ? (
                                   <audio controls src={audioUrl} className="max-w-[240px] h-10" />
                                 ) : (
-                                  msg.body
+                                  msgBody
                                 )}
                               </div>
 
