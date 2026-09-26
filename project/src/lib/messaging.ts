@@ -99,42 +99,46 @@ export async function createNotification(
   type = 'info',
   link?: string
 ) {
-  // Try inserting with all fields
-  const { data, error } = await supabase
-    .from('notifications')
-    .insert({
-      user_id: userId,
-      title,
-      message,
-      type,
-      link,
-      read: false,
-    })
-    .select('*')
-    .single();
-
-  // Fallback insert if columns like 'type' or 'link' are missing in DB table
-  if (error) {
-    console.warn('Fallback notification insert:', error);
-    return await supabase
+  try {
+    const { data, error } = await supabase
       .from('notifications')
       .insert({
         user_id: userId,
         title,
         message,
+        type,
+        link,
         read: false,
+        is_read: false,
       })
       .select('*')
       .single();
-  }
 
-  return { data, error };
+    if (error) {
+      console.warn('First notification insert attempt failed, trying fallback:', error);
+      return await supabase
+        .from('notifications')
+        .insert({
+          user_id: userId,
+          title,
+          message,
+          read: false,
+        })
+        .select('*')
+        .single();
+    }
+
+    return { data, error: null };
+  } catch (err) {
+    console.error('Non-blocking error creating notification:', err);
+    return { data: null, error: err };
+  }
 }
 
 export async function markNotificationRead(notificationId: string) {
   const { error } = await supabase
     .from('notifications')
-    .update({ read: true })
+    .update({ read: true, is_read: true })
     .eq('id', notificationId);
 
   if (error) console.error('Error marking notification read:', error);
@@ -143,7 +147,7 @@ export async function markNotificationRead(notificationId: string) {
 export async function markAllNotificationsRead(userId: string) {
   const { error } = await supabase
     .from('notifications')
-    .update({ read: true })
+    .update({ read: true, is_read: true })
     .eq('user_id', userId);
 
   if (error) console.error('Error marking all notifications read:', error);
