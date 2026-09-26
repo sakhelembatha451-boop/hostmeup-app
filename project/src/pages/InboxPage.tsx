@@ -433,24 +433,30 @@ export default function InboxPage() {
     }
   };
 
+  // Trigger Emergency Dispatch Alert
   const triggerEmergencyAlert = async () => {
     if (!profile || !selectedConv) return;
 
-    if (confirm('Are you sure you want to trigger HostMeUp Emergency Dispatch? This will alert on-call platform safety leads immediately.')) {
+    if (confirm('Are you sure you want to trigger HostMeUp Emergency Support? This will alert platform safety admins immediately.')) {
       setIsEmergencyTriggering(true);
       try {
-        const { error } = await supabase.from('safety_alerts').insert({
-          conversation_id: selectedConv.id,
-          user_id: profile.id,
-          alert_type: 'emergency',
-          status: 'open',
-          details: {
-            subject: selectedConv.subject,
-            triggered_at: new Date().toISOString(),
-            user_email: profile.email,
-            user_name: profile.full_name,
-          },
-        });
+        const { error } = await supabase
+          .from('safety_alerts')
+          .insert([
+            {
+              conversation_id: selectedConv.id,
+              user_id: profile.id,
+              alert_type: 'emergency',
+              status: 'open',
+              details: {
+                subject: selectedConv.subject,
+                message: 'Emergency support requested from live inbox widget.',
+                triggered_at: new Date().toISOString(),
+                user_email: profile.email,
+                user_name: profile.full_name,
+              },
+            }
+          ]);
 
         if (error) throw error;
 
@@ -459,40 +465,46 @@ export default function InboxPage() {
           `User ${profile.full_name} (${profile.email}) triggered Emergency Support in thread ID: ${selectedConv.id}.`
         ).catch((err) => console.warn(err));
 
-        alert('🚨 Emergency request logged! HostMeUp Safety Teams have been notified and dispatched.');
-      } catch (err) {
+        alert('🚨 Emergency support request logged! HostMeUp Safety Teams have been notified and dispatched.');
+      } catch (err: any) {
         console.error('Failed to dispatch emergency alert:', err);
-        alert('Could not log emergency alert. Please contact platform administrators directly.');
+        alert(`Could not log emergency alert: ${err.message || 'Please check database permissions.'}`);
       } finally {
         setIsEmergencyTriggering(false);
       }
     }
   };
 
+  // Share Live Status Check-in
   const handleShareStatus = async () => {
     if (!profile || !selectedConv) return;
 
     setIsSharingStatus(true);
     try {
-      const { error } = await supabase.from('safety_alerts').insert({
-        conversation_id: selectedConv.id,
-        user_id: profile.id,
-        alert_type: 'location_checkin',
-        status: 'resolved',
-        details: {
-          subject: selectedConv.subject,
-          checked_in_at: new Date().toISOString(),
-          user_email: profile.email,
-          user_name: profile.full_name,
-        },
-      });
+      const { error } = await supabase
+        .from('safety_alerts')
+        .insert([
+          {
+            conversation_id: selectedConv.id,
+            user_id: profile.id,
+            alert_type: 'location_checkin',
+            status: 'open',
+            details: {
+              subject: selectedConv.subject,
+              message: 'User completed a live status location check-in.',
+              checked_in_at: new Date().toISOString(),
+              user_email: profile.email,
+              user_name: profile.full_name,
+            },
+          }
+        ]);
 
       if (error) throw error;
 
-      alert('📍 Live location check-in active. Your safety contact and HostMeUp logs have been updated.');
-    } catch (err) {
+      alert('📍 Live location status shared! Recorded to the Admin Safety Hub.');
+    } catch (err: any) {
       console.error('Failed to update status:', err);
-      alert('Could not update safety status. Please try again.');
+      alert(`Could not update safety status: ${err.message || 'Please check database permissions.'}`);
     } finally {
       setIsSharingStatus(false);
     }
@@ -625,46 +637,46 @@ export default function InboxPage() {
                     <button onClick={() => setSelectedConv(null)} className="lg:hidden text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
                   </div>
 
-                  {/* Dynamic Safety Card */}
-                  {(selectedConv.type === 'booking' || isGigToday(selectedConv.created_at)) && (
-                    <div className="m-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                      <div className="flex items-start gap-3">
-                        <div className="p-2 bg-amber-500 text-white rounded-md flex-shrink-0 mt-0.5">
-                          <ShieldAlert className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h4 className="text-xs font-bold uppercase tracking-wide text-amber-900">Live Safety Protocol</h4>
+                  {/* Safety Card (Shows for direct/booking interactions) */}
+                  <div className="m-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 bg-amber-500 text-white rounded-md flex-shrink-0 mt-0.5">
+                        <ShieldAlert className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs font-bold uppercase tracking-wide text-amber-900">Live Safety Protocol</h4>
+                          {isGigToday(selectedConv.created_at) && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-green-500 text-white rounded-full">
                               <ShieldCheck className="w-3 h-3" /> Gig Today
                             </span>
-                          </div>
-                          <p className="text-xs text-amber-800/90 mt-0.5">
-                            Keep communications on HostMeUp for verification and platform escrow protection.
-                          </p>
+                          )}
                         </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                        <button 
-                          onClick={triggerEmergencyAlert}
-                          disabled={isEmergencyTriggering}
-                          className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold rounded transition-colors"
-                        >
-                          {isEmergencyTriggering ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PhoneCall className="w-3.5 h-3.5" />}
-                          Emergency Support
-                        </button>
-                        <button 
-                          onClick={handleShareStatus}
-                          disabled={isSharingStatus}
-                          className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-paper border border-amber-500/40 hover:bg-amber-100 disabled:opacity-50 text-amber-900 text-xs font-medium rounded transition-colors"
-                        >
-                          {isSharingStatus ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
-                          Share Status
-                        </button>
+                        <p className="text-xs text-amber-800/90 mt-0.5">
+                          Keep communications on HostMeUp for verification and platform escrow protection.
+                        </p>
                       </div>
                     </div>
-                  )}
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                      <button 
+                        onClick={triggerEmergencyAlert}
+                        disabled={isEmergencyTriggering}
+                        className="flex-1 sm:flex-initial inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-semibold rounded transition-colors"
+                      >
+                        {isEmergencyTriggering ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <PhoneCall className="w-3.5 h-3.5" />}
+                        Emergency Support
+                      </button>
+                      <button 
+                        onClick={handleShareStatus}
+                        disabled={isSharingStatus}
+                        className="inline-flex items-center justify-center gap-1.5 px-3 py-2 bg-paper border border-amber-500/40 hover:bg-amber-100 disabled:opacity-50 text-amber-900 text-xs font-medium rounded transition-colors"
+                      >
+                        {isSharingStatus ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <MapPin className="w-3.5 h-3.5" />}
+                        Share Status
+                      </button>
+                    </div>
+                  </div>
 
                   <div className="flex-1 overflow-y-auto p-5 flex flex-col gap-4 min-h-[300px] max-h-[500px]">
                     {msgLoading ? (
