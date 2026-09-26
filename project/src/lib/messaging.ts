@@ -60,7 +60,7 @@ export async function sendMessage(
   conversationId: string,
   senderId: string,
   content: string,
-  _recipientId?: string
+  recipientId?: string
 ) {
   const messageText = content || '';
 
@@ -69,6 +69,7 @@ export async function sendMessage(
     .insert({
       conversation_id: conversationId,
       sender_id: senderId,
+      recipient_id: recipientId || null,
       body: messageText,
       content: messageText,
       read: false,
