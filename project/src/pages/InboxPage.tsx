@@ -10,7 +10,7 @@ import {
   Square as UncheckedSquare,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../contexts/AuthContext';
+import { useAuth } from '../context/AuthContext'; // Updated path (change to '../contexts/AuthContext' if your folder is named 'contexts')
 
 interface Message {
   id: string;
@@ -72,9 +72,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
   // Bulk selection state
   const [selectedConvIds, setSelectedConvIds] = useState<string[]>([]);
 
-  // ----------------------------------------------------
   // 1. Load Conversations with Profile Resolution
-  // ----------------------------------------------------
   const loadConversations = useCallback(async () => {
     if (!profile) return;
     try {
@@ -125,7 +123,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
           }, {} as Record<string, any>);
 
           convList = convList.map((c: any) => {
-            // Identify the other participant in the conversation
             const otherId = [c.user_id, c.participant1_id, c.participant2_id]
               .filter(Boolean)
               .find((id) => id !== profile.id);
@@ -170,7 +167,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     }
   }, [profile, isAdmin, targetConvId, targetUserId]);
 
-  // Load recipients for new conversation modal
   const loadRecipients = useCallback(async () => {
     if (!profile) return;
     try {
@@ -192,7 +188,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     loadRecipients();
   }, [loadConversations, loadRecipients]);
 
-  // Load messages for selected conversation
   const loadMessages = useCallback(async (convId: string) => {
     try {
       const { data, error } = await supabase
@@ -204,7 +199,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
       if (error) throw error;
       setMessages((data as Message[]) || []);
 
-      // Mark unread messages as read
       if (profile) {
         const unreadIds = (data || [])
           .filter((m: Message) => !m.read && m.sender_id !== profile.id)
@@ -256,7 +250,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     }
   }, [selectedConv, loadMessages, profile]);
 
-  // Handle sending a message
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessage.trim() || !selectedConv || !profile) return;
@@ -283,7 +276,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     }
   };
 
-  // Handle starting a new conversation
   const handleCreateConversation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile || !selectedRecipientId || !firstMessage.trim()) return;
@@ -329,7 +321,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     }
   };
 
-  // Checkbox Selection Logic
   const toggleSelectAll = () => {
     if (selectedConvIds.length === conversations.length) {
       setSelectedConvIds([]);
@@ -345,7 +336,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     );
   };
 
-  // Delete Handlers
   const handleDeleteSelected = async () => {
     if (selectedConvIds.length === 0) return;
     if (!confirm('Are you sure you want to delete the selected conversations?'))
@@ -433,9 +423,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
       {/* Main Inbox Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* ---------------------------------------------------- */}
-        {/* Left Sidebar (Conversations List) */}
-        {/* ---------------------------------------------------- */}
+        {/* Left Sidebar */}
         <div className="w-1/3 border-r border-line bg-paper-100 flex flex-col overflow-y-auto">
           {conversations.length > 0 && (
             <div className="p-3 border-b border-line flex items-center justify-between text-xs text-ink-400 bg-paper-200/30">
@@ -494,7 +482,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-2">
-                        {/* Render Resolved Display Name Here */}
                         <span className="text-sm font-semibold truncate text-ink">
                           {nameToDisplay}
                         </span>
@@ -530,13 +517,10 @@ export const InboxPage: React.FC<InboxPageProps> = ({
           )}
         </div>
 
-        {/* ---------------------------------------------------- */}
-        {/* Right Pane (Active Messages Thread) */}
-        {/* ---------------------------------------------------- */}
+        {/* Right Pane */}
         <div className="flex-1 flex flex-col bg-paper-100/50">
           {selectedConv ? (
             <>
-              {/* Thread Header */}
               <div className="p-4 border-b border-line bg-paper-100 flex items-center justify-between">
                 <div>
                   <h2 className="text-sm font-bold text-ink">
@@ -548,7 +532,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                 </div>
               </div>
 
-              {/* Thread Messages */}
               <div className="flex-1 p-4 overflow-y-auto space-y-4">
                 {messages.map((msg) => {
                   const isMe = msg.sender_id === profile?.id;
@@ -581,7 +564,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                 })}
               </div>
 
-              {/* Thread Input */}
               <form
                 onSubmit={handleSendMessage}
                 className="p-3 border-t border-line bg-paper-100 flex items-center gap-2"
@@ -613,9 +595,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
         </div>
       </div>
 
-      {/* ---------------------------------------------------- */}
       {/* New Conversation Modal */}
-      {/* ---------------------------------------------------- */}
       {showNewModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-paper-100 border border-line rounded-xl w-full max-w-md p-6 shadow-2xl relative">
@@ -633,7 +613,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
             <h2 className="text-lg font-bold text-ink mb-4">New Message</h2>
 
             <form onSubmit={handleCreateConversation} className="space-y-4">
-              {/* Recipient Picker */}
               <div>
                 <label className="block text-xs font-medium text-ink-400 mb-1">
                   Recipient
@@ -663,7 +642,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                 </select>
               </div>
 
-              {/* Subject */}
               <div>
                 <label className="block text-xs font-medium text-ink-400 mb-1">
                   Subject
@@ -677,7 +655,6 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                 />
               </div>
 
-              {/* Initial Message */}
               <div>
                 <label className="block text-xs font-medium text-ink-400 mb-1">
                   Message
