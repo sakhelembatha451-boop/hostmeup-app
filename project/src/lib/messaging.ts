@@ -99,6 +99,7 @@ export async function createNotification(
   type = 'info',
   link?: string
 ) {
+  // Try inserting with all fields
   const { data, error } = await supabase
     .from('notifications')
     .insert({
@@ -112,9 +113,21 @@ export async function createNotification(
     .select('*')
     .single();
 
+  // Fallback insert if columns like 'type' or 'link' are missing in DB table
   if (error) {
-    console.error('Error creating notification:', error);
+    console.warn('Fallback notification insert:', error);
+    return await supabase
+      .from('notifications')
+      .insert({
+        user_id: userId,
+        title,
+        message,
+        read: false,
+      })
+      .select('*')
+      .single();
   }
+
   return { data, error };
 }
 
