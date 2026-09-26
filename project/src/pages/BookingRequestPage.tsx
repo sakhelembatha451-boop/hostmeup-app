@@ -57,7 +57,7 @@ export default function BookingRequestPage() {
         let targetUserId: string | null = null;
         let artistProfileData: any = null;
 
-        // Try 1: By user_id
+        // 1. Check artist_profiles by user_id
         const { data: apByUser } = await supabase
           .from('artist_profiles')
           .select('*')
@@ -67,10 +67,8 @@ export default function BookingRequestPage() {
         if (apByUser) {
           targetUserId = id;
           artistProfileData = apByUser;
-        }
-
-        // Try 2: By artist_profiles.id
-        if (!artistProfileData) {
+        } else {
+          // 2. Check artist_profiles by artist profile primary key ID
           const { data: apById } = await supabase
             .from('artist_profiles')
             .select('*')
@@ -83,30 +81,7 @@ export default function BookingRequestPage() {
           }
         }
 
-        // Try 3: By booking ID fallback
-        if (!artistProfileData) {
-          const { data: bookingRow } = await supabase
-            .from('bookings')
-            .select('artist_id')
-            .eq('id', id)
-            .maybeSingle();
-
-          if (bookingRow?.artist_id) {
-            targetUserId = bookingRow.artist_id;
-            const { data: apByBookingArtist } = await supabase
-              .from('artist_profiles')
-              .select('*')
-              .or(`user_id.eq.${bookingRow.artist_id},id.eq.${bookingRow.artist_id}`)
-              .maybeSingle();
-
-            if (apByBookingArtist) {
-              targetUserId = apByBookingArtist.user_id || bookingRow.artist_id;
-              artistProfileData = apByBookingArtist;
-            }
-          }
-        }
-
-        // Decoupled user profile query
+        // 3. Resolve user profile once artist is identified
         if (targetUserId) {
           const { data: userProfile } = await supabase
             .from('profiles')
@@ -150,7 +125,6 @@ export default function BookingRequestPage() {
 
   const ap = artist?.artist_profile;
   const rateUnit = ap?.rate_unit || 'hour';
-  // Check rate fields across base_rate, hourly_rate, or rate
   const baseRate = ap?.base_rate ?? ap?.hourly_rate ?? ap?.rate ?? null;
   const numericBaseRate = baseRate != null ? Number(baseRate) : null;
 
@@ -200,14 +174,12 @@ export default function BookingRequestPage() {
     };
 
     try {
-      // Attempt insert on 'bookings'
       let { data, error: insertErr } = await supabase
         .from('bookings')
         .insert(payload)
         .select('id')
         .single();
 
-      // Fallback if 'bookings' table fails due to singular/plural table naming
       if (insertErr && insertErr.message.includes("Could not find the table")) {
         const fallback = await supabase
           .from('booking')
