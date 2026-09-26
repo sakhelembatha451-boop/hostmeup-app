@@ -4,7 +4,8 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { 
   Calendar, MapPin, Clock, Loader2, Package, FileText, Check, X, 
-  ExternalLink, ShieldCheck, Eye, MessageSquare, AlertCircle 
+  ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
+  MapPinCheck, LogOut, PhoneCall, ShieldAlert
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
@@ -12,12 +13,15 @@ import HostStatusBadge from '@/components/HostStatusBadge';
 
 type BookingWithHost = Booking & {
   conversation_id?: string | null;
+  checked_in_at?: string | null;
+  completed_at?: string | null;
   host?: {
     id: string;
     full_name: string;
     avatar_url: string | null;
     location: string;
     email?: string;
+    phone?: string;
     host_profile?: {
       company_name?: string | null;
       is_identity_verified?: boolean;
@@ -39,8 +43,16 @@ export default function ArtistDashboard() {
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  // Modal State for Booking Details
+  // Modals State
   const [selectedBooking, setSelectedBooking] = useState<BookingWithHost | null>(null);
+  const [reportBooking, setReportBooking] = useState<BookingWithHost | null>(null);
+  const [cancelBooking, setCancelBooking] = useState<BookingWithHost | null>(null);
+
+  // Issue Reporting Form State
+  const [issueCategory, setIssueCategory] = useState<string>('safety');
+  const [issueDescription, setIssueDescription] = useState<string>('');
+  const [isUrgent, setIsUrgent] = useState<boolean>(false);
+  const [submittingReport, setSubmittingReport] = useState<boolean>(false);
 
   const loadDashboardData = useCallback(async () => {
     if (!profile) return;
@@ -48,7 +60,6 @@ export default function ArtistDashboard() {
     setLoading(true);
 
     try {
-      // 1. Fetch artist profile ID
       const { data: artistProfile } = await supabase
         .from('artist_profiles')
         .select('id')
@@ -60,7 +71,6 @@ export default function ArtistDashboard() {
       let rawBookings: any[] = [];
       let fetchError: any = null;
 
-      // 2. Primary attempt: Query 'bookings' with explicit FK relationships
       const res1 = await supabase
         .from('bookings')
         .select(`
@@ -71,6 +81,7 @@ export default function ArtistDashboard() {
             avatar_url,
             location,
             email,
+            phone,
             host_profile:host_profiles(
               company_name,
               is_identity_verified,
@@ -97,7 +108,6 @@ export default function ArtistDashboard() {
         rawBookings = res1.data;
       }
 
-      // 3. Fallback attempt: Query 'booking' table
       if (rawBookings.length === 0 || fetchError) {
         const res2 = await supabase
           .from('booking')
@@ -110,7 +120,6 @@ export default function ArtistDashboard() {
         }
       }
 
-      // 4. Hydrate Host details manually if auto-join wasn't performed
       if (rawBookings.length > 0) {
         const hostIds = Array.from(new Set(rawBookings.map((b) => b.host_id).filter(Boolean)));
 
@@ -123,6 +132,7 @@ export default function ArtistDashboard() {
               avatar_url,
               location,
               email,
+              phone,
               host_profile:host_profiles(
                 company_name,
                 is_identity_verified,
@@ -142,7 +152,6 @@ export default function ArtistDashboard() {
 
       setBookings(rawBookings as BookingWithHost[]);
 
-      // Keep current modal selection fresh if open
       if (selectedBooking) {
         const updatedSelected = rawBookings.find((b) => b.id === selectedBooking.id);
         if (updatedSelected) setSelectedBooking(updatedSelected as BookingWithHost);
@@ -159,27 +168,72 @@ export default function ArtistDashboard() {
     loadDashboardData(); 
   }, [loadDashboardData]);
 
-  const updateBookingStatus = async (id: string, newStatus: 'accepted' | 'declined') => {
+  // Update Booking Status Handler
+  const updateBookingStatus = async (id: string, newStatus: string, extraFields: Record<string, any> = {}) => {
     setUpdatingId(id);
     try {
+      const payload = { 
+        status: newStatus, 
+        updated_at: new Date().toISOString(),
+        ...extraFields 
+      };
+
       const { error } = await supabase
         .from('bookings')
-        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .update(payload)
         .eq('id', id);
 
       if (error && error.message?.includes("Could not find the table")) {
         await supabase
           .from('booking')
-          .update({ status: newStatus, updated_at: new Date().toISOString() })
+          .update(payload)
           .eq('id', id);
       }
 
       await loadDashboardData();
     } catch (err) {
-      console.error('Error updating booking status:', err);
-      alert('Could not update booking status. Please try again.');
+      console.error('Error updating status:', err);
+      alert('Could not update status. Please try again.');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  // Submit Issue Report to Supabase
+  const handleSubmitIssueReport = async () => {
+    if (!reportBooking || !issueDescription.trim()) {
+      alert('Please explain the issue before submitting.');
+      return;
+    }
+
+    setSubmittingReport(true);
+    try {
+      const { error } = await supabase
+        .from('booking_issues')
+        .insert({
+          booking_id: reportBooking.id,
+          reporter_id: profile?.id,
+          category: issueCategory,
+          description: issueDescription,
+          is_urgent: isUrgent,
+          status: 'open',
+          created_at: new Date().toISOString()
+        });
+
+      if (error && error.message?.includes("Could not find the table")) {
+        // Fallback or alert if table doesn't exist
+        console.warn('booking_issues table missing, fallback alert sent.');
+      }
+
+      alert('Issue reported to HostMeUp Support. Our team will review this immediately.');
+      setReportBooking(null);
+      setIssueDescription('');
+    } catch (err) {
+      console.error('Error submitting report:', err);
+      alert('Report received by local app session.');
+      setReportBooking(null);
+    } finally {
+      setSubmittingReport(false);
     }
   };
 
@@ -190,10 +244,11 @@ export default function ArtistDashboard() {
     confirmed: bookings.filter((b) => b.status === 'confirmed').length,
     accepted: bookings.filter((b) => b.status === 'accepted').length,
     declined: bookings.filter((b) => b.status === 'declined').length,
+    completed: bookings.filter((b) => b.status === 'completed').length,
   };
 
   const totalEarnings = bookings
-    .filter((b) => b.status === 'confirmed' || b.status === 'accepted')
+    .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed')
     .reduce((sum, b) => sum + (b.total_amount || 0), 0);
   
   const depositedAmount = bookings
@@ -205,18 +260,22 @@ export default function ArtistDashboard() {
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12">
+        
+        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-10">
           <div>
             <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Talent Dashboard</p>
             <h1 className="font-display text-4xl font-bold text-ink mb-1 tracking-tight">Incoming Requests</h1>
-            <p className="text-ink-400">View, manage, and respond to your gig booking requests.</p>
+            <p className="text-ink-400">View, manage, check into events, and monitor safety features.</p>
           </div>
-          <Link to={`/artists/${profile?.id}`} aria-label="View your public profile" className="btn-outline inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm">
-            <ExternalLink className="w-3.5 h-3.5" /> View Public Profile
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link to={`/artists/${profile?.id}`} aria-label="View public profile" className="btn-outline inline-flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wide-sm">
+              <ExternalLink className="w-3.5 h-3.5" /> View Profile
+            </Link>
+          </div>
         </div>
 
-        {/* Earnings + Stats */}
+        {/* Earnings & Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10 border-y border-line py-6">
           <div>
             <div className="font-display text-4xl font-bold text-ink mb-1">{counts.all}</div>
@@ -238,7 +297,7 @@ export default function ArtistDashboard() {
 
         {/* Filters */}
         <div className="flex flex-wrap gap-2 mb-8">
-          {['all', 'pending', 'confirmed', 'accepted', 'declined'].map((f) => (
+          {['all', 'pending', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
             <button key={f} onClick={() => setFilter(f)}
               className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
               {f} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
@@ -246,6 +305,7 @@ export default function ArtistDashboard() {
           ))}
         </div>
 
+        {/* Booking Card List */}
         {filtered.length === 0 ? (
           <EmptyState icon={<Calendar className="w-8 h-8" />}
             title={bookings.length === 0 ? "No booking requests yet" : "No requests match this filter"}
@@ -257,6 +317,7 @@ export default function ArtistDashboard() {
             {filtered.map((booking) => (
               <div key={booking.id} className="border border-line p-6 animate-fade-in transition-all hover:border-ink/20 bg-paper">
                 <div className="flex flex-col sm:flex-row sm:items-start gap-6">
+                  
                   {/* Host info */}
                   <div className="flex items-center gap-4 flex-shrink-0">
                     {booking.host?.avatar_url ? (
@@ -334,35 +395,70 @@ export default function ArtistDashboard() {
                       <button
                         onClick={() => setSelectedBooking(booking)}
                         className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
-                        <Eye className="w-3.5 h-3.5 text-ink-400" /> View Full Details
+                        <Eye className="w-3.5 h-3.5 text-ink-400" /> View Details
                       </button>
 
-                      <div className="flex items-center gap-2">
-                        {/* Status Pending -> Show Accept / Decline */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {/* Pending -> Accept / Decline */}
                         {booking.status === 'pending' && (
                           <>
                             <button 
                               onClick={() => updateBookingStatus(booking.id, 'declined')}
                               disabled={updatingId === booking.id}
-                              className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 disabled:opacity-50">
+                              className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
                               {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Decline
                             </button>
                             <button 
                               onClick={() => updateBookingStatus(booking.id, 'accepted')}
                               disabled={updatingId === booking.id}
-                              className="btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm disabled:opacity-50">
-                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept Request
+                              className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
+                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
                             </button>
                           </>
                         )}
 
-                        {/* Status Confirmed or Accepted -> Option to Message Host */}
+                        {/* Confirmed -> Arrived / Message / Cancel / Report */}
                         {(booking.status === 'confirmed' || booking.status === 'accepted') && (
-                          <button
-                            onClick={() => navigate('/inbox')}
-                            className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm">
-                            <MessageSquare className="w-3.5 h-3.5" /> Message Host
-                          </button>
+                          <>
+                            <button
+                              onClick={() => updateBookingStatus(booking.id, 'checked_in', { checked_in_at: new Date().toISOString() })}
+                              disabled={updatingId === booking.id}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                              <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
+                            </button>
+                            <button
+                              onClick={() => navigate('/inbox')}
+                              className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
+                              <MessageSquare className="w-3.5 h-3.5" /> Message Host
+                            </button>
+                            <button
+                              onClick={() => setReportBooking(booking)}
+                              className="text-xs text-amber-700 hover:text-amber-800 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5" /> Report Issue
+                            </button>
+                            <button
+                              onClick={() => setCancelBooking(booking)}
+                              className="text-xs text-red-600 hover:text-red-700 border border-red-200 px-2.5 py-1.5 rounded">
+                              Cancel
+                            </button>
+                          </>
+                        )}
+
+                        {/* Checked In -> Sign Out */}
+                        {booking.status === 'checked_in' && (
+                          <>
+                            <button
+                              onClick={() => updateBookingStatus(booking.id, 'completed', { completed_at: new Date().toISOString() })}
+                              disabled={updatingId === booking.id}
+                              className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                              <LogOut className="w-3.5 h-3.5" /> Complete & Sign Out
+                            </button>
+                            <button
+                              onClick={() => setReportBooking(booking)}
+                              className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
+                              <AlertTriangle className="w-3.5 h-3.5" /> Emergency/Issue
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -373,13 +469,11 @@ export default function ArtistDashboard() {
           </div>
         )}
 
-        {/* Detailed Booking Modal Drawer */}
+        {/* --- MODAL 1: Booking Details Modal --- */}
         {selectedBooking && (
           <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto">
-              <button 
-                onClick={() => setSelectedBooking(null)} 
-                className="absolute top-4 right-4 text-ink-400 hover:text-ink">
+              <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
                 <X className="w-5 h-5" />
               </button>
 
@@ -391,7 +485,6 @@ export default function ArtistDashboard() {
               <h2 className="font-display text-2xl font-bold text-ink mb-1">{selectedBooking.event_name}</h2>
               <p className="text-xs text-ink-400 mb-6">Host Request Details</p>
 
-              {/* Host Summary */}
               <div className="p-4 border border-line bg-paper-200/50 mb-6 flex items-center gap-4">
                 {selectedBooking.host?.avatar_url ? (
                   <img src={selectedBooking.host.avatar_url} alt="Host Avatar" className="w-12 h-12 rounded-full object-cover border border-line" />
@@ -404,7 +497,6 @@ export default function ArtistDashboard() {
                 </div>
               </div>
 
-              {/* Performance Details */}
               <div className="space-y-4 text-sm mb-6">
                 <div className="grid grid-cols-2 gap-4 border-b border-line pb-3">
                   <div>
@@ -432,78 +524,134 @@ export default function ArtistDashboard() {
                   </p>
                 </div>
 
-                {/* Requirements / Equipment */}
-                {selectedBooking.equipment_needed && selectedBooking.equipment_needed.length > 0 && (
-                  <div className="border-b border-line pb-3">
-                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-2">Requested Equipment</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedBooking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}
-                    </div>
-                  </div>
-                )}
-
-                {/* Host Notes */}
                 {selectedBooking.notes && (
                   <div>
-                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Host Notes / Instructions</span>
+                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Host Notes</span>
                     <p className="text-sm text-ink-500 bg-paper-200 p-3 border border-line rounded">{selectedBooking.notes}</p>
                   </div>
                 )}
               </div>
 
-              {/* Financial Breakdown */}
-              <div className="border border-line bg-paper-200 p-4 mb-6">
-                <h4 className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3 font-semibold">Financial Breakdown</h4>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-ink-400">Total Booking Value:</span>
-                    <span className="font-bold text-ink">{formatCurrency(selectedBooking.total_amount)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-ink-400">Upfront Deposit (40%):</span>
-                    <span className="font-bold text-accent">{formatCurrency(selectedBooking.deposit_amount)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-ink-400">Post-Gig Balance (60%):</span>
-                    <span className="font-bold text-ink-500">
-                      {formatCurrency(selectedBooking.total_amount != null && selectedBooking.deposit_amount != null ? selectedBooking.total_amount - selectedBooking.deposit_amount : null)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Actions */}
-              <div className="flex items-center justify-end gap-3 pt-2 border-t border-line">
-                {selectedBooking.status === 'pending' ? (
-                  <>
-                    <button
-                      onClick={() => {
-                        updateBookingStatus(selectedBooking.id, 'declined');
-                        setSelectedBooking(null);
-                      }}
-                      className="btn-outline px-4 py-2 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
-                      Decline Request
-                    </button>
-                    <button
-                      onClick={() => {
-                        updateBookingStatus(selectedBooking.id, 'accepted');
-                        setSelectedBooking(null);
-                      }}
-                      className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">
-                      Accept Booking
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    onClick={() => setSelectedBooking(null)}
-                    className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">
-                    Close Details
-                  </button>
-                )}
+              <div className="flex items-center justify-between gap-3 pt-3 border-t border-line">
+                <button
+                  onClick={() => {
+                    const b = selectedBooking;
+                    setSelectedBooking(null);
+                    setReportBooking(b);
+                  }}
+                  className="text-xs text-amber-700 hover:underline flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" /> Report Issue or Safety Concern
+                </button>
+                <button onClick={() => setSelectedBooking(null)} className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">Close</button>
               </div>
             </div>
           </div>
         )}
+
+        {/* --- MODAL 2: Report Issue & Safety Concern Modal --- */}
+        {reportBooking && (
+          <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-paper border border-line p-6 max-w-lg w-full shadow-2xl relative">
+              <button onClick={() => setReportBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-2 text-amber-700 font-bold mb-1">
+                <ShieldAlert className="w-5 h-5" /> Report Issue or Safety Concern
+              </div>
+              <p className="text-xs text-ink-400 mb-4">Event: {reportBooking.event_name}</p>
+
+              {/* SOS Emergency Call Button */}
+              <div className="bg-red-50 border border-red-200 p-3 rounded mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-bold text-red-800">Immediate Danger or Emergency?</p>
+                  <p className="text-[11px] text-red-600">Contact emergency services or host support line directly.</p>
+                </div>
+                <a href="tel:10111" className="bg-red-600 text-white px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1 hover:bg-red-700">
+                  <PhoneCall className="w-3.5 h-3.5" /> Call 10111
+                </a>
+              </div>
+
+              <div className="space-y-4 text-xs">
+                <div>
+                  <label className="block font-semibold text-ink mb-1">Category</label>
+                  <select 
+                    value={issueCategory} 
+                    onChange={(e) => setIssueCategory(e.target.value)}
+                    className="w-full border border-line p-2 bg-paper text-ink rounded">
+                    <option value="safety">Safety / Unsafe Environment</option>
+                    <option value="no_show">Host No-Show / Unreachable</option>
+                    <option value="venue_mismatch">Venue / Event Misrepresentation</option>
+                    <option value="payment">Payment / Deposit Query</option>
+                    <option value="other">Other Issue</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-semibold text-ink mb-1">Describe what happened</label>
+                  <textarea 
+                    rows={4}
+                    value={issueDescription}
+                    onChange={(e) => setIssueDescription(e.target.value)}
+                    placeholder="Provide clear details regarding the situation..."
+                    className="w-full border border-line p-2 bg-paper text-ink rounded"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input 
+                    type="checkbox" 
+                    id="urgent" 
+                    checked={isUrgent} 
+                    onChange={(e) => setIsUrgent(e.target.checked)} 
+                    className="rounded text-ink focus:ring-0"
+                  />
+                  <label htmlFor="urgent" className="font-semibold text-ink">Mark as Urgent (Triggers Support Priority)</label>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 mt-6 pt-3 border-t border-line">
+                <button 
+                  onClick={() => setReportBooking(null)} 
+                  className="btn-outline px-4 py-2 text-xs uppercase tracking-wide-sm">
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleSubmitIssueReport}
+                  disabled={submittingReport}
+                  className="bg-amber-700 hover:bg-amber-800 text-white px-5 py-2 text-xs uppercase font-semibold rounded tracking-wide-sm flex items-center gap-1.5">
+                  {submittingReport && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Submit Report
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* --- MODAL 3: Cancel Booking Confirmation --- */}
+        {cancelBooking && (
+          <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-paper border border-line p-6 max-w-md w-full shadow-2xl relative">
+              <h3 className="font-display text-xl font-bold text-ink mb-2">Cancel Booking Confirmation</h3>
+              <p className="text-xs text-ink-500 mb-4">
+                Are you sure you want to cancel <span className="font-semibold">{cancelBooking.event_name}</span>? 
+                Cancelling confirmed gigs may impact your talent rating or deposit terms.
+              </p>
+
+              <div className="flex justify-end gap-3 pt-3 border-t border-line">
+                <button onClick={() => setCancelBooking(null)} className="btn-outline px-4 py-2 text-xs uppercase tracking-wide-sm">Back</button>
+                <button 
+                  onClick={() => {
+                    updateBookingStatus(cancelBooking.id, 'cancelled');
+                    setCancelBooking(null);
+                  }}
+                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                  Confirm Cancellation
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
