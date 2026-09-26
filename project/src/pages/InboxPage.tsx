@@ -176,22 +176,62 @@ export default function InboxPage() {
   const handleSendReply = async (textToSend?: string) => {
     const finalBody = (textToSend || replyText).trim();
     if (!finalBody || !selectedConv || !profile) return;
+    
     setSending(true);
 
-    const recipientId = isAdmin ? selectedConv.user_id : (adminId || selectedConv.user_id);
-
     try {
-      await sendMessage(selectedConv.id, profile.id, finalBody, recipientId);
+      // Direct Supabase insert attempt
+      let { data, error } = await supabase
+        .from('messages')
+        .insert({
+          conversation_id: selectedConv.id,
+          sender_id: profile.id,
+          content: finalBody,
+          read: false,
+        })
+        .select('*')
+        .single();
+
+      // Fallback if 'content' column does not exist in schema
+      if (error && error.code === '42703') {
+        const fallback = await supabase
+          .from('messages')
+          .insert({
+            conversation_id: selectedConv.id,
+            sender_id: profile.id,
+            body: finalBody,
+            read: false,
+          })
+          .select('*')
+          .single();
+        
+        data = fallback.data;
+        error = fallback.error;
+      }
+
+      if (error) {
+        console.error('Database Insertion Error:', error);
+        alert(`Failed to send message: ${error.message}`);
+        return;
+      }
+
       if (!finalBody.startsWith('AUDIO:') && !finalBody.startsWith('[VOICE_NOTE]')) {
         sendEmailNotification(`Reply: ${selectedConv.subject}`, finalBody).catch(err => console.warn(err));
       }
 
       setReplyText('');
       setShowEmojiPicker(false);
+
+      await supabase
+        .from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', selectedConv.id);
+
       await loadMessages(selectedConv.id);
       loadConversations();
-    } catch (err) {
-      console.error('Reply error:', err);
+    } catch (err: any) {
+      console.error('Unexpected send error:', err);
+      alert(`Unexpected error: ${err?.message || 'Check browser console'}`);
     } finally {
       setSending(false);
     }
@@ -578,7 +618,6 @@ export default function InboxPage() {
                     ) : (
                       messages.map((msg) => {
                         const isOwn = msg.sender_id === profile?.id;
-                        // Dynamically fall back between content, body, or message columns
                         const msgBody = (msg as { content?: string; body?: string; message?: string }).content || msg.body || (msg as { content?: string; body?: string; message?: string }).message || '';
                         const isVoiceNote = msgBody.startsWith('[VOICE_NOTE]') || msgBody.startsWith('AUDIO:');
                         const audioUrl = msgBody.replace('[VOICE_NOTE]', '').replace('AUDIO:', '');
