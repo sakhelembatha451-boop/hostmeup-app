@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { getAdminId, createConversation, sendMessage, markMessagesRead } from '@/lib/messaging';
+import { getAdminId, createConversation, markMessagesRead } from '@/lib/messaging';
 import { 
   Loader2, Send, MessageSquare, Plus, Mail, X, User, Trash2, Smile, Mic, Square, CheckSquare, Square as UncheckedSquare,
   ShieldAlert, PhoneCall, ShieldCheck, MapPin
@@ -180,8 +180,7 @@ export default function InboxPage() {
     setSending(true);
 
     try {
-      // Direct Supabase insert attempt
-      let { data, error } = await supabase
+      const res = await supabase
         .from('messages')
         .insert({
           conversation_id: selectedConv.id,
@@ -192,7 +191,8 @@ export default function InboxPage() {
         .select('*')
         .single();
 
-      // Fallback if 'content' column does not exist in schema
+      let error = res.error;
+
       if (error && error.code === '42703') {
         const fallback = await supabase
           .from('messages')
@@ -205,12 +205,11 @@ export default function InboxPage() {
           .select('*')
           .single();
         
-        data = fallback.data;
         error = fallback.error;
       }
 
       if (error) {
-        console.error('Database Insertion Error:', error);
+        console.error('Database Error:', error);
         alert(`Failed to send message: ${error.message}`);
         return;
       }
@@ -229,9 +228,10 @@ export default function InboxPage() {
 
       await loadMessages(selectedConv.id);
       loadConversations();
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
       console.error('Unexpected send error:', err);
-      alert(`Unexpected error: ${err?.message || 'Check browser console'}`);
+      alert(`Unexpected error: ${errorMsg}`);
     } finally {
       setSending(false);
     }
