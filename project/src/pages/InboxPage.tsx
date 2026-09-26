@@ -10,7 +10,7 @@ import {
   Square as UncheckedSquare,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../context/AuthContext'; // Updated path (change to '../contexts/AuthContext' if your folder is named 'contexts')
+import { useAuth } from '../context/AuthContext';
 
 interface Message {
   id: string;
@@ -695,3 +695,5 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     </div>
   );
 };
+
+export default InboxPage;
