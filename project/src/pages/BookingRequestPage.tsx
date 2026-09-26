@@ -50,18 +50,60 @@ export default function BookingRequestPage() {
     if (!id) return;
     (async () => {
       try {
-        // 1. Fetch Talent Profile
-        const { data: artistData } = await supabase
+        let resolvedProfileId = id;
+
+        // 1. Try querying profiles directly
+        let { data: artistData } = await supabase
           .from('profiles')
           .select(`*, artist_profile:artist_profiles(*)`)
-          .eq('id', id)
+          .eq('id', resolvedProfileId)
           .maybeSingle();
+
+        // 2. Fallback: If not found in profiles, check if id is an artist_profiles record ID
+        if (!artistData) {
+          const { data: apData } = await supabase
+            .from('artist_profiles')
+            .select('user_id')
+            .eq('id', id)
+            .maybeSingle();
+
+          if (apData?.user_id) {
+            resolvedProfileId = apData.user_id;
+            const { data: fallbackArtist } = await supabase
+              .from('profiles')
+              .select(`*, artist_profile:artist_profiles(*)`)
+              .eq('id', resolvedProfileId)
+              .maybeSingle();
+
+            artistData = fallbackArtist;
+          }
+        }
+
+        // 3. Fallback: Check if id is a booking ID (e.g. redirected from booking action)
+        if (!artistData) {
+          const { data: bookingData } = await supabase
+            .from('bookings')
+            .select('artist_id')
+            .eq('id', id)
+            .maybeSingle();
+
+          if (bookingData?.artist_id) {
+            resolvedProfileId = bookingData.artist_id;
+            const { data: fallbackArtist } = await supabase
+              .from('profiles')
+              .select(`*, artist_profile:artist_profiles(*)`)
+              .eq('id', resolvedProfileId)
+              .maybeSingle();
+
+            artistData = fallbackArtist;
+          }
+        }
 
         if (artistData) {
           setArtist(artistData as ArtistWithProfile);
         }
 
-        // 2. Fetch Host Verification Status
+        // Fetch Host Verification Status
         if (profile?.id) {
           const { data: hostData } = await supabase
             .from('host_profiles')
@@ -107,14 +149,15 @@ export default function BookingRequestPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!id || !profile) return;
+    const targetArtistId = artist?.id || id;
+    if (!targetArtistId || !profile) return;
     if (!eventName || !eventDate || !location) { setError('Please fill in all required fields'); return; }
     if (rateUnit === 'hour' && (!durationHours || parseFloat(durationHours) <= 0)) { setError('Please enter the duration in hours'); return; }
 
     setSubmitting(true); setError('');
     try {
       const { data, error: insertErr } = await supabase.from('bookings').insert({
-        artist_id: id, host_id: profile.id, event_name: eventName, event_date: eventDate,
+        artist_id: targetArtistId, host_id: profile.id, event_name: eventName, event_date: eventDate,
         start_time: startTime || null, gig_duration: rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee',
         equipment_needed: equipment, location, notes, status: 'pending',
         total_amount: totalAmount, deposit_amount: depositAmount, deposit_paid: false,
@@ -133,7 +176,7 @@ export default function BookingRequestPage() {
           
           await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
           await createNotification(
-            id,
+            targetArtistId,
             'booking',
             'New Booking Request! 📅',
             `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
@@ -155,13 +198,12 @@ export default function BookingRequestPage() {
   };
 
   const handlePayDeposit = async () => {
-    if (!createdBookingId || !id) return;
+    const targetArtistId = artist?.id || id;
+    if (!createdBookingId || !targetArtistId) return;
     setPaying(true);
     setError('');
 
-    // Check Yoco SDK script availability
     if (typeof window.YocoSDK === 'undefined') {
-      // Fallback direct confirmation if Yoco SDK is not loaded in head
       await confirmDepositInDatabase();
       return;
     }
@@ -192,7 +234,8 @@ export default function BookingRequestPage() {
   };
 
   const confirmDepositInDatabase = async () => {
-    if (!createdBookingId || !id) return;
+    const targetArtistId = artist?.id || id;
+    if (!createdBookingId || !targetArtistId) return;
     const { error: payErr } = await supabase.from('bookings')
       .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
       .eq('id', createdBookingId);
@@ -202,7 +245,7 @@ export default function BookingRequestPage() {
 
     try {
       await createNotification(
-        id,
+        targetArtistId,
         'booking',
         'Booking Deposit Paid! 🎉',
         `Deposit of ${formatCurrency(depositAmount)} for "${eventName}" has been paid. Your booking is confirmed!`,
@@ -251,7 +294,7 @@ export default function BookingRequestPage() {
   return (
     <div className="min-h-screen bg-paper">
       <div className="max-w-2xl mx-auto px-6 lg:px-12 py-12">
-        <Link to={`/artists/${id}`} aria-label="Back to talent profile" className="inline-flex items-center gap-2 text-xs font-medium text-ink-400 hover:text-ink uppercase tracking-wide-sm mb-8 transition-colors">
+        <Link to={`/artists/${artist?.id || id}`} aria-label="Back to talent profile" className="inline-flex items-center gap-2 text-xs font-medium text-ink-400 hover:text-ink uppercase tracking-wide-sm mb-8 transition-colors">
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Profile
         </Link>
 
@@ -400,7 +443,7 @@ export default function BookingRequestPage() {
             <button type="submit" disabled={submitting} className="btn-primary inline-flex items-center gap-2 px-8 py-3.5 text-xs uppercase tracking-wide-sm disabled:opacity-50">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />} Continue to Checkout
             </button>
-            <button type="button" onClick={() => navigate(`/artists/${id}`)} className="btn-outline px-8 py-3.5 text-xs uppercase tracking-wide-sm">Cancel</button>
+            <button type="button" onClick={() => navigate(`/artists/${artist?.id || id}`)} className="btn-outline px-8 py-3.5 text-xs uppercase tracking-wide-sm">Cancel</button>
           </div>
         </form>
       </div>
