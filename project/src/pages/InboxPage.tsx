@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams, useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { getAdminId, createConversation, markMessagesRead } from '@/lib/messaging';
@@ -13,6 +14,12 @@ const EMOJI_LIST = ['😊', '😂', '👍', '❤️', '🔥', '🎉', '🙏', '�
 
 export default function InboxPage() {
   const { profile } = useAuth();
+  const [searchParams] = useSearchParams();
+  const location = useLocation();
+
+  const targetUserId = searchParams.get('user') || (location.state as any)?.recipientId;
+  const targetConvId = searchParams.get('conversation') || (location.state as any)?.conversationId;
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -94,24 +101,47 @@ export default function InboxPage() {
 
       const { data, error } = await query.order('updated_at', { ascending: false });
 
+      let convList: Conversation[] = [];
       if (error) {
         const { data: fallbackData } = await supabase.from('conversations').select('*');
-        setConversations((fallbackData as Conversation[]) || []);
+        convList = (fallbackData as Conversation[]) || [];
       } else {
-        setConversations((data as Conversation[]) || []);
+        convList = (data as Conversation[]) || [];
+      }
+
+      setConversations(convList);
+
+      // Handle Deep Linking / Query Parameters
+      if (targetConvId) {
+        const matchedConv = convList.find((c) => c.id === targetConvId);
+        if (matchedConv) setSelectedConv(matchedConv);
+      } else if (targetUserId) {
+        const existingConv = convList.find(
+          (c: any) =>
+            c.user_id === targetUserId ||
+            c.participant1_id === targetUserId ||
+            c.participant2_id === targetUserId
+        );
+
+        if (existingConv) {
+          setSelectedConv(existingConv);
+        } else {
+          setSelectedRecipientId(targetUserId);
+          setShowNewModal(true);
+        }
       }
     } catch (err) {
       console.error('Error loading conversations:', err);
     } finally {
       setLoading(false);
     }
-  }, [profile, isAdmin]);
+  }, [profile, isAdmin, targetConvId, targetUserId]);
 
   const loadUsersForAdmin = useCallback(async () => {
-    if (!isAdmin) return;
-    const { data } = await supabase.from('profiles').select('*').neq('id', profile?.id || '');
+    if (!profile) return;
+    const { data } = await supabase.from('profiles').select('*').neq('id', profile.id);
     if (data) setAllUsers(data as Profile[]);
-  }, [isAdmin, profile]);
+  }, [profile]);
 
   const loadMessages = useCallback(async (convId: string) => {
     setMsgLoading(true);
@@ -355,10 +385,10 @@ export default function InboxPage() {
     const subject = newSubject.trim();
     const body = newMessage.trim();
 
-    const conversationOwnerId = isAdmin ? selectedRecipientId : profile.id;
-    let targetRecipientId = isAdmin ? selectedRecipientId : adminId;
+    const conversationOwnerId = profile.id;
+    let targetRecipientId = selectedRecipientId || adminId;
 
-    if (!isAdmin && !targetRecipientId) {
+    if (!targetRecipientId) {
       try {
         targetRecipientId = await getAdminId();
       } catch (e) {
@@ -498,9 +528,9 @@ export default function InboxPage() {
           <div className="flex flex-col items-center justify-center py-24 text-center">
             <div className="w-16 h-16 border border-line flex items-center justify-center text-ink-300 mb-6"><Mail className="w-7 h-7" /></div>
             <h3 className="font-display text-xl text-ink mb-1">No messages yet</h3>
-            <p className="text-sm text-ink-400 mb-6">{isAdmin ? 'Start a conversation with a registered user.' : 'Start a conversation with the platform admin.'}</p>
+            <p className="text-sm text-ink-400 mb-6">{isAdmin ? 'Start a conversation with a registered user.' : 'Start a conversation with a host or platform admin.'}</p>
             <button onClick={() => setShowNewModal(true)} className="btn-primary px-6 py-3 text-xs uppercase tracking-wide-sm">
-              {isAdmin ? 'New Message' : 'Contact Admin'}
+              New Message
             </button>
           </div>
         ) : (
@@ -581,7 +611,7 @@ export default function InboxPage() {
               </div>
             </div>
 
-            {/* Message Thread & Booking Details */}
+            {/* Message Thread & Details */}
             <div className={`lg:col-span-2 flex flex-col ${selectedConv ? '' : 'hidden lg:flex'}`}>
               {selectedConv ? (
                 <>
@@ -589,7 +619,7 @@ export default function InboxPage() {
                     <div>
                       <h3 className="font-display text-lg font-semibold text-ink">{selectedConv.subject}</h3>
                       <p className="text-xs text-ink-400">
-                        Thread with {(selectedConv as Conversation & { user?: Profile }).user?.full_name || 'User'}
+                        Thread with {(selectedConv as Conversation & { user?: Profile }).user?.full_name || 'Participant'}
                       </p>
                     </div>
                     <button onClick={() => setSelectedConv(null)} className="lg:hidden text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
@@ -772,26 +802,24 @@ export default function InboxPage() {
               </button>
 
               <h2 className="font-display text-xl font-bold text-ink mb-4">
-                {isAdmin ? 'New Message to User' : 'Send Message to Admin'}
+                {isAdmin ? 'New Message to User' : 'Send Direct Message'}
               </h2>
 
               <div className="space-y-4">
-                {isAdmin && (
-                  <div>
-                    <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Select Recipient</label>
-                    <select
-                      value={selectedRecipientId}
-                      onChange={(e) => setSelectedRecipientId(e.target.value)}
-                      className="input-editorial w-full px-3 py-2 text-sm bg-paper">
-                      <option value="">-- Choose User --</option>
-                      {allUsers.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.full_name || u.email} ({u.role || 'user'})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Select Recipient</label>
+                  <select
+                    value={selectedRecipientId}
+                    onChange={(e) => setSelectedRecipientId(e.target.value)}
+                    className="input-editorial w-full px-3 py-2 text-sm bg-paper">
+                    <option value="">-- Contact Admin --</option>
+                    {allUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name || u.email} ({u.role || 'user'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
                 <div>
                   <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Subject</label>
@@ -822,7 +850,7 @@ export default function InboxPage() {
                   <button
                     type="button"
                     onClick={handleCreateConversation}
-                    disabled={creating || !newSubject.trim() || !newMessage.trim() || (isAdmin && !selectedRecipientId)}
+                    disabled={creating || !newSubject.trim() || !newMessage.trim()}
                     className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm inline-flex items-center gap-2 disabled:opacity-50">
                     {creating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                     Send Message
