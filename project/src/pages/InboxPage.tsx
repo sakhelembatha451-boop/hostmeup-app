@@ -82,7 +82,7 @@ export default function InboxPage() {
     try {
       let query = supabase
         .from('conversations')
-        .select('*, user:profiles!conversations_user_id_fkey(id, full_name, avatar_url, email), messages(id, read, sender_id)');
+        .select('*, messages(id, read, sender_id)');
 
       if (isAdmin) {
         query = query.or('deleted_by_admin.is.null,deleted_by_admin.eq.false');
@@ -118,7 +118,7 @@ export default function InboxPage() {
     try {
       let query = supabase
         .from('messages')
-        .select('*, sender:profiles(id, full_name, avatar_url, role)')
+        .select('*')
         .eq('conversation_id', convId);
 
       if (isAdmin) {
@@ -130,17 +130,40 @@ export default function InboxPage() {
       const { data, error } = await query.order('created_at', { ascending: true });
 
       if (error) {
-        const { data: fallbackMsgs } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('conversation_id', convId)
-          .order('created_at', { ascending: true });
-        setMessages((fallbackMsgs as Message[]) || []);
-      } else {
-        setMessages((data as Message[]) || []);
+        console.error('Error fetching messages from database:', error);
+        setMessages([]);
+      } else if (data) {
+        // Fetch profile names manually for senders to avoid schema relation issues
+        const senderIds = Array.from(new Set(data.map((m) => m.sender_id).filter(Boolean)));
+        let profileMap: Record<string, Profile> = {};
+
+        if (senderIds.length > 0) {
+          const { data: profilesData } = await supabase
+            .from('profiles')
+            .select('id, full_name, avatar_url, role')
+            .in('id', senderIds);
+
+          if (profilesData) {
+            profileMap = profilesData.reduce((acc, p) => {
+              acc[p.id] = p as Profile;
+              return acc;
+            }, {} as Record<string, Profile>);
+          }
+        }
+
+        // Standardize fields gracefully
+        const formattedMessages = data.map((msg) => ({
+          ...msg,
+          body: msg.body || msg.content || '',
+          content: msg.content || msg.body || '',
+          sender: profileMap[msg.sender_id] || undefined,
+        }));
+
+        setMessages(formattedMessages as Message[]);
       }
     } catch (err) {
       console.error('Error loading messages:', err);
+      setMessages([]);
     } finally {
       setMsgLoading(false);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -186,27 +209,13 @@ export default function InboxPage() {
           conversation_id: selectedConv.id,
           sender_id: profile.id,
           content: finalBody,
+          body: finalBody,
           read: false,
         })
         .select('*')
         .single();
 
       let error = res.error;
-
-      if (error && error.code === '42703') {
-        const fallback = await supabase
-          .from('messages')
-          .insert({
-            conversation_id: selectedConv.id,
-            sender_id: profile.id,
-            body: finalBody,
-            read: false,
-          })
-          .select('*')
-          .single();
-        
-        error = fallback.error;
-      }
 
       if (error) {
         console.error('Database Error:', error);
