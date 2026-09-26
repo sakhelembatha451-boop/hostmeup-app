@@ -11,7 +11,7 @@ type BookingWithArtist = Booking & { artist?: { id: string; full_name: string; a
 
 function formatCurrency(n: number | null) {
   if (n == null) return '—';
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
 }
 
 export default function HostDashboard() {
@@ -30,40 +30,103 @@ export default function HostDashboard() {
   const loadData = useCallback(async () => {
     if (!profile) return;
 
-    // 1. Fetch Bookings
-    const { data: bookingsData, error } = await supabase
-      .from('bookings')
-      .select(`*, artist:profiles!bookings_artist_id_fkey(id, full_name, avatar_url, location)`)
-      .eq('host_id', profile.id)
-      .order('created_at', { ascending: false });
+    try {
+      // 1. Fetch Bookings with fallback logic
+      let rawBookings: any[] = [];
+      let fetchErr: any = null;
 
-    if (error) { setBookings([]); }
-    else { setBookings((bookingsData as BookingWithArtist[]) || []); }
+      // Primary attempt: Query 'bookings' table
+      const res1 = await supabase
+        .from('bookings')
+        .select(`*, artist:profiles!bookings_artist_id_fkey(id, full_name, avatar_url, location)`)
+        .eq('host_id', profile.id)
+        .order('created_at', { ascending: false });
 
-    // 2. Fetch Host Verification Status
-    const { data: hostData } = await supabase
-      .from('host_profiles')
-      .select('is_identity_verified, verification_status')
-      .eq('id', profile.id)
-      .maybeSingle();
+      if (res1.error) {
+        // Retry without FK alias if schema cache mismatch happens
+        const res1Retry = await supabase
+          .from('bookings')
+          .select('*')
+          .eq('host_id', profile.id)
+          .order('created_at', { ascending: false });
 
-    if (hostData) {
-      setHostVerification(hostData);
+        if (!res1Retry.error) {
+          rawBookings = res1Retry.data || [];
+        } else {
+          fetchErr = res1Retry.error;
+        }
+      } else {
+        rawBookings = res1.data || [];
+      }
+
+      // Secondary attempt: Fallback to 'booking' table if 'bookings' table is missing
+      if (fetchErr && fetchErr.message?.includes("Could not find the table")) {
+        const res2 = await supabase
+          .from('booking')
+          .select('*')
+          .eq('host_id', profile.id)
+          .order('created_at', { ascending: false });
+
+        if (res2.data) {
+          rawBookings = res2.data;
+        }
+      }
+
+      // Hydrate missing artist profiles manually if FK relationship wasn't embedded
+      if (rawBookings.length > 0) {
+        const artistIds = Array.from(new Set(rawBookings.map((b) => b.artist_id).filter(Boolean)));
+        
+        if (artistIds.length > 0) {
+          const { data: artistProfiles } = await supabase
+            .from('profiles')
+            .select('id, full_name, avatar_url, location')
+            .in('id', artistIds);
+
+          const profileMap = new Map((artistProfiles || []).map((p) => [p.id, p]));
+
+          rawBookings = rawBookings.map((b) => ({
+            ...b,
+            artist: b.artist || profileMap.get(b.artist_id) || null,
+          }));
+        }
+      }
+
+      setBookings(rawBookings as BookingWithArtist[]);
+
+      // 2. Fetch Host Verification Status
+      const { data: hostData } = await supabase
+        .from('host_profiles')
+        .select('is_identity_verified, verification_status')
+        .eq('id', profile.id)
+        .maybeSingle();
+
+      if (hostData) {
+        setHostVerification(hostData);
+      }
+    } catch (err) {
+      console.error('Error loading host dashboard bookings:', err);
+      setBookings([]);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }, [profile]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   const updateBookingStatus = async (id: string, status: string) => {
-    await supabase.from('bookings').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+    let { error } = await supabase.from('bookings').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error && error.message.includes("Could not find the table")) {
+      await supabase.from('booking').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
+    }
     loadData();
   };
 
   const payDeposit = async (id: string) => {
     setPayingId(id);
-    await supabase.from('bookings').update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', id);
+    let { error } = await supabase.from('bookings').update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', id);
+    if (error && error.message.includes("Could not find the table")) {
+      await supabase.from('booking').update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() }).eq('id', id);
+    }
     setPayingId(null);
     loadData();
   };
