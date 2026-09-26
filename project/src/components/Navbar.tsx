@@ -21,6 +21,13 @@ export default function Navbar() {
     ? '/artist-dashboard'
     : '/host-dashboard';
 
+  // Dynamic profile edit path based on role
+  const profileEditPath = profile?.is_admin
+    ? '/admin/settings'
+    : profile?.role === 'host'
+    ? '/host-profile/edit'
+    : '/artist-profile/edit';
+
   const inboxPath = profile?.is_admin ? '/admin/inbox' : '/inbox';
 
   const handleSignOut = async () => {
@@ -112,7 +119,7 @@ export default function Navbar() {
     } else if (notif.booking_id) {
       navigate(dashboardPath);
     } else if (profile?.role === 'host') {
-      navigate('/host-settings');
+      navigate('/host-profile/edit');
     } else {
       navigate(dashboardPath);
     }
@@ -155,15 +162,16 @@ export default function Navbar() {
                 >
                   <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
                 </Link>
-                {profile.role === 'artist' && (
-                  <Link
-                    to="/artist-profile/edit"
-                    aria-label="Edit your talent profile"
-                    className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
-                  >
-                    <User className="w-3.5 h-3.5" /> Profile
-                  </Link>
-                )}
+                
+                {/* Profile Edit Nav Link for Artists & Hosts */}
+                <Link
+                  to={profileEditPath}
+                  aria-label="Edit your profile"
+                  className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
+                >
+                  <User className="w-3.5 h-3.5" /> Profile
+                </Link>
+
                 {/* Admin Management Navigation */}
                 {profile.is_admin && (
                   <>
@@ -288,8 +296,10 @@ export default function Navbar() {
                 </div>
 
                 <div className="w-px h-5 bg-line" />
+                
+                {/* Desktop User Avatar & Name direct link to edit profile */}
                 <Link
-                  to={profile.role === 'artist' ? '/artist-profile/edit' : dashboardPath}
+                  to={profileEditPath}
                   aria-label="Edit your profile"
                   className="flex items-center gap-2 hover:opacity-80 transition-opacity"
                 >
@@ -310,6 +320,7 @@ export default function Navbar() {
                     {profile.full_name || 'User'}
                   </span>
                 </Link>
+
                 <button
                   onClick={handleSignOut}
                   aria-label="Sign out of your account"
@@ -383,15 +394,13 @@ export default function Navbar() {
                 >
                   Dashboard
                 </Link>
-                {profile.role === 'artist' && (
-                  <Link
-                    to="/artist-profile/edit"
-                    onClick={() => setMenuOpen(false)}
-                    className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm"
-                  >
-                    Profile
-                  </Link>
-                )}
+                <Link
+                  to={profileEditPath}
+                  onClick={() => setMenuOpen(false)}
+                  className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm"
+                >
+                  Profile
+                </Link>
                 {profile.is_admin && (
                   <>
                     <Link
