@@ -67,24 +67,12 @@ export async function sendMessage(
     .insert({
       conversation_id: conversationId,
       sender_id: senderId,
-      content,
+      body: content,
       read: false,
+      is_read: false,
     })
     .select('*')
     .single();
-
-  if (error && error.code === '42703') {
-    return await supabase
-      .from('messages')
-      .insert({
-        conversation_id: conversationId,
-        sender_id: senderId,
-        body: content,
-        read: false,
-      })
-      .select('*')
-      .single();
-  }
 
   return { data, error };
 }
@@ -92,7 +80,7 @@ export async function sendMessage(
 export async function markMessagesRead(conversationId: string, userId: string) {
   const { error } = await supabase
     .from('messages')
-    .update({ read: true })
+    .update({ read: true, is_read: true })
     .eq('conversation_id', conversationId)
     .neq('sender_id', userId);
 
