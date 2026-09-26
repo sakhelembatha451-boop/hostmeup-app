@@ -48,69 +48,101 @@ export default function BookingRequestPage() {
 
   useEffect(() => {
     if (!id) return;
-    (async () => {
-      try {
-        setLoading(true);
-        let resolvedProfileId: string | null = id;
-        let artistData: any = null;
 
-        // Step 1: Attempt direct lookup on profiles by ID
-        const { data: pData } = await supabase
-          .from('profiles')
-          .select(`*, artist_profile:artist_profiles(*)`)
-          .eq('id', id)
+    let isMounted = true;
+
+    async function loadTalentData() {
+      setLoading(true);
+      setError('');
+
+      try {
+        let targetUserId: string | null = null;
+        let artistProfileData: any = null;
+
+        // ----------------------------------------------------
+        // TRY 1: Check if `id` is a User ID (profiles.id)
+        // ----------------------------------------------------
+        const { data: apByUser } = await supabase
+          .from('artist_profiles')
+          .select('*')
+          .eq('user_id', id)
           .maybeSingle();
 
-        if (pData?.artist_profile) {
-          artistData = pData;
+        if (apByUser) {
+          targetUserId = id;
+          artistProfileData = apByUser;
         }
 
-        // Step 2: If not found, check if `id` matches an artist_profiles primary key ID
-        if (!artistData) {
-          const { data: apData } = await supabase
+        // ----------------------------------------------------
+        // TRY 2: Check if `id` is an `artist_profiles.id`
+        // ----------------------------------------------------
+        if (!artistProfileData) {
+          const { data: apById } = await supabase
             .from('artist_profiles')
-            .select('user_id, id')
+            .select('*')
             .eq('id', id)
             .maybeSingle();
 
-          if (apData?.user_id) {
-            resolvedProfileId = apData.user_id;
-            const { data: fallbackArtist } = await supabase
-              .from('profiles')
-              .select(`*, artist_profile:artist_profiles(*)`)
-              .eq('id', resolvedProfileId)
-              .maybeSingle();
-
-            artistData = fallbackArtist;
+          if (apById) {
+            targetUserId = apById.user_id;
+            artistProfileData = apById;
           }
         }
 
-        // Step 3: If still not found, check if `id` is a booking ID
-        if (!artistData) {
-          const { data: bookingData } = await supabase
+        // ----------------------------------------------------
+        // TRY 3: Check if `id` is a `bookings.id`
+        // ----------------------------------------------------
+        if (!artistProfileData) {
+          const { data: bookingRow } = await supabase
             .from('bookings')
             .select('artist_id')
             .eq('id', id)
             .maybeSingle();
 
-          if (bookingData?.artist_id) {
-            resolvedProfileId = bookingData.artist_id;
-            const { data: fallbackArtist } = await supabase
-              .from('profiles')
-              .select(`*, artist_profile:artist_profiles(*)`)
-              .eq('id', resolvedProfileId)
+          if (bookingRow?.artist_id) {
+            targetUserId = bookingRow.artist_id;
+
+            // Retrieve artist profile for this artist_id
+            const { data: apByBookingArtist } = await supabase
+              .from('artist_profiles')
+              .select('*')
+              .or(`user_id.eq.${bookingRow.artist_id},id.eq.${bookingRow.artist_id}`)
               .maybeSingle();
 
-            artistData = fallbackArtist;
+            if (apByBookingArtist) {
+              targetUserId = apByBookingArtist.user_id || bookingRow.artist_id;
+              artistProfileData = apByBookingArtist;
+            }
           }
         }
 
-        if (artistData) {
-          setArtist(artistData as ArtistWithProfile);
+        // ----------------------------------------------------
+        // FETCH USER PROFILE DATA (Decoupled to prevent RLS failures)
+        // ----------------------------------------------------
+        if (targetUserId) {
+          const { data: userProfile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', targetUserId)
+            .maybeSingle();
+
+          if (userProfile && isMounted) {
+            setArtist({
+              ...userProfile,
+              artist_profile: artistProfileData || null,
+            } as ArtistWithProfile);
+          }
+        } else if (artistProfileData && isMounted) {
+          // Fallback if profiles row is restricted but artist_profile exists
+          setArtist({
+            id: artistProfileData.user_id,
+            full_name: artistProfileData.stage_name || 'Talent',
+            artist_profile: artistProfileData,
+          } as unknown as ArtistWithProfile);
         }
 
-        // Step 4: Fetch Host Verification Status for logged-in user
-        if (profile?.id) {
+        // Fetch Host Verification Status
+        if (profile?.id && isMounted) {
           const { data: hostData } = await supabase
             .from('host_profiles')
             .select('is_identity_verified, verification_status')
@@ -121,12 +153,18 @@ export default function BookingRequestPage() {
             setHostVerification(hostData);
           }
         }
-      } catch (err) {
-        console.error('Error loading booking request target:', err);
+      } catch (err: any) {
+        console.error('Error resolving booking page talent:', err);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
-    })();
+    }
+
+    loadTalentData();
+
+    return () => {
+      isMounted = false;
+    };
   }, [id, profile?.id]);
 
   const ap = artist?.artist_profile;
@@ -155,7 +193,7 @@ export default function BookingRequestPage() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const targetArtistId = artist?.id || id;
+    const targetArtistId = artist?.id || ap?.user_id || id;
     if (!targetArtistId || !profile) return;
     if (!eventName || !eventDate || !location) { setError('Please fill in all required fields'); return; }
     if (rateUnit === 'hour' && (!durationHours || parseFloat(durationHours) <= 0)) { setError('Please enter the duration in hours'); return; }
@@ -204,7 +242,7 @@ export default function BookingRequestPage() {
   };
 
   const handlePayDeposit = async () => {
-    const targetArtistId = artist?.id || id;
+    const targetArtistId = artist?.id || ap?.user_id || id;
     if (!createdBookingId || !targetArtistId) return;
     setPaying(true);
     setError('');
@@ -240,7 +278,7 @@ export default function BookingRequestPage() {
   };
 
   const confirmDepositInDatabase = async () => {
-    const targetArtistId = artist?.id || id;
+    const targetArtistId = artist?.id || ap?.user_id || id;
     if (!createdBookingId || !targetArtistId) return;
     const { error: payErr } = await supabase.from('bookings')
       .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
