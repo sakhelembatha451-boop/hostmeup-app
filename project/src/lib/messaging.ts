@@ -99,7 +99,33 @@ export async function markMessagesRead(conversationId: string, userId: string) {
   if (error) console.error('Error marking messages read:', error);
 }
 
-// --- Notification Export Handlers ---
+// --- Notification Exports ---
+
+export async function createNotification(
+  userId: string,
+  title: string,
+  message: string,
+  type = 'info',
+  link?: string
+) {
+  const { data, error } = await supabase
+    .from('notifications')
+    .insert({
+      user_id: userId,
+      title,
+      message,
+      type,
+      link,
+      read: false,
+    })
+    .select('*')
+    .single();
+
+  if (error) {
+    console.error('Error creating notification:', error);
+  }
+  return { data, error };
+}
 
 export async function markNotificationRead(notificationId: string) {
   const { error } = await supabase
