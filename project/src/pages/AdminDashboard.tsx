@@ -27,21 +27,81 @@ export default function AdminDashboard() {
 
   const loadAllBookings = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('bookings')
-      .select(`
-        *,
-        host:profiles!bookings_host_id_fkey(full_name, email),
-        artist:profiles!bookings_artist_id_fkey(full_name)
-      `)
-      .order('created_at', { ascending: false });
+    let rawBookings: any[] = [];
+    let fetchError: any = null;
 
-    if (!error && data) {
-      setBookings(data as unknown as AdminBookingView[]);
-    } else {
+    try {
+      // 1. Primary Attempt: Query 'bookings' with explicit FK relationships
+      const res1 = await supabase
+        .from('bookings')
+        .select(`
+          *,
+          host:profiles!bookings_host_id_fkey(full_name, email),
+          artist:profiles!bookings_artist_id_fkey(full_name)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (res1.error) {
+        // Retry 'bookings' table without FK aliases if relationship cache fails
+        const res1Retry = await supabase
+          .from('bookings')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!res1Retry.error && res1Retry.data) {
+          rawBookings = res1Retry.data;
+        } else {
+          fetchError = res1Retry.error || res1.error;
+        }
+      } else if (res1.data) {
+        rawBookings = res1.data;
+      }
+
+      // 2. Secondary Attempt: Fallback to 'booking' table if 'bookings' fails or is empty
+      if (rawBookings.length === 0 || fetchError) {
+        const res2 = await supabase
+          .from('booking')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!res2.error && res2.data) {
+          rawBookings = res2.data;
+        }
+      }
+
+      // 3. Hydrate missing profile details manually if FK relations weren't returned
+      if (rawBookings.length > 0) {
+        const userIds = Array.from(
+          new Set(
+            rawBookings
+              .flatMap((b) => [b.host_id, b.artist_id])
+              .filter(Boolean)
+          )
+        );
+
+        if (userIds.length > 0) {
+          const { data: userProfiles } = await supabase
+            .from('profiles')
+            .select('id, full_name, email')
+            .in('id', userIds);
+
+          const profileMap = new Map((userProfiles || []).map((p) => [p.id, p]));
+
+          rawBookings = rawBookings.map((b) => ({
+            ...b,
+            host: b.host || profileMap.get(b.host_id) || null,
+            artist: b.artist || profileMap.get(b.artist_id) || null,
+          }));
+        }
+      }
+
+      setBookings(rawBookings as AdminBookingView[]);
+    } catch (err) {
+      console.error('Error fetching admin bookings:', err);
       setBookings([]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, []);
 
   useEffect(() => {
