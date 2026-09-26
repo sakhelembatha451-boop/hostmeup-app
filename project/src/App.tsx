@@ -16,6 +16,7 @@ import InboxPage from '@/pages/InboxPage';
 import AdminDashboard from '@/pages/AdminDashboard';
 import AdminSettingsPage from '@/pages/AdminSettingsPage';
 import AdminVerification from '@/pages/AdminVerification';
+import AdminSafetyPage from '@/pages/AdminSafetyPage';
 import Legal from '@/components/Legal';
 import { Loader2 } from 'lucide-react';
 
@@ -152,6 +153,14 @@ function AppRoutes() {
           element={
             <ProtectedRoute requireAdmin>
               <AdminVerification />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/safety"
+          element={
+            <ProtectedRoute requireAdmin>
+              <AdminSafetyPage />
             </ProtectedRoute>
           }
         />
