@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { 
-  Calendar, MapPin, Clock, Loader2, Package, FileText, Check, X, 
+  Calendar, MapPin, Clock, Loader2, Package, Check, X, 
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
   MapPinCheck, LogOut, PhoneCall, ShieldAlert
 } from 'lucide-react';
@@ -54,10 +54,12 @@ export default function ArtistDashboard() {
   const [isUrgent, setIsUrgent] = useState<boolean>(false);
   const [submittingReport, setSubmittingReport] = useState<boolean>(false);
 
-  const loadDashboardData = useCallback(async () => {
+  const loadDashboardData = useCallback(async (isInitialLoad = false) => {
     if (!profile) return;
 
-    setLoading(true);
+    if (isInitialLoad) {
+      setLoading(true);
+    }
 
     try {
       const { data: artistProfile } = await supabase
@@ -150,22 +152,24 @@ export default function ArtistDashboard() {
         }
       }
 
-      setBookings(rawBookings as BookingWithHost[]);
+      const formattedBookings = rawBookings as BookingWithHost[];
+      setBookings(formattedBookings);
 
-      if (selectedBooking) {
-        const updatedSelected = rawBookings.find((b) => b.id === selectedBooking.id);
-        if (updatedSelected) setSelectedBooking(updatedSelected as BookingWithHost);
-      }
+      setSelectedBooking((prevSelected) => {
+        if (!prevSelected) return null;
+        const updatedSelected = formattedBookings.find((b) => b.id === prevSelected.id);
+        return updatedSelected || prevSelected;
+      });
     } catch (err) {
       console.error('Error loading artist dashboard data:', err);
       setBookings([]);
-    } finally {
+    } fontally: {
       setLoading(false);
     }
-  }, [profile, selectedBooking]);
+  }, [profile]);
 
   useEffect(() => { 
-    loadDashboardData(); 
+    loadDashboardData(true); 
   }, [loadDashboardData]);
 
   // Update Booking Status Handler
@@ -190,7 +194,7 @@ export default function ArtistDashboard() {
           .eq('id', id);
       }
 
-      await loadDashboardData();
+      await loadDashboardData(false);
     } catch (err) {
       console.error('Error updating status:', err);
       alert('Could not update status. Please try again.');
@@ -221,7 +225,6 @@ export default function ArtistDashboard() {
         });
 
       if (error && error.message?.includes("Could not find the table")) {
-        // Fallback or alert if table doesn't exist
         console.warn('booking_issues table missing, fallback alert sent.');
       }
 
@@ -427,7 +430,15 @@ export default function ArtistDashboard() {
                               <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
                             </button>
                             <button
-                              onClick={() => navigate('/inbox')}
+                              onClick={() => {
+                                if (booking.conversation_id) {
+                                  navigate(`/inbox?conversation=${booking.conversation_id}`, { state: { conversationId: booking.conversation_id, recipientId: booking.host_id, bookingId: booking.id } });
+                                } else if (booking.host_id) {
+                                  navigate(`/inbox?user=${booking.host_id}`, { state: { recipientId: booking.host_id, bookingId: booking.id } });
+                                } else {
+                                  navigate('/inbox');
+                                }
+                              }}
                               className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
                               <MessageSquare className="w-3.5 h-3.5" /> Message Host
                             </button>
