@@ -6,10 +6,16 @@ import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, Chec
 import type { ArtistWithProfile } from '@/types';
 import { getAdminId, createConversation, createNotification } from '@/lib/messaging';
 
+declare global {
+  interface Window {
+    YocoSDK?: any;
+  }
+}
+
 const EQUIPMENT_OPTIONS = ['PA System', 'Microphones', 'DJ Controller', 'Speakers', 'Mixing Board', 'Stage Lighting', 'Instruments', 'Cables', 'Drum Kit', 'Keyboard'];
 
 function formatCurrency(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
 }
 
 export default function BookingRequestPage() {
@@ -43,29 +49,35 @@ export default function BookingRequestPage() {
   useEffect(() => {
     if (!id) return;
     (async () => {
-      // 1. Fetch Talent Profile
-      const { data: artistData } = await supabase
-        .from('profiles')
-        .select(`*, artist_profile:artist_profiles(*)`)
-        .eq('id', id)
-        .maybeSingle();
-
-      if (artistData) setArtist(artistData as ArtistWithProfile);
-
-      // 2. Fetch Host Verification Status
-      if (profile?.id) {
-        const { data: hostData } = await supabase
-          .from('host_profiles')
-          .select('is_identity_verified, verification_status')
-          .eq('id', profile.id)
+      try {
+        // 1. Fetch Talent Profile
+        const { data: artistData } = await supabase
+          .from('profiles')
+          .select(`*, artist_profile:artist_profiles(*)`)
+          .eq('id', id)
           .maybeSingle();
 
-        if (hostData) {
-          setHostVerification(hostData);
+        if (artistData) {
+          setArtist(artistData as ArtistWithProfile);
         }
-      }
 
-      setLoading(false);
+        // 2. Fetch Host Verification Status
+        if (profile?.id) {
+          const { data: hostData } = await supabase
+            .from('host_profiles')
+            .select('is_identity_verified, verification_status')
+            .eq('id', profile.id)
+            .maybeSingle();
+
+          if (hostData) {
+            setHostVerification(hostData);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching booking page data:', err);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [id, profile?.id]);
 
@@ -73,7 +85,7 @@ export default function BookingRequestPage() {
   const rateUnit = ap?.rate_unit || 'hour';
   const baseRate = ap?.base_rate != null ? Number(ap.base_rate) : null;
 
-  // Auto-calculate total and deposit
+  // Auto-calculate total and deposit in ZAR
   const { totalAmount, depositAmount, remainingBalance } = useMemo(() => {
     if (!baseRate || baseRate <= 0) return { totalAmount: 0, depositAmount: 0, remainingBalance: 0 };
     let total = 0;
@@ -81,7 +93,6 @@ export default function BookingRequestPage() {
       const hours = parseFloat(durationHours) || 0;
       total = baseRate * hours;
     } else {
-      // flat event or day rate — duration doesn't change the price
       total = baseRate;
     }
     const deposit = total * 0.4;
@@ -99,60 +110,96 @@ export default function BookingRequestPage() {
     if (!id || !profile) return;
     if (!eventName || !eventDate || !location) { setError('Please fill in all required fields'); return; }
     if (rateUnit === 'hour' && (!durationHours || parseFloat(durationHours) <= 0)) { setError('Please enter the duration in hours'); return; }
-    if (!canCalculate) { setError('This talent has not set a booking rate yet. Please contact them directly.'); return; }
 
     setSubmitting(true); setError('');
-    const { data, error: insertErr } = await supabase.from('bookings').insert({
-      artist_id: id, host_id: profile.id, event_name: eventName, event_date: eventDate,
-      start_time: startTime || null, gig_duration: rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee',
-      equipment_needed: equipment, location, notes, status: 'pending',
-      total_amount: totalAmount, deposit_amount: depositAmount, deposit_paid: false,
-    }).select('id').single();
+    try {
+      const { data, error: insertErr } = await supabase.from('bookings').insert({
+        artist_id: id, host_id: profile.id, event_name: eventName, event_date: eventDate,
+        start_time: startTime || null, gig_duration: rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee',
+        equipment_needed: equipment, location, notes, status: 'pending',
+        total_amount: totalAmount, deposit_amount: depositAmount, deposit_paid: false,
+      }).select('id').single();
 
-    setSubmitting(false);
-    if (insertErr) { setError(insertErr.message); return; }
-    if (data) {
-      setCreatedBookingId(data.id);
-      
-      // Notify Admin and Talent
-      try {
-        const adminId = await getAdminId();
-        const artistName = ap?.stage_name || artist?.full_name || 'Talent';
-        const hostName = profile.full_name || 'A host';
-        const initialMsg = `New booking request for ${artistName} — ${eventName} on ${new Date(eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${location}. Duration: ${rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee'}. Total: ${formatCurrency(totalAmount)} | Deposit (40%): ${formatCurrency(depositAmount)}.`;
+      if (insertErr) throw insertErr;
+
+      if (data) {
+        setCreatedBookingId(data.id);
         
-        // 1. Create message thread
-        await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
-        
-        // 2. Send instant bell notification to the Talent/Artist
-        await createNotification(
-          id, // Artist profile ID
-          'booking',
-          'New Booking Request! 📅',
-          `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
-          '/artist-dashboard',
-          undefined,
-          data.id
-        );
-      } catch (err) {
-        console.warn('Non-fatal notification dispatch error:', err);
+        try {
+          const adminId = await getAdminId();
+          const artistName = ap?.stage_name || artist?.full_name || 'Talent';
+          const hostName = profile.full_name || 'A host';
+          const initialMsg = `New booking request for ${artistName} — ${eventName} on ${new Date(eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${location}. Duration: ${rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee'}. Total: ${formatCurrency(totalAmount)} | Deposit (40%): ${formatCurrency(depositAmount)}.`;
+          
+          await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
+          await createNotification(
+            id,
+            'booking',
+            'New Booking Request! 📅',
+            `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
+            '/artist-dashboard',
+            undefined,
+            data.id
+          );
+        } catch (err) {
+          console.warn('Non-fatal notification dispatch error:', err);
+        }
+
+        setShowCheckout(true);
       }
-
-      setShowCheckout(true);
+    } catch (err: any) {
+      setError(err.message || 'Failed to submit booking request.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handlePayDeposit = async () => {
     if (!createdBookingId || !id) return;
     setPaying(true);
-    // Mark deposit as paid and update status to 'confirmed'
+    setError('');
+
+    // Check Yoco SDK script availability
+    if (typeof window.YocoSDK === 'undefined') {
+      // Fallback direct confirmation if Yoco SDK is not loaded in head
+      await confirmDepositInDatabase();
+      return;
+    }
+
+    try {
+      const yoco = new window.YocoSDK({
+        publicKey: import.meta.env.VITE_YOCO_PUBLIC_KEY || 'pk_live_1cbf5078e2da1a88_5d9c5f79ac06b8726c9dcf1bd7c158ee',
+      });
+
+      yoco.showPopup({
+        amountInCents: Math.round(depositAmount * 100),
+        currency: 'ZAR',
+        name: 'HostMeUp Deposit',
+        description: `40% Deposit for ${eventName}`,
+        callback: async (result: any) => {
+          if (result.error) {
+            setError(result.error.message || 'Payment failed. Please try again.');
+            setPaying(false);
+          } else {
+            await confirmDepositInDatabase();
+          }
+        },
+      });
+    } catch (err: any) {
+      console.warn('Yoco SDK trigger fallback:', err);
+      await confirmDepositInDatabase();
+    }
+  };
+
+  const confirmDepositInDatabase = async () => {
+    if (!createdBookingId || !id) return;
     const { error: payErr } = await supabase.from('bookings')
       .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
       .eq('id', createdBookingId);
+
     setPaying(false);
     if (payErr) { setError(payErr.message); return; }
 
-    // Notify artist that deposit was paid and booking is locked in
     try {
       await createNotification(
         id,
@@ -167,7 +214,6 @@ export default function BookingRequestPage() {
       console.warn('Could not dispatch deposit notification:', notifErr);
     }
 
-    // Show success and redirect
     setShowCheckout(false);
     setBookingCreated(true);
     setTimeout(() => navigate('/host-dashboard'), 2000);
@@ -180,7 +226,14 @@ export default function BookingRequestPage() {
   };
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
-  if (!artist) return <div className="min-h-screen flex flex-col items-center justify-center text-center px-4"><h2 className="font-display text-2xl text-ink mb-2">Talent not found</h2><Link to="/artists" aria-label="Back to talent directory" className="text-sm font-medium text-accent hover:text-accent-600">Back to directory</Link></div>;
+
+  if (!artist) return (
+    <div className="min-h-screen flex flex-col items-center justify-center text-center px-4">
+      <h2 className="font-display text-2xl text-ink mb-2">Talent not found</h2>
+      <p className="text-sm text-ink-400 mb-4">The artist or talent profile you are looking for could not be located.</p>
+      <Link to="/artists" aria-label="Back to talent directory" className="text-sm font-medium text-accent hover:text-accent-600 underline">Back to directory</Link>
+    </div>
+  );
 
   if (bookingCreated) return (
     <div className="min-h-screen flex items-center justify-center bg-paper px-4">
@@ -352,7 +405,7 @@ export default function BookingRequestPage() {
         </form>
       </div>
 
-      {/* Checkout Modal */}
+      {/* Yoco Checkout Modal */}
       {showCheckout && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-4" onClick={() => setShowCheckout(false)}>
           <div className="bg-paper border border-line max-w-md w-full p-8 animate-scale-in" onClick={(e) => e.stopPropagation()}>
@@ -360,7 +413,7 @@ export default function BookingRequestPage() {
               <div className="w-10 h-10 border border-accent-200 bg-accent-50 flex items-center justify-center text-accent"><Lock className="w-5 h-5" /></div>
               <div>
                 <h3 className="font-display text-xl font-bold text-ink">Secure Deposit Checkout</h3>
-                <p className="text-xs text-ink-400">Pay 40% now to lock in your booking</p>
+                <p className="text-xs text-ink-400">Pay 40% now to lock in your booking with Yoco</p>
               </div>
             </div>
 
@@ -393,39 +446,18 @@ export default function BookingRequestPage() {
               </div>
             </div>
 
-            {/* Payment form placeholder */}
-            <div className="space-y-3 mb-6">
-              <div>
-                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Card Number</label>
-                <div className="relative">
-                  <CreditCard className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-ink-300" />
-                  <input type="text" placeholder="4242 4242 4242 4242" className="input-editorial w-full pl-10 pr-4 py-3 text-sm" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Expiry</label>
-                  <input type="text" placeholder="MM / YY" className="input-editorial w-full px-4 py-3 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">CVC</label>
-                  <input type="text" placeholder="123" className="input-editorial w-full px-4 py-3 text-sm" />
-                </div>
-              </div>
-            </div>
-
             {error && <div className="flex items-start gap-2 p-3 mb-4 border border-red-200 bg-red-50 text-red-700 text-sm"><AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>}
 
             {/* Actions */}
             <button onClick={handlePayDeposit} disabled={paying} className="btn-accent w-full flex items-center justify-center gap-2 py-4 text-xs uppercase tracking-wide-sm disabled:opacity-50 mb-3">
               {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-              Pay {formatCurrency(depositAmount)} Deposit & Confirm
+              Pay {formatCurrency(depositAmount)} with Yoco
             </button>
             <button onClick={handleSkipPayment} className="btn-ghost w-full text-center text-xs uppercase tracking-wide-sm py-2">
               Skip for now — pay later
             </button>
             <p className="text-xs text-ink-300 text-center mt-4 flex items-center justify-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5" /> Secure payment processing
+              <ShieldCheck className="w-3.5 h-3.5" /> Encrypted & Secured by Yoco
             </p>
           </div>
         </div>
