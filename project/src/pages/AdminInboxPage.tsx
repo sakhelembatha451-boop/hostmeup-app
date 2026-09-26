@@ -67,8 +67,15 @@ export default function AdminInboxPage() {
         return;
       }
 
-      const userIds = Array.from(new Set(convs.map((c) => c.user_id).filter(Boolean)));
-      
+      // Collect all unique user IDs involved across user_id, participant1_id, and participant2_id
+      const userIds = Array.from(
+        new Set(
+          convs
+            .flatMap((c) => [c.user_id, c.participant1_id, c.participant2_id])
+            .filter((id): id is string => Boolean(id))
+        )
+      );
+
       let profilesMap: Record<string, Profile> = {};
       if (userIds.length > 0) {
         const { data: profilesData } = await supabase
@@ -81,19 +88,36 @@ export default function AdminInboxPage() {
         }
       }
 
-      const mappedConversations = convs.map((c) => ({
-        ...c,
-        user: profilesMap[c.user_id] || null,
-      }));
+      const mappedConversations = convs.map((c) => {
+        // Find the profile of the other participant in the conversation
+        let otherUserId = c.user_id;
+
+        if (profile?.id) {
+          if (c.participant1_id && c.participant1_id !== profile.id) {
+            otherUserId = c.participant1_id;
+          } else if (c.participant2_id && c.participant2_id !== profile.id) {
+            otherUserId = c.participant2_id;
+          } else if (c.user_id === profile.id && c.participant2_id) {
+            otherUserId = c.participant2_id;
+          }
+        }
+
+        const resolvedUser = profilesMap[otherUserId] || profilesMap[c.user_id] || null;
+
+        return {
+          ...c,
+          user: resolvedUser,
+        };
+      });
 
       setConversations(mappedConversations as Conversation[]);
     } catch (err) {
       console.error('Failed to load conversations:', err);
       setConversations([]);
-    } finally {
+    } flex {
       setLoading(false);
     }
-  }, []);
+  }, [profile]);
 
   const loadUsers = useCallback(async () => {
     if (!profile) return;
@@ -234,7 +258,7 @@ export default function AdminInboxPage() {
         selectedConv.id, 
         profile.id, 
         `[VOICE_NOTE]${audioUrl}`, 
-        selectedConv.user_id
+        selectedConv.user?.id || selectedConv.user_id
       );
 
       setAudioBlob(null);
@@ -338,7 +362,12 @@ export default function AdminInboxPage() {
     if (!replyText.trim() || !selectedConv || !profile) return;
     setSending(true);
     try {
-      await sendMessage(selectedConv.id, profile.id, replyText.trim(), selectedConv.user_id);
+      await sendMessage(
+        selectedConv.id, 
+        profile.id, 
+        replyText.trim(), 
+        selectedConv.user?.id || selectedConv.user_id
+      );
       setReplyText('');
       await loadMessages(selectedConv.id);
       loadConversations();
@@ -359,10 +388,12 @@ export default function AdminInboxPage() {
         .from('conversations')
         .insert([{
           user_id: selectedRecipient.id,
+          participant1_id: profile.id,
+          participant2_id: selectedRecipient.id,
           subject: newSubject.trim(),
           type: 'inquiry'
         }])
-        .select('id, user_id, subject, type, created_at, updated_at')
+        .select('id, user_id, participant1_id, participant2_id, subject, type, created_at, updated_at')
         .single();
 
       if (convError) {
@@ -377,7 +408,9 @@ export default function AdminInboxPage() {
           .insert([{
             conversation_id: conv.id,
             sender_id: profile.id,
+            recipient_id: selectedRecipient.id,
             body: initialMsg.trim(),
+            content: initialMsg.trim(),
             read: false
           }]);
 
@@ -517,9 +550,13 @@ export default function AdminInboxPage() {
                               {conv.user?.avatar_url ? (
                                 <img src={conv.user.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover border border-line flex-shrink-0" />
                               ) : (
-                                <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center text-xs font-medium flex-shrink-0">{conv.user?.full_name?.[0]?.toUpperCase() || '?'}</div>
+                                <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center text-xs font-medium flex-shrink-0">
+                                  {conv.user?.full_name?.[0]?.toUpperCase() || '?'}
+                                </div>
                               )}
-                              <span className="font-medium text-ink text-sm truncate">{conv.user?.full_name || 'Unknown'}</span>
+                              <span className="font-medium text-ink text-sm truncate">
+                                {conv.user?.full_name || 'Unknown User'}
+                              </span>
                             </div>
                             <span className="text-xs text-ink-300 flex-shrink-0">
                               {conv.updated_at ? new Date(conv.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
@@ -556,7 +593,9 @@ export default function AdminInboxPage() {
                         <button onClick={() => setSelectedConv(null)} className="lg:hidden text-ink-400 hover:text-ink"><X className="w-5 h-5" /></button>
                       </div>
                       <div className="flex items-center justify-between text-xs text-ink-400">
-                        <span className="flex items-center gap-1"><User className="w-3 h-3" /> {selectedConv.user?.full_name}</span>
+                        <span className="flex items-center gap-1">
+                          <User className="w-3 h-3" /> {selectedConv.user?.full_name || 'Unknown User'}
+                        </span>
                         {messages.length > 0 && (
                           <div className="flex items-center gap-3">
                             <button onClick={toggleSelectAllMsgs} className="flex items-center gap-1 text-xs text-ink-400 hover:text-ink">
@@ -594,7 +633,7 @@ export default function AdminInboxPage() {
                               </button>
 
                               <div className={`max-w-[75%] flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
-                                {!isOwn && <span className="text-xs text-ink-400 mb-1 px-1">{msg.sender?.full_name}</span>}
+                                {!isOwn && <span className="text-xs text-ink-400 mb-1 px-1">{msg.sender?.full_name || 'User'}</span>}
                                 
                                 <div className="relative group/msg">
                                   <div className={`px-4 py-3 text-sm ${isOwn ? 'bg-ink text-paper' : 'bg-paper-200 text-ink border border-line'} ${isSelected ? 'ring-2 ring-ink' : ''}`}>
