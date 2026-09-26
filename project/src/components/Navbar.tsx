@@ -21,11 +21,11 @@ export default function Navbar() {
     ? '/artist-dashboard'
     : '/host-dashboard';
 
-  // Dynamic profile edit path based on role
+  // Dynamic profile edit path based on role (Changed /host-profile/edit to /host-settings)
   const profileEditPath = profile?.is_admin
     ? '/admin/settings'
     : profile?.role === 'host'
-    ? '/host-profile/edit'
+    ? '/host-settings'
     : '/artist-profile/edit';
 
   const inboxPath = profile?.is_admin ? '/admin/inbox' : '/inbox';
@@ -48,7 +48,6 @@ export default function Navbar() {
       setNotifications(notifs);
       setUnreadCount(
         notifs.filter((n) => {
-          // Supports both is_read and read column conventions safely
           const isRead = (n as any).is_read ?? n.read;
           return !isRead;
         }).length
@@ -59,10 +58,8 @@ export default function Navbar() {
   useEffect(() => {
     if (!profile?.id) return;
 
-    // Fetch initial notifications
     fetchNotifications(profile.id);
 
-    // Set up Realtime listener matching user_id
     const channel = supabase
       .channel(`user_notifications_${profile.id}`)
       .on(
@@ -113,13 +110,12 @@ export default function Navbar() {
     await markNotificationRead(notif.id);
     setNotifOpen(false);
 
-    // Route dynamically based on payload properties
     if (notif.conversation_id) {
       navigate(inboxPath);
     } else if (notif.booking_id) {
       navigate(dashboardPath);
     } else if (profile?.role === 'host') {
-      navigate('/host-profile/edit');
+      navigate('/host-settings');
     } else {
       navigate(dashboardPath);
     }
@@ -163,7 +159,7 @@ export default function Navbar() {
                   <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
                 </Link>
                 
-                {/* Profile Edit Nav Link for Artists & Hosts */}
+                {/* Profile Link */}
                 <Link
                   to={profileEditPath}
                   aria-label="Edit your profile"
@@ -172,7 +168,6 @@ export default function Navbar() {
                   <User className="w-3.5 h-3.5" /> Profile
                 </Link>
 
-                {/* Admin Management Navigation */}
                 {profile.is_admin && (
                   <>
                     <Link
@@ -191,7 +186,7 @@ export default function Navbar() {
                     </Link>
                   </>
                 )}
-                {/* Inbox */}
+
                 <Link
                   to={inboxPath}
                   aria-label={profile.is_admin ? 'Go to admin inbox' : 'Go to your inbox'}
@@ -208,7 +203,6 @@ export default function Navbar() {
                     <Shield className="w-3.5 h-3.5" /> Settings
                   </Link>
                 )}
-                {/* Legal Link */}
                 <Link
                   to="/legal"
                   className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
