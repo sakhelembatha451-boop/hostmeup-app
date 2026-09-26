@@ -1,206 +1,120 @@
 import { supabase } from './supabase';
-import type { Message, Conversation, Notification } from '@/types';
+import type { Conversation, Message } from '@/types';
 
-/**
- * Gets the Admin User ID safely without blocking non-admin accounts
- */
 export async function getAdminId(): Promise<string | null> {
   try {
     const { data } = await supabase
       .from('profiles')
       .select('id')
-      .eq('email', 'sakhelembatha451@gmail.com')
+      .or('role.eq.admin,email.eq.sakhelembatha451@gmail.com')
+      .limit(1)
       .maybeSingle();
 
-    if (data?.id) return data.id;
-
-    const { data: roleData } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'admin')
-      .maybeSingle();
-
-    return roleData?.id || null;
+    return data?.id || null;
   } catch (err) {
-    console.warn('Could not query admin ID:', err);
+    console.error('Error fetching admin ID:', err);
     return null;
   }
 }
 
-/**
- * Creates a new conversation thread
- */
 export async function createConversation(
   userId: string,
   subject: string,
-  type: 'direct' | 'booking' = 'direct',
+  type: 'booking' | 'direct' = 'direct',
   bookingId?: string,
-  initialMessageText?: string,
-  explicitAdminId?: string | null
+  initialMessage?: string,
+  recipientId?: string
 ): Promise<string | null> {
-  const targetAdminId = explicitAdminId || (await getAdminId());
-
-  // Clean payload to prevent 400 errors from null/invalid optional columns
-  const convPayload: Record<string, any> = {
-    user_id: userId,
-    subject: subject.trim(),
-    type,
-  };
-
-  if (bookingId) {
-    convPayload.booking_id = bookingId;
-  }
-
-  // Primary attempt
-  let conv: any = null;
-  const { data, error: convError } = await supabase
-    .from('conversations')
-    .insert([{ ...convPayload, status: 'open' }])
-    .select()
-    .single();
-
-  if (convError) {
-    console.warn('First attempt inserting conversation failed, retrying without status column:', convError);
-    // Fallback attempt without 'status' column if table doesn't have it
-    const { data: fallbackData, error: fallbackError } = await supabase
+  try {
+    const { data: conv, error: convError } = await supabase
       .from('conversations')
-      .insert([convPayload])
-      .select()
+      .insert({
+        user_id: userId,
+        subject,
+        type,
+        booking_id: bookingId || null,
+        updated_at: new Date().toISOString(),
+      })
+      .select('id')
       .single();
 
-    if (fallbackError || !fallbackData) {
-      console.error('Error creating conversation:', fallbackError);
-      throw fallbackError || new Error('Failed to create conversation');
+    if (convError || !conv) {
+      console.error('Error creating conversation:', convError);
+      throw convError;
     }
-    conv = fallbackData;
-  } else {
-    conv = data;
-  }
 
-  // Send initial message if text was provided
-  if (initialMessageText && initialMessageText.trim().length > 0 && conv) {
-    try {
-      await sendMessage(conv.id, userId, initialMessageText, targetAdminId || undefined);
-    } catch (msgErr) {
-      console.warn('Conversation created, but initial message failed:', msgErr);
+    if (initialMessage) {
+      await sendMessage(conv.id, userId, initialMessage, recipientId);
     }
-  }
 
-  return conv.id;
+    return conv.id;
+  } catch (err) {
+    console.error('Failed to create conversation:', err);
+    throw err;
+  }
 }
 
-/**
- * Sends a message within a conversation thread & dispatches bell notifications
- */
 export async function sendMessage(
   conversationId: string,
   senderId: string,
   body: string,
   recipientId?: string
 ): Promise<Message | null> {
-  const payload: any = {
-    conversation_id: conversationId,
-    sender_id: senderId,
-    body: body.trim(),
-    read: false,
-  };
+  try {
+    // Attempt insert with 'content' column (Supabase standard)
+    let payload: Record<string, unknown> = {
+      conversation_id: conversationId,
+      sender_id: senderId,
+      content: body,
+      read: false,
+      created_at: new Date().toISOString(),
+    };
 
-  let insertedData: Message | null = null;
-
-  const { data, error } = await supabase
-    .from('messages')
-    .insert([payload])
-    .select()
-    .single();
-
-  if (error) {
-    console.warn('First attempt sending message failed, retrying without read key:', error);
-    delete payload.read;
-    const { data: fallbackData, error: fallbackError } = await supabase
+    let { data, error } = await supabase
       .from('messages')
-      .insert([payload])
-      .select()
+      .insert(payload)
+      .select('*')
       .single();
 
-    if (fallbackError) {
-      console.error('Error inserting message:', fallbackError);
-      throw fallbackError;
-    }
-    insertedData = fallbackData as Message;
-  } else {
-    insertedData = data as Message;
-  }
+    // Fallback if schema uses 'body' column instead of 'content'
+    if (error && error.code === '42703') {
+      payload = {
+        conversation_id: conversationId,
+        sender_id: senderId,
+        body: body,
+        read: false,
+        created_at: new Date().toISOString(),
+      };
 
-  // Update conversation timestamp
-  try {
+      const fallback = await supabase
+        .from('messages')
+        .insert(payload)
+        .select('*')
+        .single();
+
+      data = fallback.data;
+      error = fallback.error;
+    }
+
+    if (error) {
+      console.error('Error inserting message into Supabase:', error);
+      alert(`Message error: ${error.message}`);
+      return null;
+    }
+
+    // Update conversation timestamp
     await supabase
       .from('conversations')
       .update({ updated_at: new Date().toISOString() })
       .eq('id', conversationId);
-  } catch (tsErr) {
-    console.warn('Could not update conversation timestamp:', tsErr);
+
+    return data as Message;
+  } catch (err) {
+    console.error('Send message exception:', err);
+    return null;
   }
-
-  // Resolve target recipient ID if not explicitly provided
-  let targetRecipientId = recipientId;
-  if (!targetRecipientId) {
-    try {
-      const { data: convData } = await supabase
-        .from('conversations')
-        .select('user_id, booking_id, booking:booking_id(artist_id, host_id)')
-        .eq('id', conversationId)
-        .maybeSingle();
-
-      if (convData) {
-        const booking = convData.booking as any;
-        if (booking && (booking.artist_id || booking.host_id)) {
-          // If linked to a booking, recipient is the opposite party
-          targetRecipientId = senderId === booking.host_id ? booking.artist_id : booking.host_id;
-        } else {
-          // Direct conversation: if sender is creator, attempt recipient check via last message or fallback to admin
-          if (convData.user_id === senderId) {
-            const { data: lastMsg } = await supabase
-              .from('messages')
-              .select('sender_id')
-              .eq('conversation_id', conversationId)
-              .neq('sender_id', senderId)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            targetRecipientId = lastMsg?.sender_id || (await getAdminId()) || undefined;
-          } else {
-            targetRecipientId = convData.user_id;
-          }
-        }
-      }
-    } catch (lookupErr) {
-      console.warn('Could not resolve conversation recipient for notification:', lookupErr);
-    }
-  }
-
-  // Dispatch bell notification to recipient
-  if (targetRecipientId && targetRecipientId !== senderId) {
-    try {
-      await createNotification(
-        targetRecipientId,
-        'message',
-        'New Message Received',
-        body.length > 80 ? `${body.slice(0, 80)}...` : body,
-        `/inbox`,
-        conversationId
-      );
-    } catch (notifErr) {
-      console.warn('Notification dispatch ignored:', notifErr);
-    }
-  }
-
-  return insertedData;
 }
 
-/**
- * Marks all unread messages in a thread as read for the active user
- */
 export async function markMessagesRead(conversationId: string, userId: string): Promise<void> {
   try {
     await supabase
@@ -209,72 +123,6 @@ export async function markMessagesRead(conversationId: string, userId: string): 
       .eq('conversation_id', conversationId)
       .neq('sender_id', userId);
   } catch (err) {
-    console.warn('Could not mark messages read:', err);
-  }
-}
-
-/**
- * Creates an in-app bell notification (Strictly-Typed)
- */
-export async function createNotification(
-  userId: string,
-  type: string,
-  title: string,
-  message: string,
-  link?: string,
-  conversationId?: string,
-  bookingId?: string
-): Promise<void> {
-  try {
-    const notifPayload: Record<string, any> = {
-      user_id: userId,
-      type,
-      title,
-      message,
-      body: message, // Keeps compatibility across body and message schema variants
-      read: false,
-    };
-
-    if (link) notifPayload.link = link;
-    if (conversationId) notifPayload.conversation_id = conversationId;
-    if (bookingId) notifPayload.booking_id = bookingId;
-
-    const { error } = await supabase.from('notifications').insert([notifPayload]);
-
-    if (error) {
-      console.warn('Initial notification insert failed, retrying simplified payload:', error);
-      await supabase.from('notifications').insert([
-        {
-          user_id: userId,
-          title,
-          body: message,
-          read: false,
-        },
-      ]);
-    }
-  } catch (err) {
-    console.warn('Could not create notification:', err);
-  }
-}
-
-/**
- * Marks a single notification as read
- */
-export async function markNotificationRead(notificationId: string): Promise<void> {
-  try {
-    await supabase.from('notifications').update({ read: true }).eq('id', notificationId);
-  } catch (err) {
-    console.warn('Error marking notification read:', err);
-  }
-}
-
-/**
- * Marks all notifications for a user as read
- */
-export async function markAllNotificationsRead(userId: string): Promise<void> {
-  try {
-    await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
-  } catch (err) {
-    console.warn('Error marking all notifications read:', err);
+    console.error('Error marking read:', err);
   }
 }
