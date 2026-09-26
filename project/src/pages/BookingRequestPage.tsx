@@ -31,7 +31,6 @@ export default function BookingRequestPage() {
   const [bookingCreated, setBookingCreated] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
 
-  // Host Verification States
   const [hostVerification, setHostVerification] = useState<{
     is_identity_verified: boolean;
     verification_status: 'pending' | 'approved' | 'rejected' | null;
@@ -48,7 +47,6 @@ export default function BookingRequestPage() {
 
   useEffect(() => {
     if (!id) return;
-
     let isMounted = true;
 
     async function loadTalentData() {
@@ -59,9 +57,7 @@ export default function BookingRequestPage() {
         let targetUserId: string | null = null;
         let artistProfileData: any = null;
 
-        // ----------------------------------------------------
-        // TRY 1: Check if `id` is a User ID (profiles.id)
-        // ----------------------------------------------------
+        // Try 1: By user_id
         const { data: apByUser } = await supabase
           .from('artist_profiles')
           .select('*')
@@ -73,9 +69,7 @@ export default function BookingRequestPage() {
           artistProfileData = apByUser;
         }
 
-        // ----------------------------------------------------
-        // TRY 2: Check if `id` is an `artist_profiles.id`
-        // ----------------------------------------------------
+        // Try 2: By artist_profiles.id
         if (!artistProfileData) {
           const { data: apById } = await supabase
             .from('artist_profiles')
@@ -89,9 +83,7 @@ export default function BookingRequestPage() {
           }
         }
 
-        // ----------------------------------------------------
-        // TRY 3: Check if `id` is a `bookings.id`
-        // ----------------------------------------------------
+        // Try 3: By booking ID fallback
         if (!artistProfileData) {
           const { data: bookingRow } = await supabase
             .from('bookings')
@@ -101,8 +93,6 @@ export default function BookingRequestPage() {
 
           if (bookingRow?.artist_id) {
             targetUserId = bookingRow.artist_id;
-
-            // Retrieve artist profile for this artist_id
             const { data: apByBookingArtist } = await supabase
               .from('artist_profiles')
               .select('*')
@@ -116,9 +106,7 @@ export default function BookingRequestPage() {
           }
         }
 
-        // ----------------------------------------------------
-        // FETCH USER PROFILE DATA (Decoupled to prevent RLS failures)
-        // ----------------------------------------------------
+        // Decoupled user profile query
         if (targetUserId) {
           const { data: userProfile } = await supabase
             .from('profiles')
@@ -133,7 +121,6 @@ export default function BookingRequestPage() {
             } as ArtistWithProfile);
           }
         } else if (artistProfileData && isMounted) {
-          // Fallback if profiles row is restricted but artist_profile exists
           setArtist({
             id: artistProfileData.user_id,
             full_name: artistProfileData.stage_name || 'Talent',
@@ -141,7 +128,6 @@ export default function BookingRequestPage() {
           } as unknown as ArtistWithProfile);
         }
 
-        // Fetch Host Verification Status
         if (profile?.id && isMounted) {
           const { data: hostData } = await supabase
             .from('host_profiles')
@@ -149,9 +135,7 @@ export default function BookingRequestPage() {
             .eq('id', profile.id)
             .maybeSingle();
 
-          if (hostData) {
-            setHostVerification(hostData);
-          }
+          if (hostData) setHostVerification(hostData);
         }
       } catch (err: any) {
         console.error('Error resolving booking page talent:', err);
@@ -161,32 +145,30 @@ export default function BookingRequestPage() {
     }
 
     loadTalentData();
-
-    return () => {
-      isMounted = false;
-    };
+    return () => { isMounted = false; };
   }, [id, profile?.id]);
 
   const ap = artist?.artist_profile;
   const rateUnit = ap?.rate_unit || 'hour';
-  const baseRate = ap?.base_rate != null ? Number(ap.base_rate) : null;
+  // Check rate fields across base_rate, hourly_rate, or rate
+  const baseRate = ap?.base_rate ?? ap?.hourly_rate ?? ap?.rate ?? null;
+  const numericBaseRate = baseRate != null ? Number(baseRate) : null;
 
-  // Auto-calculate total and deposit in ZAR
   const { totalAmount, depositAmount, remainingBalance } = useMemo(() => {
-    if (!baseRate || baseRate <= 0) return { totalAmount: 0, depositAmount: 0, remainingBalance: 0 };
+    if (!numericBaseRate || numericBaseRate <= 0) return { totalAmount: 0, depositAmount: 0, remainingBalance: 0 };
     let total = 0;
     if (rateUnit === 'hour') {
       const hours = parseFloat(durationHours) || 0;
-      total = baseRate * hours;
+      total = numericBaseRate * hours;
     } else {
-      total = baseRate;
+      total = numericBaseRate;
     }
     const deposit = total * 0.4;
     const remaining = total * 0.6;
     return { totalAmount: total, depositAmount: deposit, remainingBalance: remaining };
-  }, [baseRate, rateUnit, durationHours]);
+  }, [numericBaseRate, rateUnit, durationHours]);
 
-  const canCalculate = baseRate != null && baseRate > 0 && (rateUnit !== 'hour' || (parseFloat(durationHours) || 0) > 0);
+  const canCalculate = numericBaseRate != null && numericBaseRate > 0 && (rateUnit !== 'hour' || (parseFloat(durationHours) || 0) > 0);
 
   const toggleEquipment = (item: string) => setEquipment(equipment.includes(item) ? equipment.filter((e) => e !== item) : [...equipment, item]);
   const addCustomEquipment = () => { if (customEquipment.trim()) { setEquipment([...equipment, customEquipment.trim()]); setCustomEquipment(''); } };
@@ -198,14 +180,44 @@ export default function BookingRequestPage() {
     if (!eventName || !eventDate || !location) { setError('Please fill in all required fields'); return; }
     if (rateUnit === 'hour' && (!durationHours || parseFloat(durationHours) <= 0)) { setError('Please enter the duration in hours'); return; }
 
-    setSubmitting(true); setError('');
+    setSubmitting(true);
+    setError('');
+
+    const payload = {
+      artist_id: targetArtistId,
+      host_id: profile.id,
+      event_name: eventName,
+      event_date: eventDate,
+      start_time: startTime || null,
+      gig_duration: rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee',
+      equipment_needed: equipment,
+      location,
+      notes,
+      status: 'pending',
+      total_amount: totalAmount,
+      deposit_amount: depositAmount,
+      deposit_paid: false,
+    };
+
     try {
-      const { data, error: insertErr } = await supabase.from('bookings').insert({
-        artist_id: targetArtistId, host_id: profile.id, event_name: eventName, event_date: eventDate,
-        start_time: startTime || null, gig_duration: rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee',
-        equipment_needed: equipment, location, notes, status: 'pending',
-        total_amount: totalAmount, deposit_amount: depositAmount, deposit_paid: false,
-      }).select('id').single();
+      // Attempt insert on 'bookings'
+      let { data, error: insertErr } = await supabase
+        .from('bookings')
+        .insert(payload)
+        .select('id')
+        .single();
+
+      // Fallback if 'bookings' table fails due to singular/plural table naming
+      if (insertErr && insertErr.message.includes("Could not find the table")) {
+        const fallback = await supabase
+          .from('booking')
+          .insert(payload)
+          .select('id')
+          .single();
+
+        data = fallback.data;
+        insertErr = fallback.error;
+      }
 
       if (insertErr) throw insertErr;
 
@@ -280,9 +292,17 @@ export default function BookingRequestPage() {
   const confirmDepositInDatabase = async () => {
     const targetArtistId = artist?.id || ap?.user_id || id;
     if (!createdBookingId || !targetArtistId) return;
-    const { error: payErr } = await supabase.from('bookings')
+
+    let { error: payErr } = await supabase.from('bookings')
       .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
       .eq('id', createdBookingId);
+
+    if (payErr && payErr.message.includes("Could not find the table")) {
+      const fallback = await supabase.from('booking')
+        .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
+        .eq('id', createdBookingId);
+      payErr = fallback.error;
+    }
 
     setPaying(false);
     if (payErr) { setError(payErr.message); return; }
@@ -332,7 +352,7 @@ export default function BookingRequestPage() {
     </div>
   );
 
-  const noRateSet = !baseRate || baseRate <= 0;
+  const noRateSet = !numericBaseRate || numericBaseRate <= 0;
   const isHostVerified = hostVerification?.is_identity_verified || hostVerification?.verification_status === 'approved';
 
   return (
@@ -342,7 +362,6 @@ export default function BookingRequestPage() {
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Profile
         </Link>
 
-        {/* Unverified Host Warning Banner */}
         {!isHostVerified && (
           <div className="flex items-start justify-between gap-3 p-4 mb-6 border border-amber-200 bg-amber-50 text-amber-900 text-xs">
             <div className="flex items-start gap-2">
@@ -362,7 +381,6 @@ export default function BookingRequestPage() {
           </div>
         )}
 
-        {/* Talent summary */}
         <div className="flex items-center gap-5 border border-line p-5 mb-8">
           {artist.avatar_url ? (
             <img src={artist.avatar_url} alt={`Profile photo of ${artist?.full_name || 'talent'}`} width={64} height={64} className="w-16 h-16 rounded-full object-cover border border-line" />
@@ -372,7 +390,7 @@ export default function BookingRequestPage() {
           <div>
             <h2 className="font-display text-xl font-bold text-ink">{ap?.stage_name || artist.full_name}</h2>
             {ap?.performance_roles && ap.performance_roles.length > 0 && <p className="text-sm text-ink-400">{ap.performance_roles.join(', ')}</p>}
-            {baseRate != null && baseRate > 0 && <p className="text-sm font-semibold text-accent mt-1">{formatCurrency(baseRate)}/{rateUnit === 'hour' ? 'hr' : rateUnit}</p>}
+            {numericBaseRate != null && numericBaseRate > 0 && <p className="text-sm font-semibold text-accent mt-1">{formatCurrency(numericBaseRate)}/{rateUnit === 'hour' ? 'hr' : rateUnit}</p>}
           </div>
         </div>
 
@@ -390,7 +408,6 @@ export default function BookingRequestPage() {
         {error && <div className="flex items-start gap-2 p-3 mb-6 border border-red-200 bg-red-50 text-red-700 text-sm"><AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>}
 
         <form onSubmit={handleSubmit} className="space-y-8">
-          {/* Event details */}
           <div className="border border-line p-6 lg:p-8">
             <h3 className="font-display text-lg font-semibold text-ink mb-6 flex items-center gap-2"><Calendar className="w-4 h-4 text-accent" /> Event Details</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
@@ -425,7 +442,6 @@ export default function BookingRequestPage() {
             </div>
           </div>
 
-          {/* Pricing summary */}
           {canCalculate && (
             <div className="border border-line p-6 lg:p-8 bg-paper-200">
               <h3 className="font-display text-lg font-semibold text-ink mb-6 flex items-center gap-2"><CreditCard className="w-4 h-4 text-accent" /> Pricing Summary</h3>
@@ -435,7 +451,7 @@ export default function BookingRequestPage() {
                     <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Total Booking Cost</p>
                     <p className="text-sm text-ink-500">
                       {rateUnit === 'hour'
-                        ? `${formatCurrency(baseRate!)} x ${durationHours || 0} hours`
+                        ? `${formatCurrency(numericBaseRate!)} x ${durationHours || 0} hours`
                         : `Flat ${rateUnit} rate`}
                     </p>
                   </div>
@@ -459,7 +475,6 @@ export default function BookingRequestPage() {
             </div>
           )}
 
-          {/* Equipment */}
           <div className="border border-line p-6 lg:p-8">
             <h3 className="font-display text-lg font-semibold text-ink mb-6">Equipment Needed</h3>
             <div className="flex flex-wrap gap-2 mb-4">
@@ -476,13 +491,11 @@ export default function BookingRequestPage() {
             )}
           </div>
 
-          {/* Notes */}
           <div className="border border-line p-6 lg:p-8">
             <h3 className="font-display text-lg font-semibold text-ink mb-6 flex items-center gap-2"><Music className="w-4 h-4 text-accent" /> Additional Notes</h3>
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="Special requests, set preferences, or other details..." />
           </div>
 
-          {/* Actions */}
           <div className="flex items-center gap-3">
             <button type="submit" disabled={submitting} className="btn-primary inline-flex items-center gap-2 px-8 py-3.5 text-xs uppercase tracking-wide-sm disabled:opacity-50">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />} Continue to Checkout
@@ -492,7 +505,6 @@ export default function BookingRequestPage() {
         </form>
       </div>
 
-      {/* Yoco Checkout Modal */}
       {showCheckout && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-4" onClick={() => setShowCheckout(false)}>
           <div className="bg-paper border border-line max-w-md w-full p-8 animate-scale-in" onClick={(e) => e.stopPropagation()}>
@@ -504,7 +516,6 @@ export default function BookingRequestPage() {
               </div>
             </div>
 
-            {/* Booking summary */}
             <div className="border border-line p-4 mb-6 space-y-3">
               <div className="flex justify-between text-sm">
                 <span className="text-ink-400">Talent</span>
@@ -535,7 +546,6 @@ export default function BookingRequestPage() {
 
             {error && <div className="flex items-start gap-2 p-3 mb-4 border border-red-200 bg-red-50 text-red-700 text-sm"><AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>}
 
-            {/* Actions */}
             <button onClick={handlePayDeposit} disabled={paying} className="btn-accent w-full flex items-center justify-center gap-2 py-4 text-xs uppercase tracking-wide-sm disabled:opacity-50 mb-3">
               {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
               Pay {formatCurrency(depositAmount)} with Yoco
