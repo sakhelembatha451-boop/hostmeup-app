@@ -268,7 +268,9 @@ export default function HostDashboard() {
                             <p className="font-display text-lg font-semibold text-ink-500">{formatCurrency(booking.total_amount != null && booking.deposit_amount != null ? booking.total_amount - booking.deposit_amount : null)}</p>
                           </div>
                         </div>
-                        {!booking.deposit_paid && booking.status === 'pending' && (
+
+                        {/* Allow host to pay deposit if booking is accepted or pending and deposit is unpaid */}
+                        {!booking.deposit_paid && (booking.status === 'accepted' || booking.status === 'pending') && (
                           <button onClick={() => payDeposit(booking.id)} disabled={payingId === booking.id}
                             className="btn-accent w-full mt-4 flex items-center justify-center gap-2 py-2.5 text-xs uppercase tracking-wide-sm disabled:opacity-50">
                             {payingId === booking.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-3.5 h-3.5" />}
