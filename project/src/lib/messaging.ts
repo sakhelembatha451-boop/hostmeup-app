@@ -62,12 +62,15 @@ export async function sendMessage(
   content: string,
   _recipientId?: string
 ) {
+  const messageText = content || '';
+
   const { data, error } = await supabase
     .from('messages')
     .insert({
       conversation_id: conversationId,
       sender_id: senderId,
-      body: content,
+      body: messageText,
+      content: messageText,
       read: false,
       is_read: false,
     })
