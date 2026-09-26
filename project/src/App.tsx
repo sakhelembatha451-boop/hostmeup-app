@@ -14,7 +14,6 @@ import ArtistDashboard from '@/pages/ArtistDashboard';
 import HostSettingsPage from '@/pages/HostSettingsPage';
 import InboxPage from '@/pages/InboxPage';
 import AdminDashboard from '@/pages/AdminDashboard';
-import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminSettingsPage from '@/pages/AdminSettingsPage';
 import AdminVerification from '@/pages/AdminVerification';
 import Legal from '@/components/Legal';
@@ -160,7 +159,7 @@ function AppRoutes() {
           path="/admin/inbox"
           element={
             <ProtectedRoute requireAdmin>
-              <AdminInboxPage />
+              <InboxPage />
             </ProtectedRoute>
           }
         />
