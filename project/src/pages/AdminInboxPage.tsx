@@ -114,7 +114,7 @@ export default function AdminInboxPage() {
     } catch (err) {
       console.error('Failed to load conversations:', err);
       setConversations([]);
-    } flex {
+    } finally {
       setLoading(false);
     }
   }, [profile]);
@@ -707,7 +707,7 @@ export default function AdminInboxPage() {
                           </div>
                         </div>
                       ) : (
-                        <div className="flex items-end gap-2">
+                        <form onSubmit={(e) => { e.preventDefault(); handleSendReply(); }} className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => setShowEmojiPicker(!showEmojiPicker)}
@@ -726,30 +726,30 @@ export default function AdminInboxPage() {
                             <Mic className="w-4 h-4" />
                           </button>
 
-                          <textarea
+                          <input
+                            type="text"
                             value={replyText}
                             onChange={(e) => setReplyText(e.target.value)}
-                            rows={1}
-                            placeholder="Type your message..."
-                            className="input-editorial flex-1 px-4 py-3 text-sm resize-none"
-                            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
+                            placeholder="Type a response..."
+                            className="flex-1 px-4 py-2.5 bg-paper-100 border border-line text-sm text-ink placeholder:text-ink-300 focus:outline-none focus:border-ink"
                           />
 
                           <button
-                            onClick={handleSendReply}
+                            type="submit"
                             disabled={sending || !replyText.trim()}
-                            className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm disabled:opacity-50 flex-shrink-0"
+                            className="btn-primary px-5 py-2.5 text-xs flex items-center gap-2 disabled:opacity-50"
                           >
-                            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />} Send
+                            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            Send
                           </button>
-                        </div>
+                        </form>
                       )}
                     </div>
                   </>
                 ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-                    <MessageSquare className="w-10 h-10 text-ink-200 mb-4" />
-                    <p className="text-sm text-ink-400">Select a conversation or click "+ New Message" to talk to a user.</p>
+                  <div className="flex flex-col items-center justify-center flex-1 py-12 text-ink-300">
+                    <MessageSquare className="w-10 h-10 mb-2 opacity-50" />
+                    <p className="text-sm">Select a conversation from the left to read messages</p>
                   </div>
                 )}
               </div>
@@ -757,102 +757,128 @@ export default function AdminInboxPage() {
           )
         )}
 
-        {/* Modal Start Conversation */}
+        {/* Modal for Starting New Conversation */}
         {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4">
-            <div className="bg-paper border border-line w-full max-w-lg p-6 relative shadow-xl">
-              <button onClick={() => setIsModalOpen(false)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-paper border border-line p-6 max-w-lg w-full shadow-2xl relative">
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="absolute top-4 right-4 text-ink-400 hover:text-ink"
+              >
                 <X className="w-5 h-5" />
               </button>
 
-              <h2 className="font-display text-2xl font-bold text-ink mb-1">New Message</h2>
-              <p className="text-xs text-ink-400 uppercase tracking-wide-sm mb-6">Send a direct message to any platform user</p>
+              <h2 className="font-display text-xl font-bold text-ink mb-4">Start New Conversation</h2>
 
               <form onSubmit={handleStartConversation} className="space-y-4">
+                {/* User Picker */}
                 <div>
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium">Select Recipient</label>
-                  {!selectedRecipient ? (
-                    <div className="space-y-2">
-                      <div className="relative">
-                        <Search className="w-4 h-4 absolute left-3 top-3 text-ink-400" />
+                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
+                    Recipient
+                  </label>
+
+                  {selectedRecipient ? (
+                    <div className="flex items-center justify-between p-3 border border-line bg-paper-100">
+                      <div className="flex items-center gap-2">
+                        {selectedRecipient.avatar_url ? (
+                          <img src={selectedRecipient.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover" />
+                        ) : (
+                          <div className="w-6 h-6 rounded-full bg-ink text-paper flex items-center justify-center text-xs">
+                            {selectedRecipient.full_name?.[0]?.toUpperCase() || '?'}
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-sm font-medium text-ink">{selectedRecipient.full_name}</p>
+                          <p className="text-xs text-ink-400">{selectedRecipient.email}</p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedRecipient(null)}
+                        className="text-xs text-ink-400 hover:text-ink underline"
+                      >
+                        Change
+                      </button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="relative mb-2">
+                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
                         <input
                           type="text"
-                          placeholder="Search users by name or email..."
                           value={userSearch}
                           onChange={(e) => setUserSearch(e.target.value)}
-                          className="input-editorial w-full pl-9 pr-4 py-2 text-sm"
+                          placeholder="Search users by name or email..."
+                          className="w-full pl-9 pr-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink"
                         />
                       </div>
-                      <div className="max-h-40 overflow-y-auto border border-line divide-y divide-line bg-paper-100">
+
+                      <div className="max-h-40 overflow-y-auto border border-line divide-y divide-line">
                         {filteredUsers.length === 0 ? (
-                          <div className="p-3 text-xs text-ink-400 text-center">No matching users found</div>
+                          <div className="p-3 text-xs text-ink-400 text-center">No users found</div>
                         ) : (
                           filteredUsers.map((u) => (
                             <button
                               key={u.id}
                               type="button"
                               onClick={() => setSelectedRecipient(u)}
-                              className="w-full text-left p-2.5 hover:bg-paper-200 transition-colors flex items-center justify-between"
+                              className="w-full text-left p-2.5 hover:bg-paper-200 flex items-center justify-between text-xs transition-colors"
                             >
-                              <div>
-                                <p className="text-sm font-medium text-ink">{u.full_name || 'Unnamed User'}</p>
-                                <p className="text-xs text-ink-400">{u.email}</p>
-                              </div>
-                              <span className="text-[10px] uppercase tracking-wide-sm border border-line px-2 py-0.5 text-ink-400 bg-paper">
-                                {u.role || 'user'}
-                              </span>
+                              <span className="font-medium text-ink">{u.full_name || 'Unnamed User'}</span>
+                              <span className="text-ink-400">{u.email}</span>
                             </button>
                           ))
                         )}
                       </div>
                     </div>
-                  ) : (
-                    <div className="flex items-center justify-between p-3 border border-ink bg-paper-200">
-                      <div>
-                        <p className="text-sm font-semibold text-ink">{selectedRecipient.full_name}</p>
-                        <p className="text-xs text-ink-400">{selectedRecipient.email}</p>
-                      </div>
-                      <button type="button" onClick={() => setSelectedRecipient(null)} className="text-xs text-accent hover:underline font-medium">
-                        Change
-                      </button>
-                    </div>
                   )}
                 </div>
 
+                {/* Subject */}
                 <div>
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium">Subject</label>
+                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
+                    Subject
+                  </label>
                   <input
                     type="text"
-                    required
-                    placeholder="e.g. Account Support / Platform Update"
                     value={newSubject}
                     onChange={(e) => setNewSubject(e.target.value)}
-                    className="input-editorial w-full px-4 py-2.5 text-sm"
+                    placeholder="E.g., Query regarding booking"
+                    required
+                    className="w-full px-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink"
                   />
                 </div>
 
+                {/* Initial Message */}
                 <div>
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 font-medium">Message Body</label>
+                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
+                    Message
+                  </label>
                   <textarea
-                    required
                     rows={4}
-                    placeholder="Type your message..."
                     value={initialMsg}
                     onChange={(e) => setInitialMsg(e.target.value)}
-                    className="input-editorial w-full px-4 py-2.5 text-sm resize-none"
+                    placeholder="Type your message here..."
+                    required
+                    className="w-full px-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink resize-none"
                   />
                 </div>
 
-                <div className="flex justify-end gap-3 pt-4 border-t border-line">
-                  <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 text-xs font-semibold uppercase tracking-wide-sm border border-line text-ink hover:bg-paper-200">
+                {/* Actions */}
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="px-4 py-2 text-xs uppercase tracking-wide-sm border border-line hover:bg-paper-100"
+                  >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={startingConv || !selectedRecipient || !newSubject.trim() || !initialMsg.trim()}
-                    className="btn-primary px-6 py-2.5 text-xs font-semibold uppercase tracking-wide-sm flex items-center gap-2 disabled:opacity-50"
+                    className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-2 disabled:opacity-50"
                   >
-                    {startingConv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    {startingConv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                     Send Message
                   </button>
                 </div>
