@@ -1,18 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Calendar, MapPin, Clock, Loader2, Package, FileText, Check, X, ExternalLink, ShieldCheck } from 'lucide-react';
+import { 
+  Calendar, MapPin, Clock, Loader2, Package, FileText, Check, X, 
+  ExternalLink, ShieldCheck, Eye, MessageSquare, AlertCircle 
+} from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 
 type BookingWithHost = Booking & {
+  conversation_id?: string | null;
   host?: {
     id: string;
     full_name: string;
     avatar_url: string | null;
     location: string;
+    email?: string;
     host_profile?: {
       company_name?: string | null;
       is_identity_verified?: boolean;
@@ -28,9 +33,14 @@ function formatCurrency(n: number | null) {
 
 export default function ArtistDashboard() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Modal State for Booking Details
+  const [selectedBooking, setSelectedBooking] = useState<BookingWithHost | null>(null);
 
   const loadDashboardData = useCallback(async () => {
     if (!profile) return;
@@ -38,7 +48,7 @@ export default function ArtistDashboard() {
     setLoading(true);
 
     try {
-      // 1. Fetch artist profile ID (in case artist_id in booking matches artist_profiles.id rather than profile.id)
+      // 1. Fetch artist profile ID
       const { data: artistProfile } = await supabase
         .from('artist_profiles')
         .select('id')
@@ -60,6 +70,7 @@ export default function ArtistDashboard() {
             full_name,
             avatar_url,
             location,
+            email,
             host_profile:host_profiles(
               company_name,
               is_identity_verified,
@@ -71,7 +82,6 @@ export default function ArtistDashboard() {
         .order('created_at', { ascending: false });
 
       if (res1.error) {
-        // Retry without explicit foreign key alias in case schema cache has a mismatch
         const res1Retry = await supabase
           .from('bookings')
           .select('*')
@@ -87,7 +97,7 @@ export default function ArtistDashboard() {
         rawBookings = res1.data;
       }
 
-      // 3. Fallback attempt: Query 'booking' table if 'bookings' fails or returns empty
+      // 3. Fallback attempt: Query 'booking' table
       if (rawBookings.length === 0 || fetchError) {
         const res2 = await supabase
           .from('booking')
@@ -100,7 +110,7 @@ export default function ArtistDashboard() {
         }
       }
 
-      // 4. Hydrate Host and Host Profile details manually if FK auto-join wasn't performed
+      // 4. Hydrate Host details manually if auto-join wasn't performed
       if (rawBookings.length > 0) {
         const hostIds = Array.from(new Set(rawBookings.map((b) => b.host_id).filter(Boolean)));
 
@@ -112,6 +122,7 @@ export default function ArtistDashboard() {
               full_name,
               avatar_url,
               location,
+              email,
               host_profile:host_profiles(
                 company_name,
                 is_identity_verified,
@@ -130,33 +141,46 @@ export default function ArtistDashboard() {
       }
 
       setBookings(rawBookings as BookingWithHost[]);
+
+      // Keep current modal selection fresh if open
+      if (selectedBooking) {
+        const updatedSelected = rawBookings.find((b) => b.id === selectedBooking.id);
+        if (updatedSelected) setSelectedBooking(updatedSelected as BookingWithHost);
+      }
     } catch (err) {
       console.error('Error loading artist dashboard data:', err);
       setBookings([]);
     } finally {
       setLoading(false);
     }
-  }, [profile]);
+  }, [profile, selectedBooking]);
 
   useEffect(() => { 
     loadDashboardData(); 
   }, [loadDashboardData]);
 
-  const updateBookingStatus = async (id: string, status: string) => {
-    // Attempt update on 'bookings', fall back to 'booking'
-    const { error } = await supabase
-      .from('bookings')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', id);
-
-    if (error && error.message?.includes("Could not find the table")) {
-      await supabase
-        .from('booking')
-        .update({ status, updated_at: new Date().toISOString() })
+  const updateBookingStatus = async (id: string, newStatus: 'accepted' | 'declined') => {
+    setUpdatingId(id);
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
         .eq('id', id);
-    }
 
-    loadDashboardData();
+      if (error && error.message?.includes("Could not find the table")) {
+        await supabase
+          .from('booking')
+          .update({ status: newStatus, updated_at: new Date().toISOString() })
+          .eq('id', id);
+      }
+
+      await loadDashboardData();
+    } catch (err) {
+      console.error('Error updating booking status:', err);
+      alert('Could not update booking status. Please try again.');
+    } finally {
+      setUpdatingId(null);
+    }
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
@@ -168,9 +192,13 @@ export default function ArtistDashboard() {
     declined: bookings.filter((b) => b.status === 'declined').length,
   };
 
-  // Total earnings from confirmed/accepted bookings
-  const totalEarnings = bookings.filter((b) => b.status === 'confirmed' || b.status === 'accepted').reduce((sum, b) => sum + (b.total_amount || 0), 0);
-  const depositedAmount = bookings.filter((b) => b.deposit_paid).reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
+  const totalEarnings = bookings
+    .filter((b) => b.status === 'confirmed' || b.status === 'accepted')
+    .reduce((sum, b) => sum + (b.total_amount || 0), 0);
+  
+  const depositedAmount = bookings
+    .filter((b) => b.deposit_paid)
+    .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
@@ -181,7 +209,7 @@ export default function ArtistDashboard() {
           <div>
             <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Talent Dashboard</p>
             <h1 className="font-display text-4xl font-bold text-ink mb-1 tracking-tight">Incoming Requests</h1>
-            <p className="text-ink-400">View and manage your booking requests.</p>
+            <p className="text-ink-400">View, manage, and respond to your gig booking requests.</p>
           </div>
           <Link to={`/artists/${profile?.id}`} aria-label="View your public profile" className="btn-outline inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm">
             <ExternalLink className="w-3.5 h-3.5" /> View Public Profile
@@ -227,7 +255,7 @@ export default function ArtistDashboard() {
         ) : (
           <div className="space-y-6">
             {filtered.map((booking) => (
-              <div key={booking.id} className="border border-line p-6 animate-fade-in transition-all hover:border-ink/20">
+              <div key={booking.id} className="border border-line p-6 animate-fade-in transition-all hover:border-ink/20 bg-paper">
                 <div className="flex flex-col sm:flex-row sm:items-start gap-6">
                   {/* Host info */}
                   <div className="flex items-center gap-4 flex-shrink-0">
@@ -253,7 +281,7 @@ export default function ArtistDashboard() {
                   </div>
 
                   <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-4">
+                    <div className="flex items-center justify-between gap-3 mb-4">
                       <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name}</h3>
                       <StatusBadge status={booking.status} />
                     </div>
@@ -293,29 +321,187 @@ export default function ArtistDashboard() {
                       </div>
                     )}
 
-                    {/* Equipment */}
+                    {/* Equipment Tag List */}
                     {booking.equipment_needed && booking.equipment_needed.length > 0 && (
-                      <div className="flex items-start gap-1.5 mb-3"><Package className="w-4 h-4 text-ink-300 mt-0.5" /><div className="flex flex-wrap gap-1.5">{booking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}</div></div>
-                    )}
-
-                    {/* Notes */}
-                    {booking.notes && (
-                      <div className="flex items-start gap-1.5 text-sm text-ink-500 mb-3"><FileText className="w-4 h-4 text-ink-300 mt-0.5 flex-shrink-0" /><span className="line-clamp-2">{booking.notes}</span></div>
-                    )}
-
-                    {/* Actions */}
-                    {booking.status === 'pending' && (
-                      <div className="pt-3 border-t border-line flex gap-3">
-                        <button onClick={() => updateBookingStatus(booking.id, 'accepted')}
-                          className="btn-primary inline-flex items-center gap-1.5 px-5 py-2.5 text-xs uppercase tracking-wide-sm"><Check className="w-3.5 h-3.5" /> Accept</button>
-                        <button onClick={() => updateBookingStatus(booking.id, 'declined')}
-                          className="btn-outline inline-flex items-center gap-1.5 px-5 py-2.5 text-xs uppercase tracking-wide-sm text-red-500 border-red-200 hover:bg-red-50 hover:border-red-300"><X className="w-3.5 h-3.5" /> Decline</button>
+                      <div className="flex items-start gap-1.5 mb-3">
+                        <Package className="w-4 h-4 text-ink-300 mt-0.5" />
+                        <div className="flex flex-wrap gap-1.5">{booking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}</div>
                       </div>
                     )}
+
+                    {/* Action Footer Bar */}
+                    <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3">
+                      <button
+                        onClick={() => setSelectedBooking(booking)}
+                        className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
+                        <Eye className="w-3.5 h-3.5 text-ink-400" /> View Full Details
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        {/* Status Pending -> Show Accept / Decline */}
+                        {booking.status === 'pending' && (
+                          <>
+                            <button 
+                              onClick={() => updateBookingStatus(booking.id, 'declined')}
+                              disabled={updatingId === booking.id}
+                              className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50 hover:border-red-300 disabled:opacity-50">
+                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Decline
+                            </button>
+                            <button 
+                              onClick={() => updateBookingStatus(booking.id, 'accepted')}
+                              disabled={updatingId === booking.id}
+                              className="btn-primary inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm disabled:opacity-50">
+                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept Request
+                            </button>
+                          </>
+                        )}
+
+                        {/* Status Confirmed or Accepted -> Option to Message Host */}
+                        {(booking.status === 'confirmed' || booking.status === 'accepted') && (
+                          <button
+                            onClick={() => navigate('/inbox')}
+                            className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm">
+                            <MessageSquare className="w-3.5 h-3.5" /> Message Host
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Detailed Booking Modal Drawer */}
+        {selectedBooking && (
+          <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto">
+              <button 
+                onClick={() => setSelectedBooking(null)} 
+                className="absolute top-4 right-4 text-ink-400 hover:text-ink">
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-2">
+                <StatusBadge status={selectedBooking.status} />
+                <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
+              </div>
+
+              <h2 className="font-display text-2xl font-bold text-ink mb-1">{selectedBooking.event_name}</h2>
+              <p className="text-xs text-ink-400 mb-6">Host Request Details</p>
+
+              {/* Host Summary */}
+              <div className="p-4 border border-line bg-paper-200/50 mb-6 flex items-center gap-4">
+                {selectedBooking.host?.avatar_url ? (
+                  <img src={selectedBooking.host.avatar_url} alt="Host Avatar" className="w-12 h-12 rounded-full object-cover border border-line" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-ink-200 text-ink flex items-center justify-center font-bold">{selectedBooking.host?.full_name?.[0] || '?'}</div>
+                )}
+                <div>
+                  <h4 className="text-sm font-semibold text-ink">{selectedBooking.host?.host_profile?.company_name || selectedBooking.host?.full_name || 'Host'}</h4>
+                  <p className="text-xs text-ink-400">{selectedBooking.host?.email || selectedBooking.host?.location || 'Verified Host'}</p>
+                </div>
+              </div>
+
+              {/* Performance Details */}
+              <div className="space-y-4 text-sm mb-6">
+                <div className="grid grid-cols-2 gap-4 border-b border-line pb-3">
+                  <div>
+                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Date & Time</span>
+                    <p className="font-medium text-ink flex items-center gap-1.5">
+                      <Calendar className="w-4 h-4 text-ink-300" />
+                      {new Date(selectedBooking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {selectedBooking.start_time ? ` @ ${selectedBooking.start_time}` : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Duration</span>
+                    <p className="font-medium text-ink flex items-center gap-1.5">
+                      <Clock className="w-4 h-4 text-ink-300" />
+                      {selectedBooking.gig_duration}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="border-b border-line pb-3">
+                  <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Venue & Location</span>
+                  <p className="font-medium text-ink flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-ink-300" />
+                    {selectedBooking.location}
+                  </p>
+                </div>
+
+                {/* Requirements / Equipment */}
+                {selectedBooking.equipment_needed && selectedBooking.equipment_needed.length > 0 && (
+                  <div className="border-b border-line pb-3">
+                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-2">Requested Equipment</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedBooking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Host Notes */}
+                {selectedBooking.notes && (
+                  <div>
+                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Host Notes / Instructions</span>
+                    <p className="text-sm text-ink-500 bg-paper-200 p-3 border border-line rounded">{selectedBooking.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Financial Breakdown */}
+              <div className="border border-line bg-paper-200 p-4 mb-6">
+                <h4 className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3 font-semibold">Financial Breakdown</h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-ink-400">Total Booking Value:</span>
+                    <span className="font-bold text-ink">{formatCurrency(selectedBooking.total_amount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-ink-400">Upfront Deposit (40%):</span>
+                    <span className="font-bold text-accent">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-ink-400">Post-Gig Balance (60%):</span>
+                    <span className="font-bold text-ink-500">
+                      {formatCurrency(selectedBooking.total_amount != null && selectedBooking.deposit_amount != null ? selectedBooking.total_amount - selectedBooking.deposit_amount : null)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-line">
+                {selectedBooking.status === 'pending' ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        updateBookingStatus(selectedBooking.id, 'declined');
+                        setSelectedBooking(null);
+                      }}
+                      className="btn-outline px-4 py-2 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
+                      Decline Request
+                    </button>
+                    <button
+                      onClick={() => {
+                        updateBookingStatus(selectedBooking.id, 'accepted');
+                        setSelectedBooking(null);
+                      }}
+                      className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">
+                      Accept Booking
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => setSelectedBooking(null)}
+                    className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">
+                    Close Details
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         )}
       </div>
