@@ -1,142 +1,165 @@
-export type UserRole = 'artist' | 'host';
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { Resend } from "npm:resend";
 
-export type BookingStatus = 'pending' | 'confirmed' | 'accepted' | 'declined' | 'cancelled';
+// Resend API Client
+const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
 
-export type TalentCategory =
-  | 'singer_vocalist'
-  | 'producer_engineer'
-  | 'performer_dj'
-  | 'beauty_professional'
-  | 'model'
-  | 'photographer_videographer';
-
-export type MediaType = 'photo' | 'audio' | 'video';
-
-export interface MediaItem {
-  id: string;
-  artist_profile_id: string;
-  media_type: MediaType;
-  url: string;
-  title: string;
-  display_order: number;
-  created_at: string;
-}
-
-export const TALENT_CATEGORIES: { value: TalentCategory; label: string; shortLabel: string; icon: string }[] = [
-  { value: 'singer_vocalist', label: 'Singer / Vocalist', shortLabel: 'Vocalist', icon: 'Mic2' },
-  { value: 'producer_engineer', label: 'Producer / Sound Engineer', shortLabel: 'Producer', icon: 'Sliders' },
-  { value: 'performer_dj', label: 'Live Performer / DJ', shortLabel: 'Performer / DJ', icon: 'Disc' },
-  { value: 'beauty_professional', label: 'Beauty Professional (MUA, Hair, Wardrobe)', shortLabel: 'Beauty', icon: 'Palette' },
-  { value: 'model', label: 'Model', shortLabel: 'Model', icon: 'Camera' },
-  { value: 'photographer_videographer', label: 'Photographer / Videographer', shortLabel: 'Photographer', icon: 'Aperture' },
-];
-
-export const CATEGORY_MEDIA_HINTS: Record<TalentCategory, { photos: boolean; audio: boolean; video: boolean; hint: string }> = {
-  singer_vocalist: { photos: true, audio: true, video: true, hint: 'Showcase your vocal range with audio tracks, performance photos, and video reels.' },
-  producer_engineer: { photos: false, audio: true, video: true, hint: 'Upload your best produced tracks, beats, and studio session videos.' },
-  performer_dj: { photos: true, audio: false, video: true, hint: 'Share video reels of your live sets and performance photos.' },
-  beauty_professional: { photos: true, audio: false, video: false, hint: 'Build a portfolio gallery showcasing your makeup, hair, and wardrobe work.' },
-  model: { photos: true, audio: false, video: true, hint: 'Create a photo portfolio with your best shots and a showreel video.' },
-  photographer_videographer: { photos: true, audio: false, video: true, hint: 'Display your photography portfolio and video reel of your best work.' },
+// Setup CORS headers
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-export interface Profile {
-  id: string;
-  role: UserRole;
-  full_name: string;
-  avatar_url: string | null;
-  bio: string;
-  location: string;
-  is_admin: boolean;
-  created_at: string;
-  updated_at: string;
+interface PaymentInvoicePayload {
+  paymentType: "deposit" | "balance";
+  amountPaid: number;
+  remainingBalance: number;
+  booking: {
+    id: string;
+    event_name: string;
+    event_date: string;
+    total_amount: number;
+  };
+  host: {
+    full_name: string;
+    email: string;
+  };
+  artist: {
+    full_name: string;
+    email: string;
+    stage_name?: string;
+  };
 }
 
-export interface ArtistProfile {
-  id: string;
-  user_id: string;
-  talent_category: TalentCategory;
-  stage_name: string;
-  performance_roles: string[];
-  genres: string[];
-  base_rate: number | null;
-  rate_unit: string;
-  spotify_url: string | null;
-  instagram_url: string | null;
-  soundcloud_url: string | null;
-  youtube_url: string | null;
-  website_url: string | null;
-  media_urls: string[];
-  created_at: string;
-  updated_at: string;
-  media_items?: MediaItem[];
-}
+serve(async (req: Request) => {
+  // 1. Handle CORS Preflight
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
 
-export interface ArtistWithProfile extends Profile {
-  artist_profile: ArtistProfile & { media_items?: MediaItem[] } | null;
-}
+  try {
+    const payload: PaymentInvoicePayload = await req.json();
+    const { paymentType, amountPaid, remainingBalance, booking, host, artist } = payload;
 
-export interface Booking {
-  id: string;
-  artist_id: string;
-  host_id: string;
-  event_name: string;
-  event_date: string;
-  start_time: string | null;
-  gig_duration: string;
-  equipment_needed: string[];
-  location: string;
-  notes: string;
-  total_amount: number | null;
-  deposit_amount: number | null;
-  deposit_paid: boolean;
-  status: BookingStatus;
-  created_at: string;
-  updated_at: string;
-  // Joined fields
-  artist?: Profile;
-  host?: Profile;
-}
+    const formattedAmount = new Intl.NumberFormat("en-ZA", {
+      style: "currency",
+      currency: "ZAR",
+    }).format(amountPaid);
 
-export type ConversationType = 'direct' | 'booking';
+    const formattedRemaining = new Intl.NumberFormat("en-ZA", {
+      style: "currency",
+      currency: "ZAR",
+    }).format(remainingBalance);
 
-export interface Conversation {
-  id: string;
-  user_id: string;
-  booking_id: string | null;
-  subject: string;
-  type: ConversationType;
-  created_at: string;
-  updated_at: string;
-  // Joined fields
-  user?: Profile;
-  booking?: Booking;
-  messages?: Message[];
-  last_message?: Message;
-  unread_count?: number;
-}
+    const formattedTotal = new Intl.NumberFormat("en-ZA", {
+      style: "currency",
+      currency: "ZAR",
+    }).format(booking.total_amount);
 
-export interface Message {
-  id: string;
-  conversation_id: string;
-  sender_id: string;
-  body: string;
-  read_at: string | null;
-  created_at: string;
-  // Joined fields
-  sender?: Profile;
-}
+    const paymentTitle = paymentType === "deposit" ? "40% Deposit Received" : "Final Balance Paid";
+    const artistName = artist.stage_name || artist.full_name;
 
-export type NotificationType = 'message' | 'booking';
+    // Use onboarding sender until custom domain finishes DNS verification
+    const senderEmail = "HostMeUp Payments <onboarding@resend.dev>";
+    // Once domain verifies in Resend, switch to:
+    // const senderEmail = "HostMeUp Payments <receipts@hostmeuphost.co.za>";
 
-export interface Notification {
-  id: string;
-  user_id: string;
-  type: NotificationType;
-  title: string;
-  body: string;
-  conversation_id: string | null;
-  booking_id: string | null;
-  read: boolean;
-  created_at: string;
-}
+    // HTML Email Template
+    const emailHtml = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; color: #333; line-height: 1.6;">
+        <div style="background-color: #0F172A; padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
+          <h1 style="color: #FFFFFF; margin: 0; font-size: 24px; font-weight: 700;">HostMeUp</h1>
+          <p style="color: #94A3B8; margin: 6px 0 0 0; font-size: 14px;">Official Payment Receipt</p>
+        </div>
+        
+        <div style="border: 1px solid #E2E8F0; border-top: none; border-radius: 0 0 12px 12px; padding: 32px; background-color: #FFFFFF;">
+          <h2 style="color: #0F172A; margin-top: 0; font-size: 20px;">${paymentTitle}</h2>
+          <p style="color: #475569; font-size: 15px;">
+            A payment of <strong>${formattedAmount}</strong> has been successfully processed for booking <strong>#${booking.id.slice(0, 8)}</strong>.
+          </p>
+
+          <div style="background-color: #F8FAFC; border-radius: 8px; padding: 20px; margin: 24px 0; border: 1px solid #E2E8F0;">
+            <h3 style="margin-top: 0; font-size: 14px; text-transform: uppercase; color: #64748B; letter-spacing: 0.05em;">Booking Summary</h3>
+            <table style="width: 100%; font-size: 14px; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 6px 0; color: #64748B;">Event Name:</td>
+                <td style="padding: 6px 0; font-weight: 600; text-align: right;">${booking.event_name}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748B;">Event Date:</td>
+                <td style="padding: 6px 0; font-weight: 600; text-align: right;">${booking.event_date}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748B;">Talent Provider:</td>
+                <td style="padding: 6px 0; font-weight: 600; text-align: right;">${artistName}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748B;">Host:</td>
+                <td style="padding: 6px 0; font-weight: 600; text-align: right;">${host.full_name}</td>
+              </tr>
+              <tr style="border-top: 1px solid #E2E8F0;">
+                <td style="padding: 12px 0 6px 0; color: #64748B;">Total Amount:</td>
+                <td style="padding: 12px 0 6px 0; font-weight: 600; text-align: right;">${formattedTotal}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #16A34A; font-weight: 600;">Amount Paid:</td>
+                <td style="padding: 6px 0; font-weight: 700; color: #16A34A; text-align: right;">${formattedAmount}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; color: #64748B;">Remaining Balance:</td>
+                <td style="padding: 6px 0; font-weight: 600; text-align: right;">${formattedRemaining}</td>
+              </tr>
+            </table>
+          </div>
+
+          <p style="font-size: 13px; color: #94A3B8; text-align: center; margin-bottom: 0;">
+            Thank you for using HostMeUp! If you have any questions regarding this invoice, please reach out to support.
+          </p>
+        </div>
+      </div>
+    `;
+
+    // Send emails in parallel to both parties
+    const emailPromises = [];
+
+    if (host.email) {
+      emailPromises.push(
+        resend.emails.send({
+          from: senderEmail,
+          to: [host.email],
+          subject: `Receipt: ${paymentTitle} - ${booking.event_name}`,
+          html: emailHtml,
+        })
+      );
+    }
+
+    if (artist.email) {
+      emailPromises.push(
+        resend.emails.send({
+          from: senderEmail,
+          to: [artist.email],
+          subject: `Payment Notification: ${paymentTitle} - ${booking.event_name}`,
+          html: emailHtml,
+        })
+      );
+    }
+
+    const results = await Promise.all(emailPromises);
+
+    return new Response(
+      JSON.stringify({ success: true, results }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      }
+    );
+  } catch (error: any) {
+    return new Response(
+      JSON.stringify({ success: false, error: error.message }),
+      {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+      }
+    );
+  }
+});
