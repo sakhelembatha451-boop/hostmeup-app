@@ -127,37 +127,59 @@ export default function HostDashboard() {
   // Pay Deposit (40%) in Rands
   const payDeposit = async (id: string) => {
     setPayingId(id);
-    let { error } = await supabase
-      .from('bookings')
-      .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
-      .eq('id', id);
-
-    if (error && error.message.includes("Could not find the table")) {
-      await supabase
-        .from('booking')
+    try {
+      let { error } = await supabase
+        .from('bookings')
         .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
         .eq('id', id);
+
+      if (error && error.message.includes("Could not find the table")) {
+        const retry = await supabase
+          .from('booking')
+          .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
+          .eq('id', id);
+        error = retry.error;
+      }
+
+      if (error) {
+        console.error('Error paying deposit:', error);
+        alert(`Payment failed: ${error.message}`);
+      }
+    } catch (err) {
+      console.error('Unexpected error paying deposit:', err);
+    } finally {
+      setPayingId(null);
+      loadData();
     }
-    setPayingId(null);
-    loadData();
   };
 
   // Pay Remaining Balance (60%) in Rands
   const payRemainingBalance = async (id: string) => {
     setPayingId(id);
-    let { error } = await supabase
-      .from('bookings')
-      .update({ balance_paid: true, updated_at: new Date().toISOString() })
-      .eq('id', id);
-
-    if (error && error.message.includes("Could not find the table")) {
-      await supabase
-        .from('booking')
+    try {
+      let { error } = await supabase
+        .from('bookings')
         .update({ balance_paid: true, updated_at: new Date().toISOString() })
         .eq('id', id);
+
+      if (error && error.message.includes("Could not find the table")) {
+        const retry = await supabase
+          .from('booking')
+          .update({ balance_paid: true, updated_at: new Date().toISOString() })
+          .eq('id', id);
+        error = retry.error;
+      }
+
+      if (error) {
+        console.error('Error paying balance:', error);
+        alert(`Payment failed: ${error.message}`);
+      }
+    } catch (err) {
+      console.error('Unexpected error paying balance:', err);
+    } finally {
+      setPayingId(null);
+      loadData();
     }
-    setPayingId(null);
-    loadData();
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
