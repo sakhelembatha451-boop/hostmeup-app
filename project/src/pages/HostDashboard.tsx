@@ -124,26 +124,78 @@ export default function HostDashboard() {
     loadData();
   };
 
+  // Helper function to send email notification and invoice to both host and artist
+  const sendPaymentNotification = async (payload: {
+    bookingId: string;
+    paymentType: 'deposit' | 'balance';
+    amount: number;
+    eventName: string;
+    artistId: string;
+    hostId: string;
+  }) => {
+    try {
+      // 1. Fetch Host details
+      const { data: hostProfile } = await supabase
+        .from('profiles')
+        .select('email, full_name')
+        .eq('id', payload.hostId)
+        .single();
+
+      // 2. Fetch Artist/Talent details
+      const { data: artistProfile } = await supabase
+        .from('profiles')
+        .select('email, full_name')
+        .eq('id', payload.artistId)
+        .single();
+
+      // Dispatch to Edge Function / Webhook trigger
+      await supabase.functions.invoke('send-payment-invoice', {
+        body: {
+          bookingId: payload.bookingId,
+          paymentType: payload.paymentType,
+          amount: payload.amount,
+          eventName: payload.eventName,
+          hostEmail: hostProfile?.email || profile?.email,
+          hostName: hostProfile?.full_name || 'Host',
+          artistEmail: artistProfile?.email,
+          artistName: artistProfile?.full_name || 'Talent Provider',
+        },
+      });
+    } catch (err) {
+      console.error('Notification dispatch error (payment recorded successfully):', err);
+    }
+  };
+
   // Pay Deposit (40%) in Rands
-  const payDeposit = async (id: string) => {
-    setPayingId(id);
+  const payDeposit = async (booking: BookingWithArtist) => {
+    setPayingId(booking.id);
     try {
       let { error } = await supabase
         .from('bookings')
         .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .eq('id', booking.id);
 
       if (error && error.message.includes("Could not find the table")) {
         const retry = await supabase
           .from('booking')
           .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
-          .eq('id', id);
+          .eq('id', booking.id);
         error = retry.error;
       }
 
       if (error) {
         console.error('Error paying deposit:', error);
         alert(`Payment failed: ${error.message}`);
+      } else {
+        // Send email & invoice to both parties
+        await sendPaymentNotification({
+          bookingId: booking.id,
+          paymentType: 'deposit',
+          amount: booking.deposit_amount || 0,
+          eventName: booking.event_name,
+          artistId: booking.artist_id,
+          hostId: booking.host_id,
+        });
       }
     } catch (err) {
       console.error('Unexpected error paying deposit:', err);
@@ -154,25 +206,39 @@ export default function HostDashboard() {
   };
 
   // Pay Remaining Balance (60%) in Rands
-  const payRemainingBalance = async (id: string) => {
-    setPayingId(id);
+  const payRemainingBalance = async (booking: BookingWithArtist) => {
+    setPayingId(booking.id);
     try {
+      const remainingBalance = booking.total_amount != null && booking.deposit_amount != null 
+        ? booking.total_amount - booking.deposit_amount 
+        : 0;
+
       let { error } = await supabase
         .from('bookings')
         .update({ balance_paid: true, updated_at: new Date().toISOString() })
-        .eq('id', id);
+        .eq('id', booking.id);
 
       if (error && error.message.includes("Could not find the table")) {
         const retry = await supabase
           .from('booking')
           .update({ balance_paid: true, updated_at: new Date().toISOString() })
-          .eq('id', id);
+          .eq('id', booking.id);
         error = retry.error;
       }
 
       if (error) {
         console.error('Error paying balance:', error);
         alert(`Payment failed: ${error.message}`);
+      } else {
+        // Send email & invoice to both parties
+        await sendPaymentNotification({
+          bookingId: booking.id,
+          paymentType: 'balance',
+          amount: remainingBalance,
+          eventName: booking.event_name,
+          artistId: booking.artist_id,
+          hostId: booking.host_id,
+        });
       }
     } catch (err) {
       console.error('Unexpected error paying balance:', err);
@@ -331,7 +397,7 @@ export default function HostDashboard() {
                           {/* ACTION 1: Pay Deposit in Rands */}
                           {!booking.deposit_paid && (booking.status === 'accepted' || booking.status === 'pending') && (
                             <button
-                              onClick={() => payDeposit(booking.id)}
+                              onClick={() => payDeposit(booking)}
                               disabled={payingId === booking.id}
                               className="btn-accent w-full mt-4 flex items-center justify-center gap-2 py-2.5 text-xs uppercase tracking-wide-sm disabled:opacity-50"
                             >
@@ -343,7 +409,7 @@ export default function HostDashboard() {
                           {/* ACTION 2: Pay Remaining Balance in Rands */}
                           {booking.deposit_paid && !booking.balance_paid && remainingBalance != null && (
                             <button
-                              onClick={() => payRemainingBalance(booking.id)}
+                              onClick={() => payRemainingBalance(booking)}
                               disabled={payingId === booking.id}
                               className="btn-primary w-full mt-4 flex items-center justify-center gap-2 py-2.5 text-xs uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink-700 disabled:opacity-50"
                             >
