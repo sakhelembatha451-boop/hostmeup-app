@@ -59,10 +59,8 @@ serve(async (req: Request) => {
     const paymentTitle = paymentType === "deposit" ? "40% Deposit Received" : "Final Balance Paid";
     const artistName = artist.stage_name || artist.full_name;
 
-    // Use onboarding sender until custom domain finishes DNS verification
-    const senderEmail = "HostMeUp Payments <onboarding@resend.dev>";
-    // Once domain verifies in Resend, switch to:
-    // const senderEmail = "HostMeUp Payments <receipts@hostmeuphost.co.za>";
+    // Production verified sender email
+    const senderEmail = "HostMeUp Payments <receipts@hostmeuphost.co.za>";
 
     // HTML Email Template
     const emailHtml = `
@@ -119,7 +117,7 @@ serve(async (req: Request) => {
       </div>
     `;
 
-    // Send emails in parallel to both parties
+    // Send emails in parallel to both host and artist
     const emailPromises = [];
 
     if (host.email) {
