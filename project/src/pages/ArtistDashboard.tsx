@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { 
   Calendar, MapPin, Clock, Loader2, Package, Check, X, 
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
-  MapPinCheck, LogOut, PhoneCall, ShieldAlert
+  MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
@@ -15,6 +15,8 @@ type BookingWithHost = Booking & {
   conversation_id?: string | null;
   checked_in_at?: string | null;
   completed_at?: string | null;
+  deposit_paid?: boolean;
+  balance_paid?: boolean;
   host?: {
     id: string;
     full_name: string;
@@ -104,7 +106,6 @@ export default function ArtistDashboard() {
       );
 
       if (hostIds.length > 0) {
-        // Fetch profiles matching host IDs directly from profiles table
         const { data: profileRecords } = await supabase
           .from('profiles')
           .select('id, full_name, email, avatar_url, location')
@@ -112,7 +113,6 @@ export default function ArtistDashboard() {
 
         const profileMap = new Map((profileRecords || []).map((p) => [p.id, p]));
 
-        // 4. Attach resolved host data
         rawBookings = rawBookings.map((b) => {
           const p = profileMap.get(b.host_id) || b.host || null;
 
@@ -124,7 +124,7 @@ export default function ArtistDashboard() {
               avatar_url: p?.avatar_url || null,
               location: p?.location || '',
               email: p?.email || '',
-              is_verified: true, // Default active hosts to verified state
+              is_verified: true,
               verified: true,
               host_profile: null,
             },
@@ -151,6 +151,30 @@ export default function ArtistDashboard() {
   useEffect(() => { 
     loadDashboardData(true); 
   }, [loadDashboardData]);
+
+  // Dynamic status badge renderer matching host dashboard design
+  const renderCustomStatusBadge = (booking: BookingWithHost) => {
+    const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
+    const isDepositPaid = booking.deposit_paid || booking.status === 'confirmed';
+
+    if (isFullyPaid) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-sm inline-flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Balance Paid
+        </span>
+      );
+    }
+
+    if (isDepositPaid) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200 rounded-sm inline-flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" /> Deposit Paid
+        </span>
+      );
+    }
+
+    return <StatusBadge status={booking.status} />;
+  };
 
   // Update Booking Status Handler
   const updateBookingStatus = async (id: string, newStatus: string, extraFields: Record<string, any> = {}) => {
@@ -224,14 +248,14 @@ export default function ArtistDashboard() {
   const counts = {
     all: bookings.length,
     pending: bookings.filter((b) => b.status === 'pending').length,
-    confirmed: bookings.filter((b) => b.status === 'confirmed').length,
+    confirmed: bookings.filter((b) => b.status === 'confirmed' || b.deposit_paid).length,
     accepted: bookings.filter((b) => b.status === 'accepted').length,
     declined: bookings.filter((b) => b.status === 'declined').length,
     completed: bookings.filter((b) => b.status === 'completed').length,
   };
 
   const totalEarnings = bookings
-    .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed')
+    .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed' || b.status === 'fully_paid')
     .reduce((sum, b) => sum + (b.total_amount || 0), 0);
   
   const depositedAmount = bookings
@@ -298,11 +322,15 @@ export default function ArtistDashboard() {
         ) : (
           <div className="space-y-6">
             {filtered.map((booking) => (
-              <div key={booking.id} className="border border-line p-6 animate-fade-in transition-all hover:border-ink/20 bg-paper">
+              <div 
+                key={booking.id} 
+                onClick={() => setSelectedBooking(booking)}
+                className="border border-line p-6 bg-white cursor-pointer animate-fade-in transition-all hover:border-ink/40 hover:shadow-sm"
+              >
                 <div className="flex flex-col sm:flex-row sm:items-start gap-6">
                   
                   {/* Host info */}
-                  <div className="flex items-center gap-4 flex-shrink-0">
+                  <div className="flex items-center gap-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                     {booking.host?.avatar_url ? (
                       <img src={booking.host.avatar_url} alt={`Profile photo of ${booking.host?.full_name || 'host'}`} width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
                     ) : (
@@ -322,7 +350,7 @@ export default function ArtistDashboard() {
                   <div className="flex-1">
                     <div className="flex items-center justify-between gap-3 mb-4">
                       <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name}</h3>
-                      <StatusBadge status={booking.status} />
+                      {renderCustomStatusBadge(booking)}
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
@@ -344,12 +372,15 @@ export default function ArtistDashboard() {
                             <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Deposit (40%)</p>
                             <div className="flex items-center gap-1.5">
                               <p className="font-display text-lg font-semibold text-accent">{formatCurrency(booking.deposit_amount)}</p>
-                              {booking.deposit_paid && <Check className="w-4 h-4 text-accent" />}
+                              {(booking.deposit_paid || booking.status === 'confirmed' || booking.balance_paid) && <Check className="w-4 h-4 text-accent" />}
                             </div>
                           </div>
                           <div>
                             <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Balance (60%)</p>
-                            <p className="font-display text-lg font-semibold text-ink-500">{formatCurrency(booking.total_amount != null && booking.deposit_amount != null ? booking.total_amount - booking.deposit_amount : null)}</p>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-display text-lg font-semibold text-ink-500">{formatCurrency(booking.total_amount != null && booking.deposit_amount != null ? booking.total_amount - booking.deposit_amount : null)}</p>
+                              {(booking.balance_paid || booking.status === 'fully_paid') && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                            </div>
                           </div>
                         </div>
                         {booking.deposit_paid && (
@@ -369,7 +400,7 @@ export default function ArtistDashboard() {
                     )}
 
                     {/* Action Footer Bar */}
-                    <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3">
+                    <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
                       <button
                         onClick={() => setSelectedBooking(booking)}
                         className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
@@ -457,14 +488,14 @@ export default function ArtistDashboard() {
 
         {/* Modal 1: Details */}
         {selectedBooking && (
-          <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto">
+          <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
+            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
               <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
                 <X className="w-5 h-5" />
               </button>
 
               <div className="flex items-center gap-3 mb-2">
-                <StatusBadge status={selectedBooking.status} />
+                {renderCustomStatusBadge(selectedBooking)}
                 <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
               </div>
 
@@ -510,10 +541,53 @@ export default function ArtistDashboard() {
                   </p>
                 </div>
 
+                {selectedBooking.equipment_needed && selectedBooking.equipment_needed.length > 0 && (
+                  <div className="border-b border-line pb-3">
+                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-2">Required Equipment</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedBooking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}
+                    </div>
+                  </div>
+                )}
+
                 {selectedBooking.notes && (
                   <div>
                     <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Host Notes</span>
                     <p className="text-sm text-ink-500 bg-paper-200 p-3 border border-line rounded">{selectedBooking.notes}</p>
+                  </div>
+                )}
+
+                {/* Financial Summary */}
+                {selectedBooking.total_amount != null && (
+                  <div className="p-4 bg-paper-200 border border-line space-y-2 text-xs">
+                    <div className="flex justify-between font-medium text-ink-400">
+                      <span>Total Agreed Value:</span>
+                      <span className="text-ink font-bold font-display text-sm">{formatCurrency(selectedBooking.total_amount)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-ink-400">
+                      <span className="flex items-center gap-1">
+                        Deposit (40%): 
+                        {(selectedBooking.deposit_paid || selectedBooking.status === 'confirmed' || selectedBooking.balance_paid) && (
+                          <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        )}
+                      </span>
+                      <span className="text-accent font-bold font-display text-sm">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                    </div>
+                    <div className="flex justify-between items-center text-ink-400">
+                      <span className="flex items-center gap-1">
+                        Remaining Balance (60%): 
+                        {(selectedBooking.balance_paid || selectedBooking.status === 'fully_paid') && (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        )}
+                      </span>
+                      <span className="text-ink-500 font-bold font-display text-sm">
+                        {formatCurrency(
+                          selectedBooking.total_amount != null && selectedBooking.deposit_amount != null
+                            ? selectedBooking.total_amount - selectedBooking.deposit_amount
+                            : 0
+                        )}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
