@@ -574,8 +574,8 @@ export default function ArtistDashboard() {
                             </>
                           )}
 
-                          {/* Confirmed / Accepted */}
-                          {(booking.status === 'confirmed' || booking.status === 'accepted') && (
+                          {/* Confirmed / Accepted / Checked In */}
+                          {(booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in') && (
                             <>
                               {!booking.is_arrival_verified ? (
                                 <button
@@ -591,6 +591,14 @@ export default function ArtistDashboard() {
                                   <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
                                 </button>
                               )}
+
+                              {/* Check Out Button - Always visible once confirmed/accepted/checked_in */}
+                              <button
+                                onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name })}
+                                className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                                <LogOut className="w-3.5 h-3.5" /> Check Out of Event
+                              </button>
+
                               <button
                                 onClick={() => {
                                   if (booking.conversation_id) {
@@ -613,22 +621,6 @@ export default function ArtistDashboard() {
                                 onClick={() => setCancelBooking(booking)}
                                 className="text-xs text-red-600 hover:text-red-700 border border-red-200 px-2.5 py-1.5 rounded">
                                 Cancel
-                              </button>
-                            </>
-                          )}
-
-                          {/* Checked In -> Trigger Password Checkout Modal */}
-                          {booking.status === 'checked_in' && (
-                            <>
-                              <button
-                                onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name })}
-                                className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                                <LogOut className="w-3.5 h-3.5" /> Check Out of Event
-                              </button>
-                              <button
-                                onClick={() => setReportBooking(booking)}
-                                className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
-                                <AlertTriangle className="w-3.5 h-3.5" /> Emergency/Issue
                               </button>
                             </>
                           )}
