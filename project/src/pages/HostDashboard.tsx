@@ -2,7 +2,21 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Calendar, MapPin, Clock, Loader2, Package, FileText, CalendarPlus, DollarSign, CheckCircle2, ShieldAlert, X } from 'lucide-react';
+import { 
+  Calendar, 
+  MapPin, 
+  Clock, 
+  Loader2, 
+  Package, 
+  FileText, 
+  CalendarPlus, 
+  DollarSign, 
+  CheckCircle2, 
+  ShieldAlert, 
+  X, 
+  QrCode, 
+  KeyRound 
+} from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
@@ -10,6 +24,8 @@ import HostStatusBadge from '@/components/HostStatusBadge';
 type BookingWithArtist = Booking & {
   balance_paid?: boolean;
   deposit_paid?: boolean;
+  verification_pin?: string;
+  verification_token?: string;
   artist?: { id: string; full_name: string; avatar_url: string | null; location: string };
 };
 
@@ -277,6 +293,51 @@ export default function HostDashboard() {
     return <StatusBadge status={booking.status} />;
   };
 
+  // Helper component for Talent Verification Pass Drawer
+  const VerificationPassDrawer = ({ booking }: { booking: BookingWithArtist }) => {
+    const isEligible = booking.status === 'confirmed' || booking.status === 'fully_paid' || booking.deposit_paid;
+    if (!isEligible) return null;
+
+    return (
+      <div className="border border-emerald-200 bg-emerald-50/50 p-4 my-4 rounded space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-emerald-900 uppercase tracking-wide flex items-center gap-1.5">
+              <QrCode className="w-4 h-4 text-emerald-700" /> Talent Verification Pass
+            </p>
+            <p className="text-[11px] text-emerald-700 mt-0.5">
+              Show this QR code or 4-digit PIN to the talent when they arrive on-site.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center bg-white p-3 border border-emerald-200 rounded">
+          {/* QR Pass */}
+          <div className="flex flex-col items-center justify-center border-b sm:border-b-0 sm:border-r border-line pb-3 sm:pb-0 sm:pr-3">
+            <p className="text-[10px] font-semibold text-ink-400 uppercase mb-1 flex items-center gap-1">
+              <QrCode className="w-3 h-3" /> Option 1: QR Scan
+            </p>
+            <img 
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(JSON.stringify({ bookingId: booking.id, token: booking.verification_token }))}`} 
+              alt="Arrival Verification QR Code" 
+              className="w-28 h-28 object-contain"
+            />
+          </div>
+
+          {/* 4-Digit PIN */}
+          <div className="flex flex-col items-center justify-center text-center">
+            <p className="text-[10px] font-semibold text-ink-400 uppercase mb-1 flex items-center gap-1">
+              <KeyRound className="w-3 h-3" /> Option 2: Unique PIN
+            </p>
+            <div className="font-mono text-2xl font-bold text-emerald-900 bg-emerald-100 px-4 py-1.5 border border-emerald-300 rounded tracking-widest mt-1">
+              {booking.verification_pin || '----'}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
   const counts = {
     all: bookings.length,
@@ -407,6 +468,9 @@ export default function HostDashboard() {
                         <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location}</span></div>
                       </div>
 
+                      {/* Talent Verification Pass Drawer */}
+                      <VerificationPassDrawer booking={booking} />
+
                       {/* Pricing breakdown */}
                       {booking.total_amount != null && (
                         <div className="border border-line bg-paper-200 p-4 mb-4">
@@ -492,7 +556,7 @@ export default function HostDashboard() {
         {selectedBooking && (
           <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
             <div 
-              className="bg-paper border border-line p-6 sm:p-8 max-w-lg w-full space-y-6 shadow-2xl relative"
+              className="bg-paper border border-line p-6 sm:p-8 max-w-lg w-full space-y-6 shadow-2xl relative max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
               <button
@@ -547,6 +611,9 @@ export default function HostDashboard() {
                   <span className="font-medium text-right max-w-[200px]">{selectedBooking.location}</span>
                 </div>
               </div>
+
+              {/* Talent Verification Pass in Modal */}
+              <VerificationPassDrawer booking={selectedBooking} />
 
               {/* Equipment & Notes */}
               {selectedBooking.equipment_needed && selectedBooking.equipment_needed.length > 0 && (
