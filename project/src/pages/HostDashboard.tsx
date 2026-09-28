@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Calendar, MapPin, Clock, Loader2, Package, FileText, CalendarPlus, DollarSign, CheckCircle2, ShieldAlert } from 'lucide-react';
+import { Calendar, MapPin, Clock, Loader2, Package, FileText, CalendarPlus, DollarSign, CheckCircle2, ShieldAlert, X } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 
 type BookingWithArtist = Booking & {
   balance_paid?: boolean;
+  deposit_paid?: boolean;
   artist?: { id: string; full_name: string; avatar_url: string | null; location: string };
 };
 
@@ -23,6 +24,7 @@ export default function HostDashboard() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [payingId, setPayingId] = useState<string | null>(null);
+  const [selectedBooking, setSelectedBooking] = useState<BookingWithArtist | null>(null);
 
   // Host Verification State
   const [hostVerification, setHostVerification] = useState<{
@@ -96,6 +98,12 @@ export default function HostDashboard() {
 
       setBookings(rawBookings as BookingWithArtist[]);
 
+      // Update selectedBooking if open to keep UI in sync
+      if (selectedBooking) {
+        const updatedSelected = rawBookings.find((b) => b.id === selectedBooking.id);
+        if (updatedSelected) setSelectedBooking(updatedSelected);
+      }
+
       // 2. Fetch Host Verification Status
       const { data: hostData } = await supabase
         .from('host_profiles')
@@ -112,7 +120,7 @@ export default function HostDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [profile]);
+  }, [profile, selectedBooking]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -134,21 +142,18 @@ export default function HostDashboard() {
     hostId: string;
   }) => {
     try {
-      // 1. Fetch Host details
       const { data: hostProfile } = await supabase
         .from('profiles')
         .select('email, full_name')
         .eq('id', payload.hostId)
         .single();
 
-      // 2. Fetch Artist/Talent details
       const { data: artistProfile } = await supabase
         .from('profiles')
         .select('email, full_name')
         .eq('id', payload.artistId)
         .single();
 
-      // Dispatch to Edge Function / Webhook trigger
       await supabase.functions.invoke('send-payment-invoice', {
         body: {
           bookingId: payload.bookingId,
@@ -167,7 +172,8 @@ export default function HostDashboard() {
   };
 
   // Pay Deposit (40%) in Rands
-  const payDeposit = async (booking: BookingWithArtist) => {
+  const payDeposit = async (booking: BookingWithArtist, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setPayingId(booking.id);
     try {
       let { error } = await supabase
@@ -187,7 +193,6 @@ export default function HostDashboard() {
         console.error('Error paying deposit:', error);
         alert(`Payment failed: ${error.message}`);
       } else {
-        // Send email & invoice to both parties
         await sendPaymentNotification({
           bookingId: booking.id,
           paymentType: 'deposit',
@@ -206,7 +211,8 @@ export default function HostDashboard() {
   };
 
   // Pay Remaining Balance (60%) in Rands
-  const payRemainingBalance = async (booking: BookingWithArtist) => {
+  const payRemainingBalance = async (booking: BookingWithArtist, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setPayingId(booking.id);
     try {
       const remainingBalance = booking.total_amount != null && booking.deposit_amount != null 
@@ -215,13 +221,13 @@ export default function HostDashboard() {
 
       let { error } = await supabase
         .from('bookings')
-        .update({ balance_paid: true, updated_at: new Date().toISOString() })
+        .update({ balance_paid: true, status: 'fully_paid', updated_at: new Date().toISOString() })
         .eq('id', booking.id);
 
       if (error && error.message.includes("Could not find the table")) {
         const retry = await supabase
           .from('booking')
-          .update({ balance_paid: true, updated_at: new Date().toISOString() })
+          .update({ balance_paid: true, status: 'fully_paid', updated_at: new Date().toISOString() })
           .eq('id', booking.id);
         error = retry.error;
       }
@@ -230,7 +236,6 @@ export default function HostDashboard() {
         console.error('Error paying balance:', error);
         alert(`Payment failed: ${error.message}`);
       } else {
-        // Send email & invoice to both parties
         await sendPaymentNotification({
           bookingId: booking.id,
           paymentType: 'balance',
@@ -248,11 +253,35 @@ export default function HostDashboard() {
     }
   };
 
+  // Helper for dynamic payment status badge rendering
+  const renderCustomStatusBadge = (booking: BookingWithArtist) => {
+    const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
+    const isDepositPaid = booking.deposit_paid || booking.status === 'confirmed';
+
+    if (isFullyPaid) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-sm inline-flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Balance Paid
+        </span>
+      );
+    }
+
+    if (isDepositPaid) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200 rounded-sm inline-flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" /> Deposit Paid
+        </span>
+      );
+    }
+
+    return <StatusBadge status={booking.status} />;
+  };
+
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
   const counts = {
     all: bookings.length,
     pending: bookings.filter((b) => b.status === 'pending').length,
-    confirmed: bookings.filter((b) => b.status === 'confirmed').length,
+    confirmed: bookings.filter((b) => b.status === 'confirmed' || b.deposit_paid).length,
     accepted: bookings.filter((b) => b.status === 'accepted').length,
     declined: bookings.filter((b) => b.status === 'declined').length,
   };
@@ -341,25 +370,33 @@ export default function HostDashboard() {
                 : null;
 
               return (
-                <div key={booking.id} className="border border-line p-6 animate-fade-in transition-all hover:border-ink/20">
+                <div 
+                  key={booking.id} 
+                  onClick={() => setSelectedBooking(booking)}
+                  className="border border-line p-6 bg-white cursor-pointer animate-fade-in transition-all hover:border-ink/40 hover:shadow-sm"
+                >
                   <div className="flex flex-col sm:flex-row sm:items-start gap-6">
                     {/* Talent info */}
-                    <Link to={`/artists/${booking.artist_id}`} aria-label={`View ${booking.artist?.full_name || 'talent'} profile`} className="flex items-center gap-4 flex-shrink-0">
-                      {booking.artist?.avatar_url ? (
-                        <img src={booking.artist.avatar_url} alt={`Profile photo of ${booking.artist?.full_name || 'talent'}`} width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
-                      ) : (
-                        <div className="w-14 h-14 rounded-full bg-ink text-paper flex items-center justify-center font-display text-lg font-bold">{booking.artist?.full_name?.[0]?.toUpperCase() || '?'}</div>
-                      )}
+                    <div className="flex items-center gap-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <Link to={`/artists/${booking.artist_id}`} aria-label={`View ${booking.artist?.full_name || 'talent'} profile`}>
+                        {booking.artist?.avatar_url ? (
+                          <img src={booking.artist.avatar_url} alt={`Profile photo of ${booking.artist?.full_name || 'talent'}`} width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
+                        ) : (
+                          <div className="w-14 h-14 rounded-full bg-ink text-paper flex items-center justify-center font-display text-lg font-bold">{booking.artist?.full_name?.[0]?.toUpperCase() || '?'}</div>
+                        )}
+                      </Link>
                       <div>
-                        <div className="font-display font-semibold text-ink hover:text-accent transition-colors">{booking.artist?.full_name || 'Talent'}</div>
+                        <Link to={`/artists/${booking.artist_id}`} className="font-display font-semibold text-ink hover:text-accent transition-colors block">
+                          {booking.artist?.full_name || 'Talent'}
+                        </Link>
                         {booking.artist?.location && <div className="text-xs text-ink-400 flex items-center gap-1 mt-0.5"><MapPin className="w-3 h-3" />{booking.artist.location}</div>}
                       </div>
-                    </Link>
+                    </div>
 
                     <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-4">
+                      <div className="flex items-center justify-between gap-3 mb-4">
                         <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name}</h3>
-                        <StatusBadge status={booking.status} />
+                        {renderCustomStatusBadge(booking)}
                       </div>
 
                       {/* Event details */}
@@ -382,14 +419,14 @@ export default function HostDashboard() {
                               <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Deposit (40%)</p>
                               <div className="flex items-center gap-1.5">
                                 <p className="font-display text-lg font-semibold text-accent">{formatCurrency(booking.deposit_amount)}</p>
-                                {booking.deposit_paid && <CheckCircle2 className="w-4 h-4 text-accent" />}
+                                {(booking.deposit_paid || booking.status === 'confirmed' || booking.balance_paid) && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
                               </div>
                             </div>
                             <div>
                               <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Balance (60%)</p>
                               <div className="flex items-center gap-1.5">
                                 <p className="font-display text-lg font-semibold text-ink-500">{formatCurrency(remainingBalance)}</p>
-                                {booking.balance_paid && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                                {(booking.balance_paid || booking.status === 'fully_paid') && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
                               </div>
                             </div>
                           </div>
@@ -397,7 +434,7 @@ export default function HostDashboard() {
                           {/* ACTION 1: Pay Deposit in Rands */}
                           {!booking.deposit_paid && (booking.status === 'accepted' || booking.status === 'pending') && (
                             <button
-                              onClick={() => payDeposit(booking)}
+                              onClick={(e) => payDeposit(booking, e)}
                               disabled={payingId === booking.id}
                               className="btn-accent w-full mt-4 flex items-center justify-center gap-2 py-2.5 text-xs uppercase tracking-wide-sm disabled:opacity-50"
                             >
@@ -409,7 +446,7 @@ export default function HostDashboard() {
                           {/* ACTION 2: Pay Remaining Balance in Rands */}
                           {booking.deposit_paid && !booking.balance_paid && remainingBalance != null && (
                             <button
-                              onClick={() => payRemainingBalance(booking)}
+                              onClick={(e) => payRemainingBalance(booking, e)}
                               disabled={payingId === booking.id}
                               className="btn-primary w-full mt-4 flex items-center justify-center gap-2 py-2.5 text-xs uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink-700 disabled:opacity-50"
                             >
@@ -438,7 +475,7 @@ export default function HostDashboard() {
 
                       {/* Actions */}
                       {booking.status === 'pending' && (
-                        <div className="pt-3 border-t border-line">
+                        <div className="pt-3 border-t border-line" onClick={(e) => e.stopPropagation()}>
                           <button onClick={() => updateBookingStatus(booking.id, 'cancelled')}
                             className="text-sm font-medium text-red-500 hover:text-red-600 uppercase tracking-wide-sm transition-colors">Cancel Request</button>
                         </div>
@@ -450,6 +487,158 @@ export default function HostDashboard() {
             })}
           </div>
         )}
+
+        {/* BOOKING DETAILS MODAL */}
+        {selectedBooking && (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
+            <div 
+              className="bg-paper border border-line p-6 sm:p-8 max-w-lg w-full space-y-6 shadow-2xl relative"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedBooking(null)}
+                className="absolute top-5 right-5 text-ink-400 hover:text-ink transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-start justify-between gap-4 border-b border-line pb-4">
+                <div>
+                  <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">— Booking Details</p>
+                  <h2 className="font-display text-2xl font-bold text-ink">{selectedBooking.event_name}</h2>
+                </div>
+                {renderCustomStatusBadge(selectedBooking)}
+              </div>
+
+              {/* Artist Details */}
+              <div className="flex items-center gap-4 bg-paper-200 p-3 border border-line">
+                {selectedBooking.artist?.avatar_url ? (
+                  <img src={selectedBooking.artist.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-line" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-ink text-paper flex items-center justify-center font-display font-bold">
+                    {selectedBooking.artist?.full_name?.[0]?.toUpperCase() || '?'}
+                  </div>
+                )}
+                <div>
+                  <h4 className="font-display font-semibold text-ink">{selectedBooking.artist?.full_name || 'Talent Provider'}</h4>
+                  {selectedBooking.artist?.location && <p className="text-xs text-ink-400 flex items-center gap-1"><MapPin className="w-3 h-3" />{selectedBooking.artist.location}</p>}
+                </div>
+              </div>
+
+              {/* Event Metadata Breakdown */}
+              <div className="space-y-3 text-xs sm:text-sm text-ink divide-y divide-line">
+                <div className="pt-2 flex justify-between">
+                  <span className="text-ink-400">Date:</span>
+                  <span className="font-medium">{new Date(selectedBooking.event_date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                </div>
+                {selectedBooking.start_time && (
+                  <div className="pt-2 flex justify-between">
+                    <span className="text-ink-400">Start Time:</span>
+                    <span className="font-medium">{selectedBooking.start_time}</span>
+                  </div>
+                )}
+                <div className="pt-2 flex justify-between">
+                  <span className="text-ink-400">Duration:</span>
+                  <span className="font-medium">{selectedBooking.gig_duration}</span>
+                </div>
+                <div className="pt-2 flex justify-between">
+                  <span className="text-ink-400">Location:</span>
+                  <span className="font-medium text-right max-w-[200px]">{selectedBooking.location}</span>
+                </div>
+              </div>
+
+              {/* Equipment & Notes */}
+              {selectedBooking.equipment_needed && selectedBooking.equipment_needed.length > 0 && (
+                <div className="border-t border-line pt-3">
+                  <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Equipment Needed</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedBooking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}
+                  </div>
+                </div>
+              )}
+
+              {selectedBooking.notes && (
+                <div className="border-t border-line pt-3">
+                  <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Notes / Special Instructions</p>
+                  <p className="text-xs text-ink-500">{selectedBooking.notes}</p>
+                </div>
+              )}
+
+              {/* Financial Breakdown Box */}
+              {selectedBooking.total_amount != null && (
+                <div className="p-4 bg-paper-200 border border-line space-y-2 text-xs">
+                  <div className="flex justify-between font-medium text-ink-400">
+                    <span>Total Cost:</span>
+                    <span className="text-ink font-bold font-display text-sm">{formatCurrency(selectedBooking.total_amount)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-ink-400">
+                    <span className="flex items-center gap-1">
+                      Deposit (40%): 
+                      {(selectedBooking.deposit_paid || selectedBooking.status === 'confirmed' || selectedBooking.balance_paid) && (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      )}
+                    </span>
+                    <span className="text-accent font-bold font-display text-sm">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-ink-400">
+                    <span className="flex items-center gap-1">
+                      Balance (60%): 
+                      {(selectedBooking.balance_paid || selectedBooking.status === 'fully_paid') && (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      )}
+                    </span>
+                    <span className="text-ink-500 font-bold font-display text-sm">
+                      {formatCurrency(
+                        selectedBooking.total_amount != null && selectedBooking.deposit_amount != null
+                          ? selectedBooking.total_amount - selectedBooking.deposit_amount
+                          : 0
+                      )}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons Inside Modal */}
+              <div className="flex flex-col gap-2 pt-2">
+                {!selectedBooking.deposit_paid && (selectedBooking.status === 'accepted' || selectedBooking.status === 'pending') && (
+                  <button
+                    onClick={(e) => payDeposit(selectedBooking, e)}
+                    disabled={payingId === selectedBooking.id}
+                    className="btn-accent w-full flex items-center justify-center gap-2 py-3 text-xs uppercase tracking-wide-sm disabled:opacity-50"
+                  >
+                    {payingId === selectedBooking.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-3.5 h-3.5" />}
+                    Pay Deposit ({formatCurrency(selectedBooking.deposit_amount)}) Now
+                  </button>
+                )}
+
+                {selectedBooking.deposit_paid && !selectedBooking.balance_paid && (
+                  <button
+                    onClick={(e) => payRemainingBalance(selectedBooking, e)}
+                    disabled={payingId === selectedBooking.id}
+                    className="btn-primary w-full flex items-center justify-center gap-2 py-3 text-xs uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink-700 disabled:opacity-50"
+                  >
+                    {payingId === selectedBooking.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <DollarSign className="w-3.5 h-3.5" />}
+                    Pay Remaining Balance ({formatCurrency(
+                      selectedBooking.total_amount != null && selectedBooking.deposit_amount != null
+                        ? selectedBooking.total_amount - selectedBooking.deposit_amount
+                        : 0
+                    )}) Now
+                  </button>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedBooking(null)}
+                  className="w-full border border-line py-2.5 text-xs uppercase tracking-wide-sm font-semibold text-ink hover:bg-paper-200 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
