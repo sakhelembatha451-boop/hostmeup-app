@@ -26,6 +26,8 @@ type BookingWithArtist = Booking & {
   deposit_paid?: boolean;
   verification_pin?: string;
   verification_token?: string;
+  is_arrival_verified?: boolean;
+  arrival_verified_at?: string;
   artist?: { id: string; full_name: string; avatar_url: string | null; location: string };
 };
 
@@ -180,7 +182,6 @@ export default function HostDashboard() {
             event_name: booking.event_name,
             event_date: booking.event_date,
             total_amount: booking.total_amount,
-            // Verification credentials passed directly to email edge function
             verification_pin: booking.verification_pin,
             verification_token: booking.verification_token,
           },
@@ -305,14 +306,14 @@ export default function HostDashboard() {
     return <StatusBadge status={booking.status} />;
   };
 
-  // Helper component for Talent Verification Pass Drawer
+  // Helper component for Talent Verification Pass Drawer with On-Site Verification Badge
   const VerificationPassDrawer = ({ booking }: { booking: BookingWithArtist }) => {
     const isEligible = booking.status === 'confirmed' || booking.status === 'fully_paid' || booking.deposit_paid;
     if (!isEligible) return null;
 
     return (
       <div className="border border-emerald-200 bg-emerald-50/50 p-4 my-4 rounded space-y-3" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <p className="text-xs font-bold text-emerald-900 uppercase tracking-wide flex items-center gap-1.5">
               <QrCode className="w-4 h-4 text-emerald-700" /> Talent Verification Pass
@@ -321,6 +322,24 @@ export default function HostDashboard() {
               Show this QR code or 4-digit PIN to the talent when they arrive on-site.
             </p>
           </div>
+
+          {/* On-Site Verification Status Badge */}
+          {booking.is_arrival_verified ? (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-semibold rounded whitespace-nowrap">
+              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 flex-shrink-0" />
+              <span>
+                Talent Checked In{' '}
+                {booking.arrival_verified_at 
+                  ? `(${new Date(booking.arrival_verified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})` 
+                  : ''}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 text-[11px] rounded whitespace-nowrap">
+              <Clock className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+              <span>Awaiting Talent Check-in</span>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center bg-white p-3 border border-emerald-200 rounded">
@@ -469,7 +488,9 @@ export default function HostDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center justify-between gap-3 mb-4">
                         <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name}</h3>
-                        {renderCustomStatusBadge(booking)}
+                        <div className="flex items-center gap-2">
+                          {renderCustomStatusBadge(booking)}
+                        </div>
                       </div>
 
                       {/* Event details */}
