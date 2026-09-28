@@ -150,36 +150,49 @@ export default function HostDashboard() {
 
   // Helper function to send email notification and invoice to both host and artist
   const sendPaymentNotification = async (payload: {
-    bookingId: string;
+    booking: BookingWithArtist;
     paymentType: 'deposit' | 'balance';
-    amount: number;
-    eventName: string;
-    artistId: string;
-    hostId: string;
+    amountPaid: number;
+    remainingBalance: number;
   }) => {
     try {
+      const { booking, paymentType, amountPaid, remainingBalance } = payload;
+
       const { data: hostProfile } = await supabase
         .from('profiles')
         .select('email, full_name')
-        .eq('id', payload.hostId)
+        .eq('id', booking.host_id)
         .single();
 
       const { data: artistProfile } = await supabase
         .from('profiles')
-        .select('email, full_name')
-        .eq('id', payload.artistId)
+        .select('email, full_name, stage_name')
+        .eq('id', booking.artist_id)
         .single();
 
-      await supabase.functions.invoke('send-payment-invoice', {
+      await supabase.functions.invoke('send-invoice', {
         body: {
-          bookingId: payload.bookingId,
-          paymentType: payload.paymentType,
-          amount: payload.amount,
-          eventName: payload.eventName,
-          hostEmail: hostProfile?.email || profile?.email,
-          hostName: hostProfile?.full_name || 'Host',
-          artistEmail: artistProfile?.email,
-          artistName: artistProfile?.full_name || 'Talent Provider',
+          paymentType,
+          amountPaid,
+          remainingBalance,
+          booking: {
+            id: booking.id,
+            event_name: booking.event_name,
+            event_date: booking.event_date,
+            total_amount: booking.total_amount,
+            // Verification credentials passed directly to email edge function
+            verification_pin: booking.verification_pin,
+            verification_token: booking.verification_token,
+          },
+          host: {
+            full_name: hostProfile?.full_name || profile?.full_name || 'Host',
+            email: hostProfile?.email || profile?.email || '',
+          },
+          artist: {
+            full_name: artistProfile?.full_name || 'Talent Provider',
+            email: artistProfile?.email || '',
+            stage_name: artistProfile?.stage_name || booking.artist?.full_name,
+          },
         },
       });
     } catch (err) {
@@ -209,13 +222,14 @@ export default function HostDashboard() {
         console.error('Error paying deposit:', error);
         alert(`Payment failed: ${error.message}`);
       } else {
+        const depositAmount = booking.deposit_amount || (booking.total_amount ? booking.total_amount * 0.4 : 0);
+        const remainingBalance = booking.total_amount != null ? booking.total_amount - depositAmount : 0;
+
         await sendPaymentNotification({
-          bookingId: booking.id,
+          booking,
           paymentType: 'deposit',
-          amount: booking.deposit_amount || 0,
-          eventName: booking.event_name,
-          artistId: booking.artist_id,
-          hostId: booking.host_id,
+          amountPaid: depositAmount,
+          remainingBalance,
         });
       }
     } catch (err) {
@@ -253,12 +267,10 @@ export default function HostDashboard() {
         alert(`Payment failed: ${error.message}`);
       } else {
         await sendPaymentNotification({
-          bookingId: booking.id,
+          booking,
           paymentType: 'balance',
-          amount: remainingBalance,
-          eventName: booking.event_name,
-          artistId: booking.artist_id,
-          hostId: booking.host_id,
+          amountPaid: remainingBalance,
+          remainingBalance: 0,
         });
       }
     } catch (err) {
