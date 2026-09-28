@@ -85,24 +85,43 @@ export default function TalentVerificationModal({
         return;
       }
 
-      // 2. Update booking arrival verification status
+      // 2. Try primary update with arrival_verified_at column
       const updateData = {
         is_arrival_verified: true,
         arrival_verified_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
 
+      let targetTable = 'bookings';
       let { error: updateErr } = await supabase
-        .from('bookings')
+        .from(targetTable)
         .update(updateData)
         .eq('id', bookingId);
 
+      // Handle table name difference
       if (updateErr && updateErr.message.includes('Could not find the table')) {
+        targetTable = 'booking';
         const fallbackUpdate = await supabase
-          .from('booking')
+          .from(targetTable)
           .update(updateData)
           .eq('id', bookingId);
         updateErr = fallbackUpdate.error;
+      }
+
+      // Safe Fallback: If arrival_verified_at column is missing from schema cache, update standard fields
+      if (updateErr && (updateErr.message.includes('arrival_verified_at') || updateErr.code === 'PGRST204')) {
+        console.warn('Column arrival_verified_at not found in schema cache. Running safe update fallback...');
+        const safeData = {
+          is_arrival_verified: true,
+          updated_at: new Date().toISOString(),
+        };
+
+        const safeFallback = await supabase
+          .from(targetTable)
+          .update(safeData)
+          .eq('id', bookingId);
+
+        updateErr = safeFallback.error;
       }
 
       if (updateErr) {
