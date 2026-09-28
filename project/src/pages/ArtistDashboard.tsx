@@ -5,7 +5,8 @@ import { useAuth } from '@/context/AuthContext';
 import { 
   Calendar, MapPin, Clock, Loader2, Package, Check, X, 
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
-  MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound
+  MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
+  Trash2, CheckSquare, Square
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
@@ -19,6 +20,7 @@ type BookingWithHost = Booking & {
   deposit_paid?: boolean;
   balance_paid?: boolean;
   is_arrival_verified?: boolean;
+  is_deleted?: boolean;
   host?: {
     id: string;
     full_name: string;
@@ -48,6 +50,10 @@ export default function ArtistDashboard() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Selection & Bulk Deletion State
+  const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
   // Modals State
   const [selectedBooking, setSelectedBooking] = useState<BookingWithHost | null>(null);
@@ -80,11 +86,12 @@ export default function ArtistDashboard() {
         new Set([profile.id, artistProfile?.id].filter(Boolean))
       );
 
-      // 2. Fetch raw bookings
+      // 2. Fetch raw bookings (excluding soft-deleted)
       let { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
         .select('*')
         .in('artist_id', targetArtistIds)
+        .or('is_deleted.eq.false,is_deleted.is.null')
         .order('created_at', { ascending: false });
 
       if (bookingsErr || !rawBookings || rawBookings.length === 0) {
@@ -92,6 +99,7 @@ export default function ArtistDashboard() {
           .from('booking')
           .select('*')
           .in('artist_id', targetArtistIds)
+          .or('is_deleted.eq.false,is_deleted.is.null')
           .order('created_at', { ascending: false });
         if (fallback.data && fallback.data.length > 0) {
           rawBookings = fallback.data;
@@ -154,6 +162,78 @@ export default function ArtistDashboard() {
   useEffect(() => { 
     loadDashboardData(true); 
   }, [loadDashboardData]);
+
+  // Handle Multi-selection Toggle
+  const toggleSelectBooking = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setSelectedBookingIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
+
+  // Toggle Select All filtered bookings
+  const toggleSelectAll = () => {
+    const allFilteredIds = filtered.map((b) => b.id);
+    const areAllSelected = allFilteredIds.every((id) => selectedBookingIds.includes(id));
+
+    if (areAllSelected) {
+      setSelectedBookingIds((prev) => prev.filter((id) => !allFilteredIds.includes(id)));
+    } else {
+      setSelectedBookingIds((prev) => Array.from(new Set([...prev, ...allFilteredIds])));
+    }
+  };
+
+  // Delete Bookings (Single or Bulk)
+  const handleDeleteBookings = async (idsToDelete: string[], e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (idsToDelete.length === 0) return;
+
+    const confirmMessage = idsToDelete.length === 1
+      ? 'Are you sure you want to delete this booking card?'
+      : `Are you sure you want to delete ${idsToDelete.length} selected booking cards?`;
+
+    if (!window.confirm(confirmMessage)) return;
+
+    setIsDeleting(true);
+    try {
+      // 1. Soft-delete attempt (setting is_deleted = true)
+      let { error } = await supabase
+        .from('bookings')
+        .update({ is_deleted: true })
+        .in('id', idsToDelete);
+
+      if (error && error.message?.includes('Could not find the table')) {
+        const fallback = await supabase
+          .from('booking')
+          .update({ is_deleted: true })
+          .in('id', idsToDelete);
+        error = fallback.error;
+      }
+
+      // 2. If is_deleted column is not present in schema, fallback to hard deletion
+      if (error && error.message?.includes('is_deleted')) {
+        await supabase
+          .from('bookings')
+          .delete()
+          .in('id', idsToDelete);
+      }
+
+      // Optimistically remove deleted items from UI state
+      setBookings((prev) => prev.filter((b) => !idsToDelete.includes(b.id)));
+      setSelectedBookingIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
+
+      if (selectedBooking && idsToDelete.includes(selectedBooking.id)) {
+        setSelectedBooking(null);
+      }
+    } catch (err) {
+      console.error('Error deleting booking(s):', err);
+      alert('Could not delete booking. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Dynamic status badge renderer matching host dashboard design
   const renderCustomStatusBadge = (booking: BookingWithHost) => {
@@ -247,7 +327,6 @@ export default function ArtistDashboard() {
     }
   };
 
-  const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
   const counts = {
     all: bookings.length,
     pending: bookings.filter((b) => b.status === 'pending').length,
@@ -266,6 +345,8 @@ export default function ArtistDashboard() {
     .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
+
+  const allFilteredSelected = filtered.length > 0 && filtered.every((b) => selectedBookingIds.includes(b.id));
 
   return (
     <div className="min-h-screen bg-paper">
@@ -305,14 +386,42 @@ export default function ArtistDashboard() {
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="flex flex-wrap gap-2 mb-8">
-          {['all', 'pending', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
-            <button key={f} onClick={() => setFilter(f)}
-              className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
-              {f} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
-            </button>
-          ))}
+        {/* Filters and Selection Bar */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+          <div className="flex flex-wrap gap-2">
+            {['all', 'pending', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
+              <button key={f} onClick={() => setFilter(f)}
+                className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
+                {f} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
+              </button>
+            ))}
+          </div>
+
+          {/* Bulk Selection Actions */}
+          {filtered.length > 0 && (
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleSelectAll}
+                className="text-xs font-semibold text-ink-500 hover:text-ink flex items-center gap-1.5 transition-colors">
+                {allFilteredSelected ? (
+                  <CheckSquare className="w-4 h-4 text-ink" />
+                ) : (
+                  <Square className="w-4 h-4 text-ink-300" />
+                )}
+                {allFilteredSelected ? 'Deselect All' : 'Select All'}
+              </button>
+
+              {selectedBookingIds.length > 0 && (
+                <button
+                  onClick={(e) => handleDeleteBookings(selectedBookingIds, e)}
+                  disabled={isDeleting}
+                  className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-1.5 rounded inline-flex items-center gap-1.5 transition-colors shadow-xs">
+                  {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                  Delete Selected ({selectedBookingIds.length})
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Booking Card List */}
@@ -324,176 +433,203 @@ export default function ArtistDashboard() {
             actionTo={bookings.length === 0 ? "/artist-profile/edit" : undefined} />
         ) : (
           <div className="space-y-6">
-            {filtered.map((booking) => (
-              <div 
-                key={booking.id} 
-                onClick={() => setSelectedBooking(booking)}
-                className="border border-line p-6 bg-white cursor-pointer animate-fade-in transition-all hover:border-ink/40 hover:shadow-sm"
-              >
-                <div className="flex flex-col sm:flex-row sm:items-start gap-6">
-                  
-                  {/* Host info */}
-                  <div className="flex items-center gap-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {booking.host?.avatar_url ? (
-                      <img src={booking.host.avatar_url} alt={`Profile photo of ${booking.host?.full_name || 'host'}`} width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
-                    ) : (
-                      <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
-                    )}
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-display font-semibold text-ink">
-                          {booking.host?.full_name || 'Host'}
-                        </span>
-                        <HostStatusBadge isVerified={true} verificationStatus="approved" />
-                      </div>
-                      <div className="text-xs text-ink-400 mt-0.5">Verified Host</div>
-                    </div>
+            {filtered.map((booking) => {
+              const isSelected = selectedBookingIds.includes(booking.id);
+
+              return (
+                <div 
+                  key={booking.id} 
+                  onClick={() => setSelectedBooking(booking)}
+                  className={`border p-6 bg-white cursor-pointer animate-fade-in transition-all relative ${
+                    isSelected ? 'border-ink bg-paper-200/20 shadow-sm' : 'border-line hover:border-ink/40 hover:shadow-sm'
+                  }`}
+                >
+                  {/* Select Checkbox & Individual Trash Button */}
+                  <div className="absolute top-4 right-4 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => handleDeleteBookings([booking.id], e)}
+                      title="Delete booking card"
+                      className="p-1.5 text-ink-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={(e) => toggleSelectBooking(booking.id, e)}
+                      className="p-1 text-ink-400 hover:text-ink transition-colors"
+                    >
+                      {isSelected ? (
+                        <CheckSquare className="w-5 h-5 text-ink" />
+                      ) : (
+                        <Square className="w-5 h-5 text-ink-300" />
+                      )}
+                    </button>
                   </div>
 
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between gap-3 mb-4">
-                      <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name}</h3>
-                      {renderCustomStatusBadge(booking)}
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
-                      <div className="flex items-center gap-1.5 text-ink-500"><Calendar className="w-3.5 h-3.5 text-ink-300" /><span>{new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
-                      {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
-                      <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration}</span></div>
-                      <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location}</span></div>
-                    </div>
-
-                    {/* Pricing breakdown */}
-                    {booking.total_amount != null && (
-                      <div className="border border-line bg-paper-200 p-4 mb-4">
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Total Cost</p>
-                            <p className="font-display text-lg font-semibold text-ink">{formatCurrency(booking.total_amount)}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Deposit (40%)</p>
-                            <div className="flex items-center gap-1.5">
-                              <p className="font-display text-lg font-semibold text-accent">{formatCurrency(booking.deposit_amount)}</p>
-                              {(booking.deposit_paid || booking.status === 'confirmed' || booking.balance_paid) && <Check className="w-4 h-4 text-accent" />}
-                            </div>
-                          </div>
-                          <div>
-                            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Balance (60%)</p>
-                            <div className="flex items-center gap-1.5">
-                              <p className="font-display text-lg font-semibold text-ink-500">{formatCurrency(booking.total_amount != null && booking.deposit_amount != null ? booking.total_amount - booking.deposit_amount : null)}</p>
-                              {(booking.balance_paid || booking.status === 'fully_paid') && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                            </div>
-                          </div>
+                  <div className="flex flex-col sm:flex-row sm:items-start gap-6 pr-16">
+                    
+                    {/* Host info */}
+                    <div className="flex items-center gap-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                      {booking.host?.avatar_url ? (
+                        <img src={booking.host.avatar_url} alt={`Profile photo of ${booking.host?.full_name || 'host'}`} width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
+                      )}
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-display font-semibold text-ink">
+                            {booking.host?.full_name || 'Host'}
+                          </span>
+                          <HostStatusBadge isVerified={true} verificationStatus="approved" />
                         </div>
-                        {booking.deposit_paid && (
-                          <div className="flex items-center gap-1.5 mt-3 text-xs text-accent">
-                            <ShieldCheck className="w-3.5 h-3.5" /> Deposit received — booking is financially secured.
+                        <div className="text-xs text-ink-400 mt-0.5">Verified Host</div>
+                      </div>
+                    </div>
+
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between gap-3 mb-4">
+                        <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name}</h3>
+                        {renderCustomStatusBadge(booking)}
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
+                        <div className="flex items-center gap-1.5 text-ink-500"><Calendar className="w-3.5 h-3.5 text-ink-300" /><span>{new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
+                        {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
+                        <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration}</span></div>
+                        <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location}</span></div>
+                      </div>
+
+                      {/* Pricing breakdown */}
+                      {booking.total_amount != null && (
+                        <div className="border border-line bg-paper-200 p-4 mb-4">
+                          <div className="grid grid-cols-3 gap-4">
+                            <div>
+                              <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Total Cost</p>
+                              <p className="font-display text-lg font-semibold text-ink">{formatCurrency(booking.total_amount)}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Deposit (40%)</p>
+                              <div className="flex items-center gap-1.5">
+                                <p className="font-display text-lg font-semibold text-accent">{formatCurrency(booking.deposit_amount)}</p>
+                                {(booking.deposit_paid || booking.status === 'confirmed' || booking.balance_paid) && <Check className="w-4 h-4 text-accent" />}
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Balance (60%)</p>
+                              <div className="flex items-center gap-1.5">
+                                <p className="font-display text-lg font-semibold text-ink-500">{formatCurrency(booking.total_amount != null && booking.deposit_amount != null ? booking.total_amount - booking.deposit_amount : null)}</p>
+                                {(booking.balance_paid || booking.status === 'fully_paid') && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                              </div>
+                            </div>
                           </div>
-                        )}
-                      </div>
-                    )}
+                          {booking.deposit_paid && (
+                            <div className="flex items-center gap-1.5 mt-3 text-xs text-accent">
+                              <ShieldCheck className="w-3.5 h-3.5" /> Deposit received — booking is financially secured.
+                            </div>
+                          )}
+                        </div>
+                      )}
 
-                    {/* Equipment Tag List */}
-                    {booking.equipment_needed && booking.equipment_needed.length > 0 && (
-                      <div className="flex items-start gap-1.5 mb-3">
-                        <Package className="w-4 h-4 text-ink-300 mt-0.5" />
-                        <div className="flex flex-wrap gap-1.5">{booking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}</div>
-                      </div>
-                    )}
+                      {/* Equipment Tag List */}
+                      {booking.equipment_needed && booking.equipment_needed.length > 0 && (
+                        <div className="flex items-start gap-1.5 mb-3">
+                          <Package className="w-4 h-4 text-ink-300 mt-0.5" />
+                          <div className="flex flex-wrap gap-1.5">{booking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}</div>
+                        </div>
+                      )}
 
-                    {/* Action Footer Bar */}
-                    <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={() => setSelectedBooking(booking)}
-                        className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
-                        <Eye className="w-3.5 h-3.5 text-ink-400" /> View Details
-                      </button>
+                      {/* Action Footer Bar */}
+                      <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => setSelectedBooking(booking)}
+                          className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
+                          <Eye className="w-3.5 h-3.5 text-ink-400" /> View Details
+                        </button>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        {/* Pending -> Accept / Decline */}
-                        {booking.status === 'pending' && (
-                          <>
-                            <button 
-                              onClick={() => updateBookingStatus(booking.id, 'declined')}
-                              disabled={updatingId === booking.id}
-                              className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
-                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Decline
-                            </button>
-                            <button 
-                              onClick={() => updateBookingStatus(booking.id, 'accepted')}
-                              disabled={updatingId === booking.id}
-                              className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
-                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
-                            </button>
-                          </>
-                        )}
-
-                        {/* Confirmed / Accepted */}
-                        {(booking.status === 'confirmed' || booking.status === 'accepted') && (
-                          <>
-                            {!booking.is_arrival_verified ? (
-                              <button
-                                onClick={() => setActiveVerifyBooking({ id: booking.id, eventName: booking.event_name })}
-                                className="bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                                <KeyRound className="w-3.5 h-3.5" /> Enter Host Pass Code
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => updateBookingStatus(booking.id, 'checked_in', { checked_in_at: new Date().toISOString() })}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* Pending -> Accept / Decline */}
+                          {booking.status === 'pending' && (
+                            <>
+                              <button 
+                                onClick={() => updateBookingStatus(booking.id, 'declined')}
                                 disabled={updatingId === booking.id}
-                                className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                                <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
+                                className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
+                                {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Decline
                               </button>
-                            )}
-                            <button
-                              onClick={() => {
-                                if (booking.conversation_id) {
-                                  navigate(`/inbox?conversation=${booking.conversation_id}`, { state: { conversationId: booking.conversation_id, recipientId: booking.host_id, bookingId: booking.id } });
-                                } else if (booking.host_id) {
-                                  navigate(`/inbox?user=${booking.host_id}`, { state: { recipientId: booking.host_id, bookingId: booking.id } });
-                                } else {
-                                  navigate('/inbox');
-                                }
-                              }}
-                              className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
-                              <MessageSquare className="w-3.5 h-3.5" /> Message Host
-                            </button>
-                            <button
-                              onClick={() => setReportBooking(booking)}
-                              className="text-xs text-amber-700 hover:text-amber-800 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
-                              <AlertTriangle className="w-3.5 h-3.5" /> Report Issue
-                            </button>
-                            <button
-                              onClick={() => setCancelBooking(booking)}
-                              className="text-xs text-red-600 hover:text-red-700 border border-red-200 px-2.5 py-1.5 rounded">
-                              Cancel
-                            </button>
-                          </>
-                        )}
+                              <button 
+                                onClick={() => updateBookingStatus(booking.id, 'accepted')}
+                                disabled={updatingId === booking.id}
+                                className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
+                                {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
+                              </button>
+                            </>
+                          )}
 
-                        {/* Checked In -> Sign Out */}
-                        {booking.status === 'checked_in' && (
-                          <>
-                            <button
-                              onClick={() => updateBookingStatus(booking.id, 'completed', { completed_at: new Date().toISOString() })}
-                              disabled={updatingId === booking.id}
-                              className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                              <LogOut className="w-3.5 h-3.5" /> Complete & Sign Out
-                            </button>
-                            <button
-                              onClick={() => setReportBooking(booking)}
-                              className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
-                              <AlertTriangle className="w-3.5 h-3.5" /> Emergency/Issue
-                            </button>
-                          </>
-                        )}
+                          {/* Confirmed / Accepted */}
+                          {(booking.status === 'confirmed' || booking.status === 'accepted') && (
+                            <>
+                              {!booking.is_arrival_verified ? (
+                                <button
+                                  onClick={() => setActiveVerifyBooking({ id: booking.id, eventName: booking.event_name })}
+                                  className="bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                                  <KeyRound className="w-3.5 h-3.5" /> Enter Host Pass Code
+                                </button>
+                              ) : (
+                                <button
+                                  onClick={() => updateBookingStatus(booking.id, 'checked_in', { checked_in_at: new Date().toISOString() })}
+                                  disabled={updatingId === booking.id}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                                  <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
+                                </button>
+                              )}
+                              <button
+                                onClick={() => {
+                                  if (booking.conversation_id) {
+                                    navigate(`/inbox?conversation=${booking.conversation_id}`, { state: { conversationId: booking.conversation_id, recipientId: booking.host_id, bookingId: booking.id } });
+                                  } else if (booking.host_id) {
+                                    navigate(`/inbox?user=${booking.host_id}`, { state: { recipientId: booking.host_id, bookingId: booking.id } });
+                                  } else {
+                                    navigate('/inbox');
+                                  }
+                                }}
+                                className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
+                                <MessageSquare className="w-3.5 h-3.5" /> Message Host
+                              </button>
+                              <button
+                                onClick={() => setReportBooking(booking)}
+                                className="text-xs text-amber-700 hover:text-amber-800 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
+                                <AlertTriangle className="w-3.5 h-3.5" /> Report Issue
+                              </button>
+                              <button
+                                onClick={() => setCancelBooking(booking)}
+                                className="text-xs text-red-600 hover:text-red-700 border border-red-200 px-2.5 py-1.5 rounded">
+                                Cancel
+                              </button>
+                            </>
+                          )}
+
+                          {/* Checked In -> Sign Out */}
+                          {booking.status === 'checked_in' && (
+                            <>
+                              <button
+                                onClick={() => updateBookingStatus(booking.id, 'completed', { completed_at: new Date().toISOString() })}
+                                disabled={updatingId === booking.id}
+                                className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                                <LogOut className="w-3.5 h-3.5" /> Complete & Sign Out
+                              </button>
+                              <button
+                                onClick={() => setReportBooking(booking)}
+                                className="text-xs text-amber-700 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
+                                <AlertTriangle className="w-3.5 h-3.5" /> Emergency/Issue
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
