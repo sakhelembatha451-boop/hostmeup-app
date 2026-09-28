@@ -7,21 +7,17 @@ import {
   MapPin, 
   Clock, 
   Loader2, 
-  Package, 
-  FileText, 
   CalendarPlus, 
-  DollarSign, 
-  CheckCircle2, 
   ShieldAlert, 
-  X, 
-  QrCode, 
-  KeyRound,
   Trash2,
   CheckSquare,
-  Square
+  Square,
+  X,
+  KeyRound,
+  CheckCircle2
 } from 'lucide-react';
 import type { Booking } from '@/types';
-import { StatusBadge, EmptyState, Tag } from '@/components/UI';
+import { StatusBadge, EmptyState } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 
 type BookingWithArtist = Booking & {
@@ -44,7 +40,6 @@ export default function HostDashboard() {
   const [bookings, setBookings] = useState<BookingWithArtist[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
-  const [payingId, setPayingId] = useState<string | null>(null);
   const [selectedBooking, setSelectedBooking] = useState<BookingWithArtist | null>(null);
 
   // Deletion and Selection State
@@ -157,20 +152,18 @@ export default function HostDashboard() {
 
     setIsDeleting(true);
     try {
-      // Soft delete using is_deleted flag (or change to .delete() if you want hard deletes)
       let { error } = await supabase
         .from('bookings')
         .update({ is_deleted: true })
         .in('id', idsToDelete);
 
-      if (error && error.message.includes("Could not find the table")) {
+      if (error && error.message?.includes("Could not find the table")) {
         await supabase
           .from('booking')
           .update({ is_deleted: true })
           .in('id', idsToDelete);
       }
 
-      // Reset selection and reload data
       setSelectedBookingIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
       if (selectedBooking && idsToDelete.includes(selectedBooking.id)) {
         setSelectedBooking(null);
@@ -183,7 +176,6 @@ export default function HostDashboard() {
     }
   };
 
-  // Checkbox toggle handler
   const toggleSelectBooking = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setSelectedBookingIds((prev) => 
@@ -191,7 +183,6 @@ export default function HostDashboard() {
     );
   };
 
-  // Select all / Deselect all
   const toggleSelectAll = () => {
     const visibleIds = filtered.map((b) => b.id);
     if (selectedBookingIds.length === visibleIds.length) {
@@ -203,7 +194,7 @@ export default function HostDashboard() {
 
   const updateBookingStatus = async (id: string, status: string) => {
     let { error } = await supabase.from('bookings').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
-    if (error && error.message.includes("Could not find the table")) {
+    if (error && error.message?.includes("Could not find the table")) {
       await supabase.from('booking').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
     }
     loadData();
@@ -408,6 +399,90 @@ export default function HostDashboard() {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Selected Booking Modal Drawer */}
+        {selectedBooking && (
+          <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex justify-end animate-fade-in" onClick={() => setSelectedBooking(null)}>
+            <div className="bg-paper w-full max-w-lg h-full overflow-y-auto p-8 border-l border-line shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between pb-6 mb-6 border-b border-line">
+                <div>
+                  <h2 className="font-display text-2xl font-bold text-ink">{selectedBooking.event_name}</h2>
+                  <p className="text-xs text-ink-400 mt-1">Booking ID: {selectedBooking.id}</p>
+                </div>
+                <button onClick={() => setSelectedBooking(null)} className="p-2 hover:bg-black/5 rounded-full text-ink-400 hover:text-ink">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* On-Site Verification Pass Drawer */}
+                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid) && (
+                  <div className="border border-line p-5 bg-white space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400">Talent On-Site Pass</span>
+                      {selectedBooking.is_arrival_verified ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Checked In
+                        </span>
+                      ) : (
+                        <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-medium">
+                          Awaiting Talent Check-in
+                        </span>
+                      )}
+                    </div>
+
+                    {!selectedBooking.is_arrival_verified ? (
+                      <div className="bg-paper p-4 border border-line text-center space-y-2">
+                        <div className="flex items-center justify-center gap-2 text-ink-500 text-xs font-medium">
+                          <KeyRound className="w-4 h-4 text-ink-400" />
+                          <span>Show 4-Digit PIN to Talent</span>
+                        </div>
+                        <div className="font-mono text-3xl font-bold tracking-widest text-ink">
+                          {selectedBooking.verification_pin || '----'}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-ink-500 bg-emerald-50/50 p-3 border border-emerald-100">
+                        Verified at: {selectedBooking.arrival_verified_at ? new Date(selectedBooking.arrival_verified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Verified'}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="border border-line p-5 bg-white space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400">Financial Overview</h4>
+                  <div className="flex justify-between text-sm py-1 border-b border-line/50">
+                    <span className="text-ink-500">Total Price</span>
+                    <span className="font-medium text-ink">{formatCurrency(selectedBooking.total_price)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm py-1">
+                    <span className="text-ink-500">Deposit Amount</span>
+                    <span className="font-medium text-ink">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                  </div>
+                </div>
+
+                {selectedBooking.notes && (
+                  <div className="border border-line p-5 bg-white">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">Booking Notes</h4>
+                    <p className="text-sm text-ink-500 whitespace-pre-wrap">{selectedBooking.notes}</p>
+                  </div>
+                )}
+
+                <div className="pt-4 flex justify-between items-center">
+                  <button
+                    onClick={() => handleDeleteBookings([selectedBooking.id])}
+                    className="text-xs font-semibold text-red-600 hover:text-red-700 flex items-center gap-1.5 p-2 rounded hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete Booking Card
+                  </button>
+                  <button onClick={() => setSelectedBooking(null)} className="btn-secondary text-xs px-4 py-2">
+                    Close Details
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
 
