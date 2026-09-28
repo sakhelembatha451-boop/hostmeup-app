@@ -12,6 +12,7 @@ import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 import TalentVerificationModal from '@/components/TalentVerificationModal';
+import TalentCheckoutModal from '@/components/TalentCheckoutModal';
 
 type BookingWithHost = Booking & {
   conversation_id?: string | null;
@@ -60,6 +61,7 @@ export default function ArtistDashboard() {
   const [reportBooking, setReportBooking] = useState<BookingWithHost | null>(null);
   const [cancelBooking, setCancelBooking] = useState<BookingWithHost | null>(null);
   const [activeVerifyBooking, setActiveVerifyBooking] = useState<{ id: string; eventName: string } | null>(null);
+  const [activeCheckoutBooking, setActiveCheckoutBooking] = useState<{ id: string; eventName: string } | null>(null);
 
   // Issue Reporting Form State
   const [issueCategory, setIssueCategory] = useState<string>('safety');
@@ -615,14 +617,13 @@ export default function ArtistDashboard() {
                             </>
                           )}
 
-                          {/* Checked In -> Sign Out */}
+                          {/* Checked In -> Trigger Password Checkout Modal */}
                           {booking.status === 'checked_in' && (
                             <>
                               <button
-                                onClick={() => updateBookingStatus(booking.id, 'completed', { completed_at: new Date().toISOString() })}
-                                disabled={updatingId === booking.id}
-                                className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                                <LogOut className="w-3.5 h-3.5" /> Complete & Sign Out
+                                onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name })}
+                                className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                                <LogOut className="w-3.5 h-3.5" /> Check Out of Event
                               </button>
                               <button
                                 onClick={() => setReportBooking(booking)}
@@ -872,6 +873,19 @@ export default function ArtistDashboard() {
             eventName={activeVerifyBooking.eventName}
             isOpen={!!activeVerifyBooking}
             onClose={() => setActiveVerifyBooking(null)}
+            onSuccess={() => {
+              loadDashboardData(false);
+            }}
+          />
+        )}
+
+        {/* Modal 5: Talent Password Checkout */}
+        {activeCheckoutBooking && (
+          <TalentCheckoutModal
+            bookingId={activeCheckoutBooking.id}
+            eventName={activeCheckoutBooking.eventName}
+            isOpen={!!activeCheckoutBooking}
+            onClose={() => setActiveCheckoutBooking(null)}
             onSuccess={() => {
               loadDashboardData(false);
             }}
