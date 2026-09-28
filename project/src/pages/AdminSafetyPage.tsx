@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabase'; // Updated to '../lib/supabase'
 
 interface BookingActivity {
   id: string;
