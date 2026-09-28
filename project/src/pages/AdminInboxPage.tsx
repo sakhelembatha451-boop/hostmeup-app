@@ -5,7 +5,7 @@ import { sendMessage, markMessagesRead } from '@/lib/messaging';
 import AdminSafetyPanel from '../components/AdminSafetyPanel';
 import { 
   Loader2, Send, MessageSquare, X, Calendar, User, ArrowLeft, 
-  Shield, Plus, Search, Trash2, CheckSquare, Square, Mic, Square as StopIcon, Smile 
+  Shield, Plus, Trash2, CheckSquare, Square, Mic, Square as StopIcon, Smile 
 } from 'lucide-react';
 import type { Conversation, Message, Profile } from '@/types';
 
@@ -47,8 +47,7 @@ export default function AdminInboxPage() {
   // New Message Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [allUsers, setAllUsers] = useState<Profile[]>([]);
-  const [userSearch, setUserSearch] = useState('');
-  const [selectedRecipient, setSelectedRecipient] = useState<Profile | null>(null);
+  const [selectedRecipientId, setSelectedRecipientId] = useState<string>('');
   const [newSubject, setNewSubject] = useState('');
   const [initialMsg, setInitialMsg] = useState('');
   const [startingConv, setStartingConv] = useState(false);
@@ -89,7 +88,6 @@ export default function AdminInboxPage() {
       }
 
       const mappedConversations = convs.map((c) => {
-        // Find the profile of the other participant in the conversation
         let otherUserId = c.user_id;
 
         if (profile?.id) {
@@ -240,7 +238,6 @@ export default function AdminInboxPage() {
       const fileName = `voice_${Date.now()}.webm`;
       const filePath = `voice_notes/${fileName}`;
 
-      // Upload to Supabase Storage Bucket
       const { error: uploadError } = await supabase.storage
         .from('chat-audio')
         .upload(filePath, audioBlob);
@@ -253,7 +250,6 @@ export default function AdminInboxPage() {
 
       const audioUrl = publicUrlData.publicUrl;
 
-      // Send message containing audio HTML element URL markdown
       await sendMessage(
         selectedConv.id, 
         profile.id, 
@@ -273,13 +269,11 @@ export default function AdminInboxPage() {
     }
   };
 
-  // Add Emoji to text area
   const addEmoji = (emoji: string) => {
     setReplyText((prev) => prev + emoji);
     setShowEmojiPicker(false);
   };
 
-  // Selection handlers for conversations
   const toggleSelectConv = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     setSelectedConvIds((prev) =>
@@ -295,7 +289,6 @@ export default function AdminInboxPage() {
     }
   };
 
-  // Bulk Delete Conversations
   const handleDeleteSelectedConvs = async () => {
     if (!selectedConvIds.length) return;
     if (!confirm(`Are you sure you want to delete ${selectedConvIds.length} conversation(s)?`)) return;
@@ -320,7 +313,6 @@ export default function AdminInboxPage() {
     }
   };
 
-  // Selection handlers for individual messages
   const toggleSelectMessage = (id: string) => {
     setSelectedMsgIds((prev) =>
       prev.includes(id) ? prev.filter((msgId) => msgId !== id) : [...prev, id]
@@ -380,16 +372,20 @@ export default function AdminInboxPage() {
 
   const handleStartConversation = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedRecipient || !newSubject.trim() || !initialMsg.trim() || !profile) return;
+    if (!selectedRecipientId || !newSubject.trim() || !initialMsg.trim() || !profile) return;
+
+    const recipientProfile = allUsers.find(u => u.id === selectedRecipientId);
+    if (!recipientProfile) return;
+
     setStartingConv(true);
 
     try {
       const { data: conv, error: convError } = await supabase
         .from('conversations')
         .insert([{
-          user_id: selectedRecipient.id,
+          user_id: recipientProfile.id,
           participant1_id: profile.id,
-          participant2_id: selectedRecipient.id,
+          participant2_id: recipientProfile.id,
           subject: newSubject.trim(),
           type: 'inquiry'
         }])
@@ -408,20 +404,19 @@ export default function AdminInboxPage() {
           .insert([{
             conversation_id: conv.id,
             sender_id: profile.id,
-            recipient_id: selectedRecipient.id,
+            recipient_id: recipientProfile.id,
             body: initialMsg.trim(),
             content: initialMsg.trim(),
             read: false
           }]);
 
         setIsModalOpen(false);
-        setSelectedRecipient(null);
+        setSelectedRecipientId('');
         setNewSubject('');
         setInitialMsg('');
-        setUserSearch('');
 
         await loadConversations();
-        setSelectedConv({ ...conv, user: selectedRecipient } as Conversation);
+        setSelectedConv({ ...conv, user: recipientProfile } as Conversation);
       }
     } catch (err: any) {
       console.error('Failed to create conversation:', err);
@@ -430,11 +425,6 @@ export default function AdminInboxPage() {
       setStartingConv(false);
     }
   };
-
-  const filteredUsers = allUsers.filter(u => 
-    (u.full_name || '').toLowerCase().includes(userSearch.toLowerCase()) ||
-    (u.email || '').toLowerCase().includes(userSearch.toLowerCase())
-  );
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
@@ -768,70 +758,27 @@ export default function AdminInboxPage() {
                 <X className="w-5 h-5" />
               </button>
 
-              <h2 className="font-display text-xl font-bold text-ink mb-4">Start New Conversation</h2>
+              <h2 className="font-display text-xl font-bold text-ink mb-4">New Message</h2>
 
               <form onSubmit={handleStartConversation} className="space-y-4">
-                {/* User Picker */}
+                {/* Recipient Dropdown */}
                 <div>
                   <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
                     Recipient
                   </label>
-
-                  {selectedRecipient ? (
-                    <div className="flex items-center justify-between p-3 border border-line bg-paper-100">
-                      <div className="flex items-center gap-2">
-                        {selectedRecipient.avatar_url ? (
-                          <img src={selectedRecipient.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover" />
-                        ) : (
-                          <div className="w-6 h-6 rounded-full bg-ink text-paper flex items-center justify-center text-xs">
-                            {selectedRecipient.full_name?.[0]?.toUpperCase() || '?'}
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-sm font-medium text-ink">{selectedRecipient.full_name}</p>
-                          <p className="text-xs text-ink-400">{selectedRecipient.email}</p>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedRecipient(null)}
-                        className="text-xs text-ink-400 hover:text-ink underline"
-                      >
-                        Change
-                      </button>
-                    </div>
-                  ) : (
-                    <div>
-                      <div className="relative mb-2">
-                        <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-                        <input
-                          type="text"
-                          value={userSearch}
-                          onChange={(e) => setUserSearch(e.target.value)}
-                          placeholder="Search users by name or email..."
-                          className="w-full pl-9 pr-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink"
-                        />
-                      </div>
-
-                      <div className="max-h-40 overflow-y-auto border border-line divide-y divide-line">
-                        {filteredUsers.length === 0 ? (
-                          <div className="p-3 text-xs text-ink-400 text-center">No users found</div>
-                        ) : (
-                          filteredUsers.map((u) => (
-                            <button
-                              key={u.id}
-                              type="button"
-                              onClick={() => setSelectedRecipient(u)}
-                              className="w-full text-left p-2.5 hover:bg-paper-200 flex items-center justify-between text-xs transition-colors"
-                            >
-                              <span className="font-medium text-ink">{u.full_name || 'Unnamed User'}</span>
-                              <span className="text-ink-400">{u.email}</span>
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  )}
+                  <select
+                    value={selectedRecipientId}
+                    onChange={(e) => setSelectedRecipientId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink rounded-none"
+                  >
+                    <option value="">Select a user...</option>
+                    {allUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name || 'Unnamed User'} ({u.email || u.role || 'User'})
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Subject */}
@@ -843,7 +790,7 @@ export default function AdminInboxPage() {
                     type="text"
                     value={newSubject}
                     onChange={(e) => setNewSubject(e.target.value)}
-                    placeholder="E.g., Query regarding booking"
+                    placeholder="Enter subject..."
                     required
                     className="w-full px-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink"
                   />
@@ -858,7 +805,7 @@ export default function AdminInboxPage() {
                     rows={4}
                     value={initialMsg}
                     onChange={(e) => setInitialMsg(e.target.value)}
-                    placeholder="Type your message here..."
+                    placeholder="Type message here..."
                     required
                     className="w-full px-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink resize-none"
                   />
@@ -875,7 +822,7 @@ export default function AdminInboxPage() {
                   </button>
                   <button
                     type="submit"
-                    disabled={startingConv || !selectedRecipient || !newSubject.trim() || !initialMsg.trim()}
+                    disabled={startingConv || !selectedRecipientId || !newSubject.trim() || !initialMsg.trim()}
                     className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-2 disabled:opacity-50"
                   >
                     {startingConv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
