@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from '../../lib/supabaseClient'; // Adjust path if your client is located elsewhere
+import { supabase } from '../lib/supabaseClient';
 
 interface BookingActivity {
   id: string;
@@ -11,7 +11,7 @@ interface BookingActivity {
   event_title?: string;
 }
 
-export const SafetyPage: React.FC = () => {
+export const AdminSafetyPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [logs, setLogs] = useState<BookingActivity[]>([]);
   const [activeCheckInsCount, setActiveCheckInsCount] = useState<number>(0);
@@ -21,7 +21,6 @@ export const SafetyPage: React.FC = () => {
   const fetchSafetyData = async () => {
     setLoading(true);
     try {
-      // Fetch bookings with check-in or check-out timestamps
       const { data, error } = await supabase
         .from('bookings')
         .select(`
@@ -39,7 +38,6 @@ export const SafetyPage: React.FC = () => {
       if (error) throw error;
 
       if (data) {
-        // Format the raw data
         const formattedLogs: BookingActivity[] = data.map((b: any) => ({
           id: b.id,
           status: b.status,
@@ -52,7 +50,6 @@ export const SafetyPage: React.FC = () => {
 
         setLogs(formattedLogs);
 
-        // Calculate today's stats
         const today = new Date().toISOString().split('T')[0];
 
         const activeToday = formattedLogs.filter(
@@ -77,7 +74,6 @@ export const SafetyPage: React.FC = () => {
     fetchSafetyData();
   }, []);
 
-  // Filter logs based on search query
   const filteredLogs = logs.filter((log) => {
     const q = searchQuery.toLowerCase();
     return (
@@ -227,4 +223,4 @@ export const SafetyPage: React.FC = () => {
   );
 };
 
-export default SafetyPage;
+export default AdminSafetyPage;
