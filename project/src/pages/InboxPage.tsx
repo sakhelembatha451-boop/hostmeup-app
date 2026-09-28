@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   MessageSquare,
   Plus,
@@ -8,6 +8,12 @@ import {
   Search,
   CheckSquare,
   Square as UncheckedSquare,
+  Mic,
+  Square as StopIcon,
+  Smile,
+  Loader2,
+  User,
+  Calendar,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
@@ -16,9 +22,15 @@ interface Message {
   id: string;
   conversation_id: string;
   sender_id: string;
-  content: string;
+  content?: string;
+  body?: string;
   read: boolean;
   created_at: string;
+  sender?: {
+    id: string;
+    full_name: string;
+    avatar_url?: string;
+  };
 }
 
 interface Conversation {
@@ -27,13 +39,18 @@ interface Conversation {
   participant1_id?: string;
   participant2_id?: string;
   subject: string;
-  type?: 'general' | 'booking';
+  type?: 'general' | 'booking' | 'inquiry';
   reference_id?: string;
-  status: 'open' | 'closed';
+  status?: 'open' | 'closed';
   created_at: string;
   updated_at: string;
-  messages?: Message[];
   displayName?: string;
+  user?: {
+    id: string;
+    full_name: string;
+    avatar_url?: string;
+    role?: string;
+  };
 }
 
 interface UserProfile {
@@ -41,6 +58,7 @@ interface UserProfile {
   full_name: string;
   email: string;
   role: string;
+  avatar_url?: string;
 }
 
 interface InboxPageProps {
@@ -49,17 +67,22 @@ interface InboxPageProps {
   onClearTargets?: () => void;
 }
 
+const EMOJI_LIST = ['😊', '😂', '👍', '❤️', '🔥', '🙏', '🙌', '🎉', '💡', '✨', '👋', '👀', '💯', '👏'];
+
 export const InboxPage: React.FC<InboxPageProps> = ({
   targetUserId,
   targetConvId,
   onClearTargets,
 }) => {
-  const { profile, isAdmin } = useAuth();
+  const { profile } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [newMessage, setNewMessage] = useState('');
+  const [replyText, setReplyText] = useState('');
   const [loading, setLoading] = useState(true);
+  const [msgLoading, setMsgLoading] = useState(false);
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // New message modal state
   const [showNewModal, setShowNewModal] = useState(false);
@@ -68,93 +91,97 @@ export const InboxPage: React.FC<InboxPageProps> = ({
   const [newSubject, setNewSubject] = useState('');
   const [firstMessage, setFirstMessage] = useState('');
   const [recipientSearch, setRecipientSearch] = useState('');
+  const [startingConv, setStartingConv] = useState(false);
 
   // Bulk selection state
   const [selectedConvIds, setSelectedConvIds] = useState<string[]>([]);
+  const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
+  const [deletingMsgs, setDeletingMsgs] = useState(false);
 
-  // 1. Load Conversations with Profile Resolution
+  // Emoji Picker State
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+
+  // Voice Note Recording State
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [uploadingAudio, setUploadingAudio] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // 1. Load Conversations for current user
   const loadConversations = useCallback(async () => {
     if (!profile) return;
     try {
-      let query = supabase
+      const { data: convs, error: convError } = await supabase
         .from('conversations')
-        .select('*, messages(id, read, sender_id)');
+        .select('*')
+        .or(`user_id.eq.${profile.id},participant1_id.eq.${profile.id},participant2_id.eq.${profile.id}`)
+        .or('deleted_by_user.is.null,deleted_by_user.eq.false')
+        .order('updated_at', { ascending: false });
 
-      if (isAdmin) {
-        query = query.or('deleted_by_admin.is.null,deleted_by_admin.eq.false');
-      } else {
-        query = query
-          .or(
-            `user_id.eq.${profile.id},participant1_id.eq.${profile.id},participant2_id.eq.${profile.id}`
-          )
-          .or('deleted_by_user.is.null,deleted_by_user.eq.false');
+      if (convError) throw convError;
+
+      if (!convs || convs.length === 0) {
+        setConversations([]);
+        return;
       }
 
-      const { data, error } = await query.order('updated_at', {
-        ascending: false,
-      });
-
-      if (error) throw error;
-      let convList = (data as Conversation[]) || [];
-
-      // Fetch profiles to resolve display names
-      const participantIds = Array.from(
+      const userIds = Array.from(
         new Set(
-          convList
-            .flatMap((c: any) => [
-              c.user_id,
-              c.participant1_id,
-              c.participant2_id,
-            ])
-            .filter(Boolean)
+          convs
+            .flatMap((c) => [c.user_id, c.participant1_id, c.participant2_id])
+            .filter((id): id is string => Boolean(id))
         )
       );
 
-      if (participantIds.length > 0) {
+      let profilesMap: Record<string, UserProfile> = {};
+      if (userIds.length > 0) {
         const { data: profilesData } = await supabase
           .from('profiles')
-          .select('id, full_name, email')
-          .in('id', participantIds);
+          .select('id, full_name, email, avatar_url, role')
+          .in('id', userIds);
 
         if (profilesData) {
-          const profileMap = profilesData.reduce((acc, p) => {
-            acc[p.id] = p;
-            return acc;
-          }, {} as Record<string, any>);
-
-          convList = convList.map((c: any) => {
-            const otherId = [c.user_id, c.participant1_id, c.participant2_id]
-              .filter(Boolean)
-              .find((id) => id !== profile.id);
-
-            const otherProfile = otherId ? profileMap[otherId] : null;
-
-            return {
-              ...c,
-              displayName:
-                otherProfile?.full_name ||
-                otherProfile?.email ||
-                c.subject ||
-                'Direct Message',
-            };
-          });
+          profilesMap = profilesData.reduce((acc, p) => ({ ...acc, [p.id]: p as UserProfile }), {});
         }
       }
 
-      setConversations(convList);
+      const mappedConversations = convs.map((c) => {
+        let otherUserId = c.user_id;
+
+        if (c.participant1_id && c.participant1_id !== profile.id) {
+          otherUserId = c.participant1_id;
+        } else if (c.participant2_id && c.participant2_id !== profile.id) {
+          otherUserId = c.participant2_id;
+        } else if (c.user_id === profile.id && c.participant2_id) {
+          otherUserId = c.participant2_id;
+        }
+
+        const resolvedUser = profilesMap[otherUserId] || profilesMap[c.user_id] || null;
+
+        return {
+          ...c,
+          user: resolvedUser,
+          displayName: resolvedUser?.full_name || resolvedUser?.email || c.subject || 'Direct Message',
+        };
+      });
+
+      setConversations(mappedConversations as Conversation[]);
 
       if (targetConvId) {
-        const matchedConv = convList.find((c) => c.id === targetConvId);
-        if (matchedConv) setSelectedConv(matchedConv);
+        const matchedConv = mappedConversations.find((c) => c.id === targetConvId);
+        if (matchedConv) setSelectedConv(matchedConv as Conversation);
       } else if (targetUserId) {
-        const existingConv = convList.find(
-          (c: any) =>
+        const existingConv = mappedConversations.find(
+          (c) =>
             c.user_id === targetUserId ||
             c.participant1_id === targetUserId ||
             c.participant2_id === targetUserId
         );
         if (existingConv) {
-          setSelectedConv(existingConv);
+          setSelectedConv(existingConv as Conversation);
         } else {
           setSelectedRecipientId(targetUserId);
           setShowNewModal(true);
@@ -165,34 +192,45 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [profile, isAdmin, targetConvId, targetUserId]);
+  }, [profile, targetConvId, targetUserId]);
 
+  // Load all users on platform for the recipient dropdown
   const loadRecipients = useCallback(async () => {
     if (!profile) return;
     try {
-      let query = supabase.from('profiles').select('id, full_name, email, role');
-      if (!isAdmin) {
-        query = query.eq('role', 'admin');
-      } else {
-        query = query.neq('id', profile.id);
-      }
-      const { data } = await query;
-      if (data) setRecipients(data as UserProfile[]);
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role, avatar_url')
+        .neq('id', profile.id)
+        .order('full_name', { ascending: true });
+
+      if (error) throw error;
+      setRecipients((data as UserProfile[]) || []);
     } catch (err) {
       console.error('Error loading recipients:', err);
     }
-  }, [profile, isAdmin]);
+  }, [profile]);
 
   useEffect(() => {
     loadConversations();
     loadRecipients();
   }, [loadConversations, loadRecipients]);
 
+  // Load Messages for active thread
   const loadMessages = useCallback(async (convId: string) => {
+    setMsgLoading(true);
+    setSelectedMsgIds([]);
     try {
       const { data, error } = await supabase
         .from('messages')
-        .select('*')
+        .select(`
+          *,
+          sender:profiles!sender_id (
+            id,
+            full_name,
+            avatar_url
+          )
+        `)
         .eq('conversation_id', convId)
         .order('created_at', { ascending: true });
 
@@ -213,53 +251,152 @@ export const InboxPage: React.FC<InboxPageProps> = ({
       }
     } catch (err) {
       console.error('Error loading messages:', err);
+    } finally {
+      setMsgLoading(false);
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     }
   }, [profile]);
 
   useEffect(() => {
-    if (selectedConv) {
-      loadMessages(selectedConv.id);
-      const subscription = supabase
-        .channel(`messages:${selectedConv.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'messages',
-            filter: `conversation_id=eq.${selectedConv.id}`,
-          },
-          (payload) => {
-            const newMsg = payload.new as Message;
-            setMessages((prev) => [...prev, newMsg]);
-            if (profile && newMsg.sender_id !== profile.id) {
-              supabase
-                .from('messages')
-                .update({ read: true })
-                .eq('id', newMsg.id);
-            }
-          }
-        )
-        .subscribe();
+    if (!selectedConv) return;
+    loadMessages(selectedConv.id);
 
-      return () => {
-        supabase.removeChannel(subscription);
+    const subscription = supabase
+      .channel(`messages:${selectedConv.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `conversation_id=eq.${selectedConv.id}`,
+        },
+        () => {
+          loadMessages(selectedConv.id);
+          loadConversations();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, [selectedConv, loadMessages, loadConversations]);
+
+  // Voice Note Recording Handlers
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
       };
-    } else {
-      setMessages([]);
+
+      mediaRecorderRef.current.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        setAudioBlob(blob);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+
+      mediaRecorderRef.current.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+
+      timerRef.current = setInterval(() => {
+        setRecordingTime((prev) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error('Microphone access denied:', err);
+      alert('Microphone permission is required to record voice notes.');
     }
-  }, [selectedConv, loadMessages, profile]);
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+  };
+
+  const cancelVoiceNote = () => {
+    setAudioBlob(null);
+    setRecordingTime(0);
+    setIsRecording(false);
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const uploadAndSendVoiceNote = async () => {
+    if (!audioBlob || !selectedConv || !profile) return;
+    setUploadingAudio(true);
+
+    try {
+      const fileName = `voice_${Date.now()}.webm`;
+      const filePath = `voice_notes/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('chat-audio')
+        .upload(filePath, audioBlob);
+
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage
+        .from('chat-audio')
+        .getPublicUrl(filePath);
+
+      const audioUrl = publicUrlData.publicUrl;
+
+      await supabase.from('messages').insert([
+        {
+          conversation_id: selectedConv.id,
+          sender_id: profile.id,
+          recipient_id: selectedConv.user?.id || selectedConv.user_id,
+          body: `[VOICE_NOTE]${audioUrl}`,
+          content: `[VOICE_NOTE]${audioUrl}`,
+        },
+      ]);
+
+      await supabase
+        .from('conversations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', selectedConv.id);
+
+      setAudioBlob(null);
+      setRecordingTime(0);
+      await loadMessages(selectedConv.id);
+      loadConversations();
+    } catch (err: any) {
+      console.error('Failed to send voice note:', err);
+      alert(`Failed to send voice note: ${err.message || 'Error uploading file'}`);
+    } finally {
+      setUploadingAudio(false);
+    }
+  };
+
+  const addEmoji = (emoji: string) => {
+    setReplyText((prev) => prev + emoji);
+    setShowEmojiPicker(false);
+  };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || !selectedConv || !profile) return;
+    if (!replyText.trim() || !selectedConv || !profile) return;
+    setSending(true);
 
     try {
+      const recipientId = selectedConv.user?.id || selectedConv.user_id;
+
       const { error } = await supabase.from('messages').insert([
         {
           conversation_id: selectedConv.id,
           sender_id: profile.id,
-          content: newMessage.trim(),
+          recipient_id: recipientId,
+          content: replyText.trim(),
+          body: replyText.trim(),
         },
       ]);
 
@@ -270,17 +407,24 @@ export const InboxPage: React.FC<InboxPageProps> = ({
         .update({ updated_at: new Date().toISOString() })
         .eq('id', selectedConv.id);
 
-      setNewMessage('');
+      setReplyText('');
+      await loadMessages(selectedConv.id);
+      loadConversations();
     } catch (err) {
       console.error('Error sending message:', err);
+    } finally {
+      setSending(false);
     }
   };
 
   const handleCreateConversation = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile || !selectedRecipientId || !firstMessage.trim()) return;
+    setStartingConv(true);
 
     try {
+      const recipientProfile = recipients.find((u) => u.id === selectedRecipientId);
+
       const { data: conv, error: convErr } = await supabase
         .from('conversations')
         .insert([
@@ -302,7 +446,9 @@ export const InboxPage: React.FC<InboxPageProps> = ({
         {
           conversation_id: conv.id,
           sender_id: profile.id,
+          recipient_id: selectedRecipientId,
           content: firstMessage.trim(),
+          body: firstMessage.trim(),
         },
       ]);
 
@@ -315,9 +461,12 @@ export const InboxPage: React.FC<InboxPageProps> = ({
       if (onClearTargets) onClearTargets();
 
       await loadConversations();
-      setSelectedConv(conv);
-    } catch (err) {
+      setSelectedConv({ ...conv, user: recipientProfile, displayName: recipientProfile?.full_name || recipientProfile?.email } as Conversation);
+    } catch (err: any) {
       console.error('Error creating conversation:', err);
+      alert(`Failed to create conversation: ${err.message || 'Unknown error'}`);
+    } finally {
+      setStartingConv(false);
     }
   };
 
@@ -338,14 +487,12 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
   const handleDeleteSelected = async () => {
     if (selectedConvIds.length === 0) return;
-    if (!confirm('Are you sure you want to delete the selected conversations?'))
-      return;
+    if (!confirm('Are you sure you want to delete the selected conversations?')) return;
 
     try {
-      const fieldToUpdate = isAdmin ? 'deleted_by_admin' : 'deleted_by_user';
       const { error } = await supabase
         .from('conversations')
-        .update({ [fieldToUpdate]: true })
+        .update({ deleted_by_user: true })
         .in('id', selectedConvIds);
 
       if (error) throw error;
@@ -360,338 +507,518 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     }
   };
 
-  const handleDeleteSingle = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!confirm('Are you sure you want to delete this conversation?')) return;
+  const handleDeleteMessages = async (idsToDelete: string[]) => {
+    if (!idsToDelete.length) return;
+    if (!confirm(`Are you sure you want to delete ${idsToDelete.length} message(s)?`)) return;
 
+    setDeletingMsgs(true);
     try {
-      const fieldToUpdate = isAdmin ? 'deleted_by_admin' : 'deleted_by_user';
       const { error } = await supabase
-        .from('conversations')
-        .update({ [fieldToUpdate]: true })
-        .eq('id', id);
+        .from('messages')
+        .delete()
+        .in('id', idsToDelete);
 
       if (error) throw error;
 
-      if (selectedConv?.id === id) {
-        setSelectedConv(null);
-      }
-      setSelectedConvIds((prev) => prev.filter((i) => i !== id));
-      loadConversations();
-    } catch (err) {
-      console.error('Error deleting conversation:', err);
+      setMessages((prev) => prev.filter((m) => !idsToDelete.includes(m.id)));
+      setSelectedMsgIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
+    } catch (err: any) {
+      console.error('Failed to delete message(s):', err);
+      alert(`Delete failed: ${err.message || 'Unknown error'}`);
+    } finally {
+      setDeletingMsgs(false);
     }
   };
 
   const filteredRecipients = recipients.filter(
     (r) =>
       r.full_name?.toLowerCase().includes(recipientSearch.toLowerCase()) ||
-      r.email?.toLowerCase().includes(recipientSearch.toLowerCase())
+      r.email?.toLowerCase().includes(recipientSearch.toLowerCase()) ||
+      r.role?.toLowerCase().includes(recipientSearch.toLowerCase())
   );
 
   return (
-    <div className="h-[calc(100vh-6rem)] flex flex-col bg-paper-100 rounded-xl border border-line shadow-sm overflow-hidden">
-      {/* Header Bar */}
-      <div className="p-4 border-b border-line bg-paper-100 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <MessageSquare className="w-5 h-5 text-accent" />
-          <h1 className="text-lg font-bold text-ink">Messages</h1>
-        </div>
+    <div className="min-h-screen bg-paper">
+      <div className="max-w-6xl mx-auto px-6 lg:px-12 py-12">
+        {/* Header Bar */}
+        <div className="mb-10 flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-line pb-6">
+          <div>
+            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Direct Messages</p>
+            <h1 className="font-display text-4xl font-bold text-ink tracking-tight">Inbox</h1>
+            <p className="text-ink-400 mt-1">Chat directly with hosts, artists, and community members.</p>
+          </div>
 
-        <div className="flex items-center gap-2">
-          {selectedConvIds.length > 0 && (
-            <button
-              type="button"
-              onClick={handleDeleteSelected}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500/20 text-xs font-medium transition-colors"
-            >
-              <Trash2 className="w-4 h-4" />
-              Delete ({selectedConvIds.length})
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setShowNewModal(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white hover:bg-accent/90 text-xs font-medium transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            New Message
-          </button>
-        </div>
-      </div>
-
-      {/* Main Inbox Layout */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar */}
-        <div className="w-1/3 border-r border-line bg-paper-100 flex flex-col overflow-y-auto">
-          {conversations.length > 0 && (
-            <div className="p-3 border-b border-line flex items-center justify-between text-xs text-ink-400 bg-paper-200/30">
+          <div className="flex items-center gap-2">
+            {selectedConvIds.length > 0 && (
               <button
                 type="button"
-                onClick={toggleSelectAll}
-                className="flex items-center gap-2 hover:text-ink transition-colors"
+                onClick={handleDeleteSelected}
+                className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm bg-red-600 text-white hover:bg-red-700 transition-colors border border-red-600"
               >
-                {selectedConvIds.length === conversations.length ? (
-                  <CheckSquare className="w-4 h-4 text-accent" />
-                ) : (
-                  <UncheckedSquare className="w-4 h-4" />
-                )}
-                <span>Select All</span>
+                <Trash2 className="w-4 h-4" />
+                Delete ({selectedConvIds.length})
               </button>
-              <span>{conversations.length} Threads</span>
-            </div>
-          )}
+            )}
 
-          {loading ? (
-            <div className="p-4 text-center text-xs text-ink-400">
-              Loading conversations...
-            </div>
-          ) : conversations.length === 0 ? (
-            <div className="p-8 text-center text-ink-400 text-sm">
-              No messages found.
-            </div>
-          ) : (
-            <div className="divide-y divide-line">
-              {conversations.map((conv: any) => {
-                const isSelected = selectedConvIds.includes(conv.id);
-                const nameToDisplay =
-                  conv.displayName || conv.subject || 'Direct Message';
-
-                return (
-                  <div
-                    key={conv.id}
-                    onClick={() => setSelectedConv(conv)}
-                    className={`w-full text-left p-4 transition-colors cursor-pointer flex items-center gap-3 ${
-                      selectedConv?.id === conv.id
-                        ? 'bg-paper-200'
-                        : 'hover:bg-paper-200/50'
-                    }`}
-                  >
-                    <button
-                      type="button"
-                      onClick={(e) => toggleSelectConversation(conv.id, e)}
-                      className="text-ink-400 hover:text-ink p-1"
-                    >
-                      {isSelected ? (
-                        <CheckSquare className="w-4 h-4 text-accent" />
-                      ) : (
-                        <UncheckedSquare className="w-4 h-4" />
-                      )}
-                    </button>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-sm font-semibold truncate text-ink">
-                          {nameToDisplay}
-                        </span>
-                        <span className="text-[10px] text-ink-300">
-                          {conv.updated_at
-                            ? new Date(conv.updated_at).toLocaleDateString(
-                                'en-US',
-                                { month: 'short', day: 'numeric' }
-                              )
-                            : ''}
-                        </span>
-                      </div>
-                      <p className="text-xs text-ink-400 truncate mt-0.5">
-                        {conv.subject
-                          ? conv.subject
-                          : conv.type === 'booking'
-                          ? 'Booking thread'
-                          : 'Direct message'}
-                      </p>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={(e) => handleDeleteSingle(conv.id, e)}
-                      className="opacity-0 group-hover:opacity-100 hover:text-red-500 text-ink-400 p-1 transition-opacity"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+            <button
+              type="button"
+              onClick={() => setShowNewModal(true)}
+              className="flex items-center gap-2 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink/90 transition-colors border border-ink"
+            >
+              <Plus className="w-4 h-4" />
+              New Message
+            </button>
+          </div>
         </div>
 
-        {/* Right Pane */}
-        <div className="flex-1 flex flex-col bg-paper-100/50">
-          {selectedConv ? (
-            <>
-              <div className="p-4 border-b border-line bg-paper-100 flex items-center justify-between">
-                <div>
-                  <h2 className="text-sm font-bold text-ink">
-                    {selectedConv.displayName || selectedConv.subject}
-                  </h2>
-                  <p className="text-xs text-ink-400 mt-0.5">
-                    {selectedConv.subject}
-                  </p>
-                </div>
+        {/* Main Inbox Window */}
+        {loading ? (
+          <div className="flex items-center justify-center py-24">
+            <Loader2 className="w-6 h-6 text-ink animate-spin" />
+          </div>
+        ) : conversations.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-center border border-line bg-paper-100">
+            <div className="w-16 h-16 border border-line flex items-center justify-center text-ink-300 mb-6 bg-paper">
+              <MessageSquare className="w-7 h-7" />
+            </div>
+            <h3 className="font-display text-xl text-ink mb-1">No messages yet</h3>
+            <p className="text-sm text-ink-400 mb-6">Start a conversation directly with any artist or event host.</p>
+            <button
+              type="button"
+              onClick={() => setShowNewModal(true)}
+              className="btn-primary flex items-center gap-2 px-6 py-3 text-xs uppercase tracking-wide-sm"
+            >
+              <Plus className="w-4 h-4" />
+              Start First Message
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-0 border border-line min-h-[500px]">
+            {/* Left Thread List */}
+            <div className={`lg:col-span-1 border-r border-line ${selectedConv ? 'hidden lg:block' : ''}`}>
+              <div className="p-3 border-b border-line bg-paper-100 flex items-center justify-between text-xs text-ink-400">
+                <span className="font-medium text-ink-600">
+                  {selectedConvIds.length > 0 ? `${selectedConvIds.length} Selected` : 'Conversations'}
+                </span>
+                <button type="button" onClick={toggleSelectAll} className="font-semibold text-ink hover:underline">
+                  {selectedConvIds.length === conversations.length ? 'Deselect All' : 'Select All'}
+                </button>
               </div>
 
-              <div className="flex-1 p-4 overflow-y-auto space-y-4">
-                {messages.map((msg) => {
-                  const isMe = msg.sender_id === profile?.id;
+              <div className="divide-y divide-line max-h-[600px] overflow-y-auto">
+                {conversations.map((conv) => {
+                  const isConvSelected = selectedConvIds.includes(conv.id);
+
                   return (
                     <div
-                      key={msg.id}
-                      className={`flex flex-col ${
-                        isMe ? 'items-end' : 'items-start'
+                      key={conv.id}
+                      onClick={() => setSelectedConv(conv)}
+                      className={`group relative w-full text-left p-4 cursor-pointer transition-colors flex items-start gap-3 ${
+                        selectedConv?.id === conv.id ? 'bg-paper-200' : 'hover:bg-paper-200/50'
                       }`}
                     >
-                      <div
-                        className={`max-w-[70%] rounded-2xl px-4 py-2.5 text-sm ${
-                          isMe
-                            ? 'bg-accent text-white rounded-br-none'
-                            : 'bg-paper-200 text-ink rounded-bl-none border border-line'
-                        }`}
+                      <button
+                        type="button"
+                        onClick={(e) => toggleSelectConversation(conv.id, e)}
+                        className="mt-1 text-ink-400 hover:text-ink flex-shrink-0"
                       >
-                        <p className="whitespace-pre-wrap leading-relaxed">
-                          {msg.content}
-                        </p>
+                        {isConvSelected ? (
+                          <CheckSquare className="w-4 h-4 text-ink" />
+                        ) : (
+                          <UncheckedSquare className="w-4 h-4" />
+                        )}
+                      </button>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <div className="flex items-center gap-2 min-w-0">
+                            {conv.user?.avatar_url ? (
+                              <img
+                                src={conv.user.avatar_url}
+                                alt=""
+                                className="w-7 h-7 rounded-full object-cover border border-line flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center text-xs font-medium flex-shrink-0">
+                                {conv.displayName?.[0]?.toUpperCase() || '?'}
+                              </div>
+                            )}
+                            <span className="font-medium text-ink text-sm truncate">
+                              {conv.displayName}
+                            </span>
+                          </div>
+                          <span className="text-xs text-ink-300 flex-shrink-0">
+                            {conv.updated_at
+                              ? new Date(conv.updated_at).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                })
+                              : ''}
+                          </span>
+                        </div>
+
+                        <p className="text-sm font-semibold text-ink truncate mb-1">{conv.subject}</p>
+
+                        <div className="flex items-center gap-2 text-xs text-ink-400">
+                          {conv.type === 'booking' ? (
+                            <span className="inline-flex items-center gap-1 text-accent">
+                              <Calendar className="w-3 h-3" /> Booking
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-ink-400">
+                              <MessageSquare className="w-3 h-3" /> Direct Message
+                            </span>
+                          )}
+                          {conv.user?.role && <span className="capitalize">• {conv.user.role}</span>}
+                        </div>
                       </div>
-                      <span className="text-[10px] text-ink-300 mt-1 px-1">
-                        {new Date(msg.created_at).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
                     </div>
                   );
                 })}
               </div>
-
-              <form
-                onSubmit={handleSendMessage}
-                className="p-3 border-t border-line bg-paper-100 flex items-center gap-2"
-              >
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  placeholder="Type your message..."
-                  className="flex-1 bg-paper-200 text-ink text-sm rounded-lg px-4 py-2 border border-line focus:outline-none focus:border-accent"
-                />
-                <button
-                  type="submit"
-                  disabled={!newMessage.trim()}
-                  className="p-2 bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </form>
-            </>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-ink-400 p-8 text-center">
-              <MessageSquare className="w-12 h-12 stroke-1 mb-3 text-ink-300" />
-              <p className="text-sm">
-                Select a conversation or start a new message
-              </p>
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* New Conversation Modal */}
-      {showNewModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-paper-100 border border-line rounded-xl w-full max-w-md p-6 shadow-2xl relative">
-            <button
-              type="button"
-              onClick={() => {
-                setShowNewModal(false);
-                if (onClearTargets) onClearTargets();
-              }}
-              className="absolute top-4 right-4 text-ink-400 hover:text-ink"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            {/* Right Chat View */}
+            <div className={`lg:col-span-2 flex flex-col ${selectedConv ? '' : 'hidden lg:flex'}`}>
+              {selectedConv ? (
+                <>
+                  <div className="border-b border-line p-5">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-display text-lg font-semibold text-ink">
+                        {selectedConv.subject}
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedConv(null)}
+                        className="lg:hidden text-ink-400 hover:text-ink"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
 
-            <h2 className="text-lg font-bold text-ink mb-4">New Message</h2>
+                    <div className="flex items-center justify-between text-xs text-ink-400">
+                      <span className="flex items-center gap-1">
+                        <User className="w-3 h-3" /> {selectedConv.displayName}
+                      </span>
+                      {messages.length > 0 && selectedMsgIds.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteMessages(selectedMsgIds)}
+                          disabled={deletingMsgs}
+                          className="flex items-center gap-1 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                        >
+                          {deletingMsgs ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                          Delete Selected ({selectedMsgIds.length})
+                        </button>
+                      )}
+                    </div>
+                  </div>
 
-            <form onSubmit={handleCreateConversation} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-ink-400 mb-1">
-                  Recipient
-                </label>
-                <div className="relative mb-2">
-                  <Search className="w-4 h-4 absolute left-3 top-2.5 text-ink-400" />
+                  {/* Messages Feed */}
+                  <div className="flex-1 overflow-y-auto p-5 space-y-4 min-h-[300px] max-h-[400px]">
+                    {msgLoading ? (
+                      <div className="flex items-center justify-center py-12">
+                        <Loader2 className="w-5 h-5 text-ink animate-spin" />
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <div className="text-center py-12 text-sm text-ink-400">
+                        No messages in this thread yet.
+                      </div>
+                    ) : (
+                      messages.map((msg) => {
+                        const isOwn = msg.sender_id === profile?.id;
+                        const isSelected = selectedMsgIds.includes(msg.id);
+                        const textContent = msg.content || msg.body || '';
+                        const isVoiceNote = textContent.startsWith('[VOICE_NOTE]');
+                        const voiceUrl = isVoiceNote ? textContent.replace('[VOICE_NOTE]', '') : '';
+
+                        return (
+                          <div
+                            key={msg.id}
+                            className={`group flex items-start gap-2 ${
+                              isOwn ? 'justify-end' : 'justify-start'
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedMsgIds((prev) =>
+                                  prev.includes(msg.id)
+                                    ? prev.filter((id) => id !== msg.id)
+                                    : [...prev, msg.id]
+                                )
+                              }
+                              className={`mt-2 text-ink-300 hover:text-ink transition-opacity ${
+                                isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                              }`}
+                            >
+                              {isSelected ? (
+                                <CheckSquare className="w-4 h-4 text-ink" />
+                              ) : (
+                                <UncheckedSquare className="w-4 h-4" />
+                              )}
+                            </button>
+
+                            <div className={`max-w-[75%] flex flex-col ${isOwn ? 'items-end' : 'items-start'}`}>
+                              {!isOwn && (
+                                <span className="text-xs text-ink-400 mb-1 px-1">
+                                  {msg.sender?.full_name || 'User'}
+                                </span>
+                              )}
+
+                              <div className="relative group/msg">
+                                <div
+                                  className={`px-4 py-3 text-sm ${
+                                    isOwn
+                                      ? 'bg-ink text-paper'
+                                      : 'bg-paper-200 text-ink border border-line'
+                                  } ${isSelected ? 'ring-2 ring-ink' : ''}`}
+                                >
+                                  {isVoiceNote ? (
+                                    <div className="flex items-center gap-2 py-1">
+                                      <audio controls src={voiceUrl} className="max-w-[200px] h-8" />
+                                    </div>
+                                  ) : (
+                                    textContent
+                                  )}
+                                </div>
+                              </div>
+
+                              <span className="text-xs text-ink-300 mt-1 px-1">
+                                {new Date(msg.created_at).toLocaleString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                  hour: 'numeric',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                    <div ref={messagesEndRef} />
+                  </div>
+
+                  {/* Message Input Controls */}
+                  <div className="border-t border-line p-4 relative">
+                    {showEmojiPicker && (
+                      <div className="absolute bottom-16 left-4 bg-paper border border-line p-3 shadow-lg flex flex-wrap gap-2 max-w-xs z-20">
+                        {EMOJI_LIST.map((emoji) => (
+                          <button
+                            key={emoji}
+                            type="button"
+                            onClick={() => addEmoji(emoji)}
+                            className="text-lg p-1 hover:bg-paper-200 rounded transition-colors"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {isRecording || audioBlob ? (
+                      <div className="flex items-center justify-between bg-paper-200 border border-line p-3">
+                        <div className="flex items-center gap-3">
+                          <span className="w-3 h-3 rounded-full bg-red-600 animate-pulse" />
+                          <span className="text-xs font-mono text-ink">
+                            {isRecording
+                              ? `Recording... 00:${recordingTime < 10 ? `0${recordingTime}` : recordingTime}`
+                              : 'Voice Note Ready'}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          {isRecording ? (
+                            <button
+                              type="button"
+                              onClick={stopRecording}
+                              className="p-2 bg-red-600 text-white rounded hover:bg-red-700"
+                            >
+                              <StopIcon className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={cancelVoiceNote}
+                                className="px-3 py-1.5 text-xs border border-line text-ink hover:bg-paper-100"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={uploadAndSendVoiceNote}
+                                disabled={uploadingAudio}
+                                className="btn-primary px-4 py-1.5 text-xs flex items-center gap-2"
+                              >
+                                {uploadingAudio ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <Send className="w-3.5 h-3.5" />
+                                )}
+                                Send Voice
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <form onSubmit={handleSendMessage} className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                          className="p-3 text-ink-400 hover:text-ink border border-line bg-paper-100 hover:bg-paper-200 transition-colors"
+                          title="Insert emoji"
+                        >
+                          <Smile className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={startRecording}
+                          className="p-3 text-ink-400 hover:text-ink border border-line bg-paper-100 hover:bg-paper-200 transition-colors"
+                          title="Record Voice Note"
+                        >
+                          <Mic className="w-4 h-4" />
+                        </button>
+
+                        <input
+                          type="text"
+                          value={replyText}
+                          onChange={(e) => setReplyText(e.target.value)}
+                          placeholder="Type a response..."
+                          className="flex-1 px-4 py-2.5 bg-paper-100 border border-line text-sm text-ink placeholder:text-ink-300 focus:outline-none focus:border-ink"
+                        />
+
+                        <button
+                          type="submit"
+                          disabled={sending || !replyText.trim()}
+                          className="btn-primary px-5 py-2.5 text-xs flex items-center gap-2 disabled:opacity-50"
+                        >
+                          {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                          Send
+                        </button>
+                      </form>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center flex-1 py-12 text-ink-300">
+                  <MessageSquare className="w-10 h-10 mb-2 opacity-50" />
+                  <p className="text-sm">Select a conversation from the left to view messages</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Modal for Starting New Conversation */}
+        {showNewModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="bg-paper border border-line p-6 max-w-lg w-full shadow-2xl relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNewModal(false);
+                  if (onClearTargets) onClearTargets();
+                }}
+                className="absolute top-4 right-4 text-ink-400 hover:text-ink"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <h2 className="font-display text-xl font-bold text-ink mb-4">New Message</h2>
+
+              <form onSubmit={handleCreateConversation} className="space-y-4">
+                {/* Search & Recipient Selector */}
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
+                    Recipient
+                  </label>
+
+                  <div className="relative mb-2">
+                    <Search className="w-4 h-4 absolute left-3 top-2.5 text-ink-400" />
+                    <input
+                      type="text"
+                      placeholder="Search users by name, role or email..."
+                      value={recipientSearch}
+                      onChange={(e) => setRecipientSearch(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 bg-paper-100 border border-line text-xs text-ink focus:outline-none focus:border-ink"
+                    />
+                  </div>
+
+                  <select
+                    value={selectedRecipientId}
+                    onChange={(e) => setSelectedRecipientId(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink rounded-none"
+                  >
+                    <option value="">Select a user...</option>
+                    {filteredRecipients.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.full_name || 'Unnamed User'} ({r.email || r.role || 'User'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Subject */}
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
+                    Subject
+                  </label>
                   <input
                     type="text"
-                    placeholder="Search users..."
-                    value={recipientSearch}
-                    onChange={(e) => setRecipientSearch(e.target.value)}
-                    className="w-full pl-9 pr-3 py-1.5 bg-paper-200 text-ink text-xs rounded-lg border border-line focus:outline-none focus:border-accent"
+                    value={newSubject}
+                    onChange={(e) => setNewSubject(e.target.value)}
+                    placeholder="Enter subject..."
+                    required
+                    className="w-full px-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink"
                   />
                 </div>
-                <select
-                  value={selectedRecipientId}
-                  onChange={(e) => setSelectedRecipientId(e.target.value)}
-                  required
-                  className="w-full bg-paper-200 text-ink text-sm rounded-lg p-2.5 border border-line focus:outline-none focus:border-accent"
-                >
-                  <option value="">Select a user...</option>
-                  {filteredRecipients.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.full_name || r.email} ({r.role})
-                    </option>
-                  ))}
-                </select>
-              </div>
 
-              <div>
-                <label className="block text-xs font-medium text-ink-400 mb-1">
-                  Subject
-                </label>
-                <input
-                  type="text"
-                  value={newSubject}
-                  onChange={(e) => setNewSubject(e.target.value)}
-                  placeholder="Enter subject..."
-                  className="w-full bg-paper-200 text-ink text-sm rounded-lg p-2.5 border border-line focus:outline-none focus:border-accent"
-                />
-              </div>
+                {/* Message */}
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
+                    Message
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={firstMessage}
+                    onChange={(e) => setFirstMessage(e.target.value)}
+                    placeholder="Type message here..."
+                    required
+                    className="w-full px-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink resize-none"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-xs font-medium text-ink-400 mb-1">
-                  Message
-                </label>
-                <textarea
-                  value={firstMessage}
-                  onChange={(e) => setFirstMessage(e.target.value)}
-                  rows={4}
-                  required
-                  placeholder="Type message here..."
-                  className="w-full bg-paper-200 text-ink text-sm rounded-lg p-2.5 border border-line focus:outline-none focus:border-accent resize-none"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowNewModal(false);
-                    if (onClearTargets) onClearTargets();
-                  }}
-                  className="px-4 py-2 text-xs text-ink-400 hover:text-ink rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!selectedRecipientId || !firstMessage.trim()}
-                  className="px-4 py-2 bg-accent text-white text-xs font-medium rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors"
-                >
-                  Send Message
-                </button>
-              </div>
-            </form>
+                {/* Actions */}
+                <div className="flex justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNewModal(false);
+                      if (onClearTargets) onClearTargets();
+                    }}
+                    className="px-4 py-2 text-xs uppercase tracking-wide-sm border border-line hover:bg-paper-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={startingConv || !selectedRecipientId || !firstMessage.trim()}
+                    className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-2 disabled:opacity-50"
+                  >
+                    {startingConv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    Send Message
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
