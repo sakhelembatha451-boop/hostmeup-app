@@ -5,11 +5,12 @@ import { useAuth } from '@/context/AuthContext';
 import { 
   Calendar, MapPin, Clock, Loader2, Package, Check, X, 
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
-  MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2
+  MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
+import TalentVerificationModal from '@/components/TalentVerificationModal';
 
 type BookingWithHost = Booking & {
   conversation_id?: string | null;
@@ -17,6 +18,7 @@ type BookingWithHost = Booking & {
   completed_at?: string | null;
   deposit_paid?: boolean;
   balance_paid?: boolean;
+  is_arrival_verified?: boolean;
   host?: {
     id: string;
     full_name: string;
@@ -51,6 +53,7 @@ export default function ArtistDashboard() {
   const [selectedBooking, setSelectedBooking] = useState<BookingWithHost | null>(null);
   const [reportBooking, setReportBooking] = useState<BookingWithHost | null>(null);
   const [cancelBooking, setCancelBooking] = useState<BookingWithHost | null>(null);
+  const [activeVerifyBooking, setActiveVerifyBooking] = useState<{ id: string; eventName: string } | null>(null);
 
   // Issue Reporting Form State
   const [issueCategory, setIssueCategory] = useState<string>('safety');
@@ -429,12 +432,20 @@ export default function ArtistDashboard() {
                         {/* Confirmed / Accepted */}
                         {(booking.status === 'confirmed' || booking.status === 'accepted') && (
                           <>
-                            <button
-                              onClick={() => updateBookingStatus(booking.id, 'checked_in', { checked_in_at: new Date().toISOString() })}
-                              disabled={updatingId === booking.id}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                              <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
-                            </button>
+                            {!booking.is_arrival_verified ? (
+                              <button
+                                onClick={() => setActiveVerifyBooking({ id: booking.id, eventName: booking.event_name })}
+                                className="bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                                <KeyRound className="w-3.5 h-3.5" /> Enter Host Pass Code
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => updateBookingStatus(booking.id, 'checked_in', { checked_in_at: new Date().toISOString() })}
+                                disabled={updatingId === booking.id}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                                <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
+                              </button>
+                            )}
                             <button
                               onClick={() => {
                                 if (booking.conversation_id) {
@@ -708,6 +719,19 @@ export default function ArtistDashboard() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Modal 4: Talent Verification PIN Entry */}
+        {activeVerifyBooking && (
+          <TalentVerificationModal
+            bookingId={activeVerifyBooking.id}
+            eventName={activeVerifyBooking.eventName}
+            isOpen={!!activeVerifyBooking}
+            onClose={() => setActiveVerifyBooking(null)}
+            onSuccess={() => {
+              loadDashboardData(false);
+            }}
+          />
         )}
 
       </div>
