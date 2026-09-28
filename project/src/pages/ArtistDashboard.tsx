@@ -198,12 +198,21 @@ export default function ArtistDashboard() {
 
     setIsDeleting(true);
     try {
-      // 1. Soft-delete attempt (setting is_deleted = true)
+      // Optimistically update UI state immediately
+      setBookings((prev) => prev.filter((b) => !idsToDelete.includes(b.id)));
+      setSelectedBookingIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
+
+      if (selectedBooking && idsToDelete.includes(selectedBooking.id)) {
+        setSelectedBooking(null);
+      }
+
+      // Try soft delete in primary table
       let { error } = await supabase
         .from('bookings')
         .update({ is_deleted: true })
         .in('id', idsToDelete);
 
+      // Fallback if view/table naming differs
       if (error && error.message?.includes('Could not find the table')) {
         const fallback = await supabase
           .from('booking')
@@ -212,24 +221,23 @@ export default function ArtistDashboard() {
         error = fallback.error;
       }
 
-      // 2. If is_deleted column is not present in schema, fallback to hard deletion
-      if (error && error.message?.includes('is_deleted')) {
-        await supabase
+      // Fallback to hard deletion on base table if soft delete fails
+      if (error) {
+        console.warn('Soft delete failed, attempting hard delete on base table:', error.message);
+        const hardDelete = await supabase
           .from('bookings')
           .delete()
           .in('id', idsToDelete);
-      }
 
-      // Optimistically remove deleted items from UI state
-      setBookings((prev) => prev.filter((b) => !idsToDelete.includes(b.id)));
-      setSelectedBookingIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
-
-      if (selectedBooking && idsToDelete.includes(selectedBooking.id)) {
-        setSelectedBooking(null);
+        if (hardDelete.error) {
+          throw hardDelete.error;
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error deleting booking(s):', err);
-      alert('Could not delete booking. Please try again.');
+      alert(`Could not delete booking: ${err?.message || 'Database permission denied'}`);
+      // Restore state from backend if database operations failed
+      loadDashboardData(false);
     } finally {
       setIsDeleting(false);
     }
