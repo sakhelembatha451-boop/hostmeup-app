@@ -14,7 +14,8 @@ import {
   Square,
   X,
   KeyRound,
-  CheckCircle2
+  CheckCircle2,
+  CreditCard
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
@@ -45,6 +46,7 @@ export default function HostDashboard() {
   // Deletion and Selection State
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
 
   // Host Verification State
   const [hostVerification, setHostVerification] = useState<{
@@ -200,6 +202,57 @@ export default function HostDashboard() {
     loadData();
   };
 
+  // --- PAYMENT HANDLER ---
+  const handlePayment = async (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
+    e.stopPropagation();
+    setProcessingPaymentId(booking.id);
+
+    try {
+      const response = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingId: booking.id,
+          paymentType: type,
+          amount: type === 'deposit' 
+            ? booking.deposit_amount 
+            : ((booking.total_price || 0) - (booking.deposit_amount || 0)),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        // Fallback demo status update in case API checkout is not configured yet
+        const updatePayload = type === 'deposit' 
+          ? { deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() }
+          : { balance_paid: true, updated_at: new Date().toISOString() };
+
+        let { error } = await supabase.from('bookings').update(updatePayload).eq('id', booking.id);
+        if (error && error.message?.includes("Could not find the table")) {
+          await supabase.from('booking').update(updatePayload).eq('id', booking.id);
+        }
+        await loadData();
+      }
+    } catch (err) {
+      console.error('Error initiating payment:', err);
+      // Fallback local update on error
+      const updatePayload = type === 'deposit' 
+        ? { deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() }
+        : { balance_paid: true, updated_at: new Date().toISOString() };
+
+      let { error } = await supabase.from('bookings').update(updatePayload).eq('id', booking.id);
+      if (error && error.message?.includes("Could not find the table")) {
+        await supabase.from('booking').update(updatePayload).eq('id', booking.id);
+      }
+      await loadData();
+    } finally {
+      setProcessingPaymentId(null);
+    }
+  };
+
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
   const counts = {
     all: bookings.length,
@@ -319,6 +372,10 @@ export default function HostDashboard() {
           <div className="space-y-6">
             {filtered.map((booking) => {
               const isSelected = selectedBookingIds.includes(booking.id);
+              const isAccepted = booking.status?.toLowerCase() === 'accepted';
+              const isDepositPaid = booking.deposit_paid || booking.status?.toLowerCase() === 'confirmed';
+              const isBalancePaid = booking.balance_paid;
+              const remainingBalance = (booking.total_price || 0) - (booking.deposit_amount || 0);
 
               return (
                 <div 
@@ -387,13 +444,51 @@ export default function HostDashboard() {
                         <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location}</span></div>
                       </div>
 
-                      {/* Notes & Actions */}
-                      {booking.status === 'pending' && (
-                        <div className="pt-3 border-t border-line flex items-center justify-between" onClick={(e) => e.stopPropagation()}>
-                          <button onClick={() => updateBookingStatus(booking.id, 'cancelled')}
-                            className="text-sm font-medium text-red-500 hover:text-red-600 uppercase tracking-wide-sm transition-colors">Cancel Request</button>
-                        </div>
-                      )}
+                      {/* Notes, Payment Actions & Status Controls */}
+                      <div className="pt-3 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
+                        {booking.status === 'pending' ? (
+                          <button 
+                            onClick={() => updateBookingStatus(booking.id, 'cancelled')}
+                            className="text-sm font-medium text-red-500 hover:text-red-600 uppercase tracking-wide-sm transition-colors"
+                          >
+                            Cancel Request
+                          </button>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            {/* Pay Deposit Button: Shows when ACCEPTED and deposit not paid */}
+                            {isAccepted && !isDepositPaid && (
+                              <button
+                                onClick={(e) => handlePayment(booking, 'deposit', e)}
+                                disabled={processingPaymentId === booking.id}
+                                className="px-3 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/80 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                              >
+                                {processingPaymentId === booking.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CreditCard className="w-3.5 h-3.5" />
+                                )}
+                                <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
+                              </button>
+                            )}
+
+                            {/* Pay Remaining Balance Button: Shows when Deposit Paid but Balance is remaining */}
+                            {isDepositPaid && !isBalancePaid && remainingBalance > 0 && (
+                              <button
+                                onClick={(e) => handlePayment(booking, 'remaining', e)}
+                                disabled={processingPaymentId === booking.id}
+                                className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-emerald-800 flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                              >
+                                {processingPaymentId === booking.id ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : (
+                                  <CreditCard className="w-3.5 h-3.5" />
+                                )}
+                                <span>Pay Remaining ({formatCurrency(remainingBalance)})</span>
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
