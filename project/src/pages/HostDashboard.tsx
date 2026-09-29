@@ -202,52 +202,26 @@ export default function HostDashboard() {
     loadData();
   };
 
-  // --- PAYMENT HANDLER ---
+  // --- DIRECT SUPABASE PAYMENT HANDLER ---
   const handlePayment = async (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
     e.stopPropagation();
     setProcessingPaymentId(booking.id);
 
     try {
-      const response = await fetch('/api/create-checkout-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bookingId: booking.id,
-          paymentType: type,
-          amount: type === 'deposit' 
-            ? booking.deposit_amount 
-            : ((booking.total_price || 0) - (booking.deposit_amount || 0)),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        // Fallback demo status update in case API checkout is not configured yet
-        const updatePayload = type === 'deposit' 
-          ? { deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() }
-          : { balance_paid: true, updated_at: new Date().toISOString() };
-
-        let { error } = await supabase.from('bookings').update(updatePayload).eq('id', booking.id);
-        if (error && error.message?.includes("Could not find the table")) {
-          await supabase.from('booking').update(updatePayload).eq('id', booking.id);
-        }
-        await loadData();
-      }
-    } catch (err) {
-      console.error('Error initiating payment:', err);
-      // Fallback local update on error
       const updatePayload = type === 'deposit' 
         ? { deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() }
         : { balance_paid: true, updated_at: new Date().toISOString() };
 
       let { error } = await supabase.from('bookings').update(updatePayload).eq('id', booking.id);
+      
       if (error && error.message?.includes("Could not find the table")) {
         await supabase.from('booking').update(updatePayload).eq('id', booking.id);
       }
+
       await loadData();
+    } catch (err) {
+      console.error('Error updating payment status:', err);
+      alert('Could not update payment status. Please try again.');
     } finally {
       setProcessingPaymentId(null);
     }
