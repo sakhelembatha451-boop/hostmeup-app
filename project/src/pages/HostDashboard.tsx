@@ -43,12 +43,10 @@ export default function HostDashboard() {
   const [filter, setFilter] = useState<string>('all');
   const [selectedBooking, setSelectedBooking] = useState<BookingWithArtist | null>(null);
 
-  // Deletion and Selection State
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
 
-  // Host Verification State
   const [hostVerification, setHostVerification] = useState<{
     is_identity_verified: boolean;
     verification_status: 'pending' | 'approved' | 'rejected' | null;
@@ -142,7 +140,6 @@ export default function HostDashboard() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // --- DELETE HANDLERS ---
   const handleDeleteBookings = async (idsToDelete: string[]) => {
     if (idsToDelete.length === 0) return;
 
@@ -202,26 +199,43 @@ export default function HostDashboard() {
     loadData();
   };
 
-  // --- DIRECT SUPABASE PAYMENT HANDLER ---
+  // Direct Supabase Payment update with detailed Error Alerts
   const handlePayment = async (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
     e.stopPropagation();
+    e.preventDefault();
     setProcessingPaymentId(booking.id);
 
     try {
+      // 1. Prepare minimal update object to avoid missing column errors
       const updatePayload = type === 'deposit' 
-        ? { deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() }
-        : { balance_paid: true, updated_at: new Date().toISOString() };
+        ? { deposit_paid: true, status: 'confirmed' }
+        : { balance_paid: true };
 
-      let { error } = await supabase.from('bookings').update(updatePayload).eq('id', booking.id);
-      
+      // 2. Perform update
+      let { error } = await supabase
+        .from('bookings')
+        .update(updatePayload)
+        .eq('id', booking.id);
+
+      // Fallback if table name is singular 'booking'
       if (error && error.message?.includes("Could not find the table")) {
-        await supabase.from('booking').update(updatePayload).eq('id', booking.id);
+        const fallbackRes = await supabase
+          .from('booking')
+          .update(updatePayload)
+          .eq('id', booking.id);
+        error = fallbackRes.error;
       }
 
-      await loadData();
-    } catch (err) {
-      console.error('Error updating payment status:', err);
-      alert('Could not update payment status. Please try again.');
+      if (error) {
+        alert(`Payment update error: ${error.message}`);
+        console.error('Supabase error:', error);
+      } else {
+        alert('Payment completed successfully!');
+        await loadData();
+      }
+    } catch (err: any) {
+      alert(`Unexpected error: ${err.message || err}`);
+      console.error('Unexpected error:', err);
     } finally {
       setProcessingPaymentId(null);
     }
@@ -244,7 +258,6 @@ export default function HostDashboard() {
     <div className="min-h-screen bg-paper">
       <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12">
         
-        {/* Verification Banner */}
         {!isHostVerified && (
           <div className="flex items-start justify-between gap-3 p-4 mb-8 border border-amber-200 bg-amber-50 text-amber-900 text-xs">
             <div className="flex items-start gap-2">
@@ -281,7 +294,6 @@ export default function HostDashboard() {
           </Link>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10 border-y border-line py-6">
           {[
             { label: 'Total', value: counts.all },
@@ -296,7 +308,6 @@ export default function HostDashboard() {
           ))}
         </div>
 
-        {/* Filters & Bulk Controls Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 pb-4 border-b border-line">
           <div className="flex flex-wrap gap-2">
             {['all', 'pending', 'confirmed', 'accepted', 'declined'].map((f) => (
@@ -307,7 +318,6 @@ export default function HostDashboard() {
             ))}
           </div>
 
-          {/* Bulk Selection Actions */}
           {filtered.length > 0 && (
             <div className="flex items-center gap-3">
               <button
@@ -360,7 +370,6 @@ export default function HostDashboard() {
                   }`}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-start gap-6">
-                    {/* Bulk Select Checkbox & Talent info */}
                     <div className="flex items-center gap-3 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button 
                         onClick={(e) => toggleSelectBooking(booking.id, e)}
@@ -396,7 +405,6 @@ export default function HostDashboard() {
                         <div className="flex items-center gap-2">
                           <StatusBadge status={booking.status} />
 
-                          {/* Single Card Delete Button */}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -410,7 +418,6 @@ export default function HostDashboard() {
                         </div>
                       </div>
 
-                      {/* Event details */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
                         <div className="flex items-center gap-1.5 text-ink-500"><Calendar className="w-3.5 h-3.5 text-ink-300" /><span>{new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
                         {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
@@ -418,7 +425,6 @@ export default function HostDashboard() {
                         <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location}</span></div>
                       </div>
 
-                      {/* Notes, Payment Actions & Status Controls */}
                       <div className="pt-3 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
                         {booking.status === 'pending' ? (
                           <button 
@@ -429,9 +435,10 @@ export default function HostDashboard() {
                           </button>
                         ) : (
                           <div className="flex items-center gap-2">
-                            {/* Pay Deposit Button: Shows when ACCEPTED and deposit not paid */}
-                            {isAccepted && !isDepositPaid && (
+                            {/* Deposit Button: Shows for Accepted status or when deposit isn't marked paid */}
+                            {(isAccepted || booking.status === 'pending') && !isDepositPaid && (
                               <button
+                                type="button"
                                 onClick={(e) => handlePayment(booking, 'deposit', e)}
                                 disabled={processingPaymentId === booking.id}
                                 className="px-3 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/80 flex items-center gap-1.5 transition-colors disabled:opacity-50"
@@ -445,9 +452,10 @@ export default function HostDashboard() {
                               </button>
                             )}
 
-                            {/* Pay Remaining Balance Button: Shows when Deposit Paid but Balance is remaining */}
-                            {isDepositPaid && !isBalancePaid && remainingBalance > 0 && (
+                            {/* Remaining Balance Button */}
+                            {isDepositPaid && !isBalancePaid && (
                               <button
+                                type="button"
                                 onClick={(e) => handlePayment(booking, 'remaining', e)}
                                 disabled={processingPaymentId === booking.id}
                                 className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-emerald-800 flex items-center gap-1.5 transition-colors disabled:opacity-50"
@@ -457,7 +465,7 @@ export default function HostDashboard() {
                                 ) : (
                                   <CreditCard className="w-3.5 h-3.5" />
                                 )}
-                                <span>Pay Remaining ({formatCurrency(remainingBalance)})</span>
+                                <span>Pay Remaining ({formatCurrency(remainingBalance > 0 ? remainingBalance : booking.total_price)})</span>
                               </button>
                             )}
                           </div>
@@ -471,7 +479,6 @@ export default function HostDashboard() {
           </div>
         )}
 
-        {/* Selected Booking Modal Drawer */}
         {selectedBooking && (
           <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex justify-end animate-fade-in" onClick={() => setSelectedBooking(null)}>
             <div className="bg-paper w-full max-w-lg h-full overflow-y-auto p-8 border-l border-line shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -486,7 +493,6 @@ export default function HostDashboard() {
               </div>
 
               <div className="space-y-6">
-                {/* On-Site Verification Pass Drawer */}
                 {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid) && (
                   <div className="border border-line p-5 bg-white space-y-3">
                     <div className="flex items-center justify-between">
