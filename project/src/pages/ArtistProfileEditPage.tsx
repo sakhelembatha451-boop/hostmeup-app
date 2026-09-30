@@ -2,10 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon, Music } from 'lucide-react';
+import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon, Music, Car } from 'lucide-react';
 import type { Category, Genre } from '@/types';
 
-const CATEGORIES: Category[] = ['Singer', 'Producer', 'Performer', 'Model', 'Photographer', 'Beauty Professional'];
+const CATEGORIES: Category[] = [
+  'Singer', 
+  'Producer', 
+  'Performer', 
+  'Model', 
+  'Photographer', 
+  'Beauty Professional',
+  'Tattoo Artist',
+  'Asset Hire'
+];
+
 const GENRES: Genre[] = [
   'Amapiano', 'Deep House', 'Afro House', 'Gqom', 'Hip Hop', 'R&B',
   'Afrobeats', 'Pop', 'Jazz', 'Gospel', 'Commercial', 'Editorial',
@@ -17,6 +27,16 @@ interface ServiceItem {
   service_name: string;
   price: string;
   duration_minutes: number;
+}
+
+interface AssetItem {
+  id?: string;
+  asset_name: string;
+  asset_category: string;
+  daily_rate: string;
+  hourly_rate?: string;
+  description?: string;
+  image_url?: string;
 }
 
 export default function ArtistProfileEditPage() {
@@ -38,10 +58,17 @@ export default function ArtistProfileEditPage() {
   const [genres, setGenres] = useState<Genre[]>([]);
   
   // Dynamic Pricing & Rate States
-  const [pricingType, setPricingType] = useState<'per_hour' | 'per_gig' | 'per_beat' | 'per_service'>('per_hour');
+  const [pricingType, setPricingType] = useState<'per_hour' | 'per_gig' | 'per_beat' | 'per_service' | 'per_tattoo' | 'per_asset'>('per_hour');
   const [baseRate, setBaseRate] = useState('');
+  
+  // Services (for Beauty Professionals & Tattoo Artists)
   const [services, setServices] = useState<ServiceItem[]>([
     { service_name: '', price: '', duration_minutes: 60 }
+  ]);
+
+  // Asset Inventory (for Asset Hire)
+  const [assets, setAssets] = useState<AssetItem[]>([
+    { asset_name: '', asset_category: 'Vehicle', daily_rate: '' }
   ]);
 
   // Location & Media States
@@ -99,8 +126,13 @@ export default function ArtistProfileEditPage() {
         setSoundcloud(data.social_links?.soundcloud || '');
         setYoutube(data.social_links?.youtube || '');
 
-        // Fetch Services if user is a Beauty Professional or has per_service selected
-        if (data.pricing_type === 'per_service' || data.categories?.includes('Beauty Professional')) {
+        // Fetch Services if user is a Beauty Professional, Tattoo Artist, or has per_service/per_tattoo selected
+        if (
+          data.pricing_type === 'per_service' || 
+          data.pricing_type === 'per_tattoo' ||
+          data.categories?.includes('Beauty Professional') || 
+          data.categories?.includes('Tattoo Artist')
+        ) {
           const { data: serviceData, error: serviceErr } = await supabase
             .from('talent_services')
             .select('*')
@@ -113,6 +145,27 @@ export default function ArtistProfileEditPage() {
                 service_name: s.service_name || '',
                 price: s.price !== null && s.price !== undefined ? String(s.price) : '',
                 duration_minutes: s.duration_minutes || 60,
+              }))
+            );
+          }
+        }
+
+        // Fetch Assets if user is an Asset Hire Provider
+        if (data.pricing_type === 'per_asset' || data.categories?.includes('Asset Hire')) {
+          const { data: assetData, error: assetErr } = await supabase
+            .from('talent_assets')
+            .select('*')
+            .eq('profile_id', profile?.id);
+
+          if (!assetErr && assetData && assetData.length > 0) {
+            setAssets(
+              assetData.map((a) => ({
+                id: a.id,
+                asset_name: a.asset_name || '',
+                asset_category: a.asset_category || 'Vehicle',
+                daily_rate: a.daily_rate !== null && a.daily_rate !== undefined ? String(a.daily_rate) : '',
+                description: a.description || '',
+                image_url: a.image_url || ''
               }))
             );
           }
@@ -239,7 +292,11 @@ export default function ArtistProfileEditPage() {
         setPricingType('per_beat');
       } else if (nextCategories.includes('Beauty Professional')) {
         setPricingType('per_service');
-      } else if (pricingType === 'per_beat' || pricingType === 'per_service') {
+      } else if (nextCategories.includes('Tattoo Artist')) {
+        setPricingType('per_tattoo');
+      } else if (nextCategories.includes('Asset Hire')) {
+        setPricingType('per_asset');
+      } else if (['per_beat', 'per_service', 'per_tattoo', 'per_asset'].includes(pricingType)) {
         setPricingType('per_hour');
       }
 
@@ -295,9 +352,13 @@ export default function ArtistProfileEditPage() {
 
       if (upsertError) throw upsertError;
 
-      // Handle Beauty Professional Services
-      if (pricingType === 'per_service' || categories.includes('Beauty Professional')) {
-        // Clear existing services to replace with current state
+      // Handle Beauty Professional & Tattoo Artist Services
+      if (
+        pricingType === 'per_service' || 
+        pricingType === 'per_tattoo' ||
+        categories.includes('Beauty Professional') ||
+        categories.includes('Tattoo Artist')
+      ) {
         await supabase.from('talent_services').delete().eq('profile_id', profile.id);
 
         const validServices = services
@@ -312,6 +373,27 @@ export default function ArtistProfileEditPage() {
         if (validServices.length > 0) {
           const { error: serviceErr } = await supabase.from('talent_services').insert(validServices);
           if (serviceErr) throw serviceErr;
+        }
+      }
+
+      // Handle Asset Hire Inventory
+      if (pricingType === 'per_asset' || categories.includes('Asset Hire')) {
+        await supabase.from('talent_assets').delete().eq('profile_id', profile.id);
+
+        const validAssets = assets
+          .filter((a) => a.asset_name.trim() !== '' && a.daily_rate.trim() !== '')
+          .map((a) => ({
+            profile_id: profile.id,
+            asset_name: a.asset_name.trim(),
+            asset_category: a.asset_category || 'Vehicle',
+            daily_rate: parseFloat(a.daily_rate),
+            description: a.description || null,
+            image_url: a.image_url || null,
+          }));
+
+        if (validAssets.length > 0) {
+          const { error: assetErr } = await supabase.from('talent_assets').insert(validAssets);
+          if (assetErr) throw assetErr;
         }
       }
 
@@ -389,13 +471,13 @@ export default function ArtistProfileEditPage() {
           <section className="space-y-6">
             <h2 className="text-sm uppercase tracking-wide-sm font-semibold text-ink border-b border-line pb-2">Basic Info</h2>
             <div className="grid grid-cols-1 gap-6">
-              <FormField label="Stage / Artist Name" full>
+              <FormField label="Stage / Artist / Brand Name" full>
                 <input
                   type="text"
                   value={stageName}
                   onChange={(e) => setStageName(e.target.value)}
                   className="input-field"
-                  placeholder="e.g. DJ Spark"
+                  placeholder="e.g. Ink & Motion Studio or DJ Spark"
                   required
                 />
               </FormField>
@@ -406,7 +488,7 @@ export default function ArtistProfileEditPage() {
                   onChange={(e) => setBio(e.target.value)}
                   rows={4}
                   className="input-field"
-                  placeholder="Tell event organizers about your background, experience, and performance style..."
+                  placeholder="Tell event organizers and clients about your background, tattoo styles, or available rental assets..."
                 />
               </FormField>
             </div>
@@ -498,8 +580,136 @@ export default function ArtistProfileEditPage() {
               </div>
             )}
 
+            {/* Tattoo Artists */}
+            {categories.includes('Tattoo Artist') && (
+              <div className="space-y-4">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Tattoo Size & Style Rates</label>
+                <p className="text-xs text-ink-500">Add price tiers for different tattoo types (e.g. Small Flash, Half Sleeve, Hourly Custom Rate).</p>
+                {services.map((service, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      placeholder="Tattoo Type (e.g. Fine Line Flash, Half Sleeve)"
+                      value={service.service_name}
+                      onChange={(e) => {
+                        const updated = [...services];
+                        updated[idx].service_name = e.target.value;
+                        setServices(updated);
+                      }}
+                      className="input-field flex-1"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Price (ZAR)"
+                      value={service.price}
+                      onChange={(e) => {
+                        const updated = [...services];
+                        updated[idx].price = e.target.value;
+                        setServices(updated);
+                      }}
+                      className="input-field w-32"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setServices(services.filter((_, i) => i !== idx))}
+                      className="p-2 text-red-600 hover:text-red-800"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setServices([...services, { service_name: '', price: '', duration_minutes: 60 }])}
+                  className="flex items-center gap-2 text-xs uppercase tracking-wide-sm text-ink hover:underline pt-2"
+                >
+                  <Plus className="w-4 h-4" /> Add Tattoo Rate Tier
+                </button>
+              </div>
+            )}
+
+            {/* Asset Hire (Cars, Houses, Helicopters, Props) */}
+            {categories.includes('Asset Hire') && (
+              <div className="space-y-4">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Assets Available for Music Video & Shoot Hire</label>
+                <p className="text-xs text-ink-500">List vehicles, luxury mansions, helicopters, or props available for film and music video shoots.</p>
+                {assets.map((asset, idx) => (
+                  <div key={idx} className="p-4 border border-line bg-paper-100 space-y-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <input
+                        type="text"
+                        placeholder="Asset Name (e.g. 1969 Ford Mustang)"
+                        value={asset.asset_name}
+                        onChange={(e) => {
+                          const updated = [...assets];
+                          updated[idx].asset_name = e.target.value;
+                          setAssets(updated);
+                        }}
+                        className="input-field"
+                      />
+                      <select
+                        value={asset.asset_category}
+                        onChange={(e) => {
+                          const updated = [...assets];
+                          updated[idx].asset_category = e.target.value;
+                          setAssets(updated);
+                        }}
+                        className="input-field"
+                      >
+                        <option value="Vehicle">Luxury / Vintage Vehicle</option>
+                        <option value="Location">Mansion / Loft / Location</option>
+                        <option value="Helicopter">Helicopter / Aircraft</option>
+                        <option value="Prop">Luxury Prop / Accessory</option>
+                      </select>
+                      <input
+                        type="number"
+                        placeholder="Daily Hire Rate (ZAR)"
+                        value={asset.daily_rate}
+                        onChange={(e) => {
+                          const updated = [...assets];
+                          updated[idx].daily_rate = e.target.value;
+                          setAssets(updated);
+                        }}
+                        className="input-field"
+                      />
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <input
+                        type="text"
+                        placeholder="Image URL for asset (optional)"
+                        value={asset.image_url || ''}
+                        onChange={(e) => {
+                          const updated = [...assets];
+                          updated[idx].image_url = e.target.value;
+                          setAssets(updated);
+                        }}
+                        className="input-field flex-1 mr-3"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setAssets(assets.filter((_, i) => i !== idx))}
+                        className="p-2 text-red-600 hover:text-red-800 flex items-center gap-1 text-xs uppercase tracking-wide-sm font-semibold"
+                      >
+                        <Trash2 className="w-4 h-4" /> Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setAssets([...assets, { asset_name: '', asset_category: 'Vehicle', daily_rate: '' }])}
+                  className="flex items-center gap-2 text-xs uppercase tracking-wide-sm text-ink hover:underline pt-2"
+                >
+                  <Plus className="w-4 h-4" /> Add Asset For Hire
+                </button>
+              </div>
+            )}
+
             {/* General Talent */}
-            {!categories.includes('Producer') && !categories.includes('Beauty Professional') && (
+            {!categories.includes('Producer') && 
+             !categories.includes('Beauty Professional') && 
+             !categories.includes('Tattoo Artist') && 
+             !categories.includes('Asset Hire') && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div>
                   <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Pricing Structure</label>
