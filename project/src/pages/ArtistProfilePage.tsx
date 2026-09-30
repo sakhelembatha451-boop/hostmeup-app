@@ -19,10 +19,18 @@ import {
   Calendar
 } from 'lucide-react';
 
+interface ServiceItem {
+  id: string;
+  service_name: string;
+  price: number;
+  duration_minutes?: number;
+}
+
 export default function ArtistProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [artist, setArtist] = useState<any>(null);
+  const [services, setServices] = useState<ServiceItem[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,6 +114,16 @@ export default function ArtistProfilePage() {
 
       if (fetchError) throw fetchError;
       setArtist(data);
+
+      // Fetch Services Menu if Beauty Professional or per_service pricing
+      if (data && (data.pricing_type === 'per_service' || data.categories?.includes('Beauty Professional'))) {
+        const { data: serviceData } = await supabase
+          .from('talent_services')
+          .select('*')
+          .eq('profile_id', data.user_id || data.id);
+
+        setServices(serviceData || []);
+      }
     } catch (err: any) {
       console.error('Error fetching artist:', err.message);
       setError('Could not load artist profile.');
@@ -172,6 +190,23 @@ export default function ArtistProfilePage() {
         navigate('/admin/inbox');
       }
     }
+  };
+
+  const renderPricingBadge = () => {
+    if (!artist) return 'R0/hr';
+    const pType = artist.pricing_type || 'per_hour';
+    const rate = artist.base_rate ?? artist.hourly_rate ?? 0;
+
+    if (pType === 'per_gig') {
+      return `R${rate} / gig`;
+    }
+    if (pType === 'per_beat') {
+      return `R${rate} / beat`;
+    }
+    if (pType === 'per_service') {
+      return 'See Services Menu';
+    }
+    return `R${rate} / hr`;
   };
 
   if (loading) {
@@ -244,7 +279,7 @@ export default function ArtistProfilePage() {
               <div className="flex items-center justify-between">
                 <h1 className="font-display text-3xl font-bold text-ink">{artist.stage_name || 'Unnamed Artist'}</h1>
                 <div className="text-xl font-bold text-ink">
-                  R{artist.hourly_rate || 0}<span className="text-xs font-normal text-ink-500">/hr</span>
+                  {renderPricingBadge()}
                 </div>
               </div>
 
@@ -271,6 +306,26 @@ export default function ArtistProfilePage() {
                 {artist.bio || 'No biography provided yet.'}
               </p>
             </div>
+
+            {/* Itemized Services Menu (for Beauty Professionals) */}
+            {(artist.pricing_type === 'per_service' || artist.categories?.includes('Beauty Professional')) && services.length > 0 && (
+              <div className="border-t border-line pt-6">
+                <h3 className="font-display text-lg font-bold text-ink mb-4">Services & Rates Menu</h3>
+                <div className="divide-y divide-line border border-line bg-paper-100">
+                  {services.map((service) => (
+                    <div key={service.id} className="p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">{service.service_name}</p>
+                        {service.duration_minutes && (
+                          <p className="text-xs text-ink-500 mt-0.5">Est. Duration: {service.duration_minutes} mins</p>
+                        )}
+                      </div>
+                      <p className="font-bold text-ink text-base">R{service.price}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Gallery Photos */}
             {galleryImages.length > 0 && (
@@ -377,7 +432,7 @@ export default function ArtistProfilePage() {
               <div className="space-y-3 text-xs text-ink-600">
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-ink-400" />
-                  <span>Rate: R{artist.hourly_rate || 0} per hour</span>
+                  <span>Rate: {renderPricingBadge()}</span>
                 </div>
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-4 h-4 text-ink-400" />
