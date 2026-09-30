@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon, Music, Film } from 'lucide-react';
+import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon, Music } from 'lucide-react';
 import type { Category, Genre } from '@/types';
 
 const CATEGORIES: Category[] = ['Singer', 'Producer', 'Performer', 'Model', 'Photographer', 'Beauty Professional'];
@@ -11,6 +11,13 @@ const GENRES: Genre[] = [
   'Afrobeats', 'Pop', 'Jazz', 'Gospel', 'Commercial', 'Editorial',
   'Fashion', 'Event', 'Portrait', 'Bridal', 'Glamour'
 ];
+
+interface ServiceItem {
+  id?: string;
+  service_name: string;
+  price: string;
+  duration_minutes: number;
+}
 
 export default function ArtistProfileEditPage() {
   const { profile, refreshProfile } = useAuth();
@@ -24,12 +31,20 @@ export default function ArtistProfileEditPage() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  // Form states
+  // Basic Form States
   const [stageName, setStageName] = useState('');
   const [bio, setBio] = useState('');
   const [categories, setCategories] = useState<Category[]>([]);
   const [genres, setGenres] = useState<Genre[]>([]);
-  const [hourlyRate, setHourlyRate] = useState('');
+  
+  // Dynamic Pricing & Rate States
+  const [pricingType, setPricingType] = useState<'per_hour' | 'per_gig' | 'per_beat' | 'per_service'>('per_hour');
+  const [baseRate, setBaseRate] = useState('');
+  const [services, setServices] = useState<ServiceItem[]>([
+    { service_name: '', price: '', duration_minutes: 60 }
+  ]);
+
+  // Location & Media States
   const [locationCity, setLocationCity] = useState('');
   const [locationProvince, setLocationProvince] = useState('');
   const [travelRadius, setTravelRadius] = useState('50');
@@ -62,7 +77,17 @@ export default function ArtistProfileEditPage() {
         setBio(data.bio || '');
         setCategories(data.categories || []);
         setGenres(data.genres || []);
-        setHourlyRate(data.hourly_rate ? String(data.hourly_rate) : '');
+        
+        // Load Pricing Model & Base Rates
+        setPricingType(data.pricing_type || 'per_hour');
+        setBaseRate(
+          data.base_rate !== null && data.base_rate !== undefined
+            ? String(data.base_rate)
+            : data.hourly_rate
+            ? String(data.hourly_rate)
+            : ''
+        );
+
         setLocationCity(data.location_city || '');
         setLocationProvince(data.location_province || '');
         setTravelRadius(data.travel_radius ? String(data.travel_radius) : '50');
@@ -73,6 +98,25 @@ export default function ArtistProfileEditPage() {
         setSpotify(data.social_links?.spotify || '');
         setSoundcloud(data.social_links?.soundcloud || '');
         setYoutube(data.social_links?.youtube || '');
+
+        // Fetch Services if user is a Beauty Professional or has per_service selected
+        if (data.pricing_type === 'per_service' || data.categories?.includes('Beauty Professional')) {
+          const { data: serviceData, error: serviceErr } = await supabase
+            .from('talent_services')
+            .select('*')
+            .eq('profile_id', profile?.id);
+
+          if (!serviceErr && serviceData && serviceData.length > 0) {
+            setServices(
+              serviceData.map((s) => ({
+                id: s.id,
+                service_name: s.service_name || '',
+                price: s.price !== null && s.price !== undefined ? String(s.price) : '',
+                duration_minutes: s.duration_minutes || 60,
+              }))
+            );
+          }
+        }
       }
     } catch (err: any) {
       setError(err.message);
@@ -106,7 +150,12 @@ export default function ArtistProfileEditPage() {
       setError(null);
       const url = await uploadFileToSupabase(file, 'avatar');
       setAvatarUrl(url);
-      await supabase.from('artist_profiles').upsert({ user_id: profile?.id, avatar_url: url, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      await supabase
+        .from('artist_profiles')
+        .upsert(
+          { user_id: profile?.id, avatar_url: url, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
       if (profile?.id) {
         await supabase.from('profiles').update({ avatar_url: url }).eq('id', profile.id);
       }
@@ -127,7 +176,12 @@ export default function ArtistProfileEditPage() {
       setError(null);
       const url = await uploadFileToSupabase(file, 'cover');
       setCoverUrl(url);
-      await supabase.from('artist_profiles').upsert({ user_id: profile?.id, cover_url: url, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      await supabase
+        .from('artist_profiles')
+        .upsert(
+          { user_id: profile?.id, cover_url: url, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
     } catch (err: any) {
       setError(err.message || 'Failed to upload cover banner');
     } finally {
@@ -135,7 +189,7 @@ export default function ArtistProfileEditPage() {
     }
   };
 
-  // Gallery Files Upload Handler (Auto Save - Supports Photos, Audio & Video)
+  // Gallery Files Upload Handler
   const handleGalleryFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
@@ -149,7 +203,12 @@ export default function ArtistProfileEditPage() {
       }
       const updatedGallery = [...galleryUrls, ...uploadedUrls];
       setGalleryUrls(updatedGallery);
-      await supabase.from('artist_profiles').upsert({ user_id: profile?.id, gallery_urls: updatedGallery, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      await supabase
+        .from('artist_profiles')
+        .upsert(
+          { user_id: profile?.id, gallery_urls: updatedGallery, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
     } catch (err: any) {
       setError(err.message || 'Failed to upload gallery media');
     } finally {
@@ -161,14 +220,31 @@ export default function ArtistProfileEditPage() {
     const updated = galleryUrls.filter((_, i) => i !== index);
     setGalleryUrls(updated);
     if (profile?.id) {
-      await supabase.from('artist_profiles').upsert({ user_id: profile.id, gallery_urls: updated, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      await supabase
+        .from('artist_profiles')
+        .upsert(
+          { user_id: profile.id, gallery_urls: updated, updated_at: new Date().toISOString() },
+          { onConflict: 'user_id' }
+        );
     }
   };
 
+  // Category Toggle & Auto Pricing Type Switch
   const handleCategoryToggle = (cat: Category) => {
-    setCategories((prev) =>
-      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
-    );
+    setCategories((prev) => {
+      const nextCategories = prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat];
+
+      // Auto-set pricing rules based on selected categories
+      if (nextCategories.includes('Producer')) {
+        setPricingType('per_beat');
+      } else if (nextCategories.includes('Beauty Professional')) {
+        setPricingType('per_service');
+      } else if (pricingType === 'per_beat' || pricingType === 'per_service') {
+        setPricingType('per_hour');
+      }
+
+      return nextCategories;
+    });
   };
 
   const handleGenreToggle = (g: Genre) => {
@@ -177,6 +253,7 @@ export default function ArtistProfileEditPage() {
     );
   };
 
+  // Submit Handler
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setSaving(true);
@@ -186,13 +263,17 @@ export default function ArtistProfileEditPage() {
     try {
       if (!profile) throw new Error('Not authenticated');
 
+      const parsedBaseRate = baseRate ? parseFloat(baseRate) : null;
+
       const payload = {
         user_id: profile.id,
         stage_name: stageName,
         bio,
         categories,
         genres,
-        hourly_rate: hourlyRate ? parseFloat(hourlyRate) : null,
+        pricing_type: pricingType,
+        base_rate: parsedBaseRate,
+        hourly_rate: pricingType === 'per_hour' ? parsedBaseRate : null,
         location_city: locationCity,
         location_province: locationProvince,
         travel_radius: travelRadius ? parseInt(travelRadius) : 50,
@@ -214,6 +295,26 @@ export default function ArtistProfileEditPage() {
 
       if (upsertError) throw upsertError;
 
+      // Handle Beauty Professional Services
+      if (pricingType === 'per_service' || categories.includes('Beauty Professional')) {
+        // Clear existing services to replace with current state
+        await supabase.from('talent_services').delete().eq('profile_id', profile.id);
+
+        const validServices = services
+          .filter((s) => s.service_name.trim() !== '' && s.price.trim() !== '')
+          .map((s) => ({
+            profile_id: profile.id,
+            service_name: s.service_name.trim(),
+            price: parseFloat(s.price),
+            duration_minutes: s.duration_minutes || 60,
+          }));
+
+        if (validServices.length > 0) {
+          const { error: serviceErr } = await supabase.from('talent_services').insert(validServices);
+          if (serviceErr) throw serviceErr;
+        }
+      }
+
       if (avatarUrl) {
         await supabase
           .from('profiles')
@@ -231,7 +332,6 @@ export default function ArtistProfileEditPage() {
     }
   };
 
-  // Media type detector helper
   const getMediaType = (url: string) => {
     const cleanUrl = url.split('?')[0].toLowerCase();
     if (cleanUrl.match(/\.(mp3|wav|ogg|m4a|aac)$/)) return 'audio';
@@ -288,7 +388,7 @@ export default function ArtistProfileEditPage() {
           {/* Identity & Bio */}
           <section className="space-y-6">
             <h2 className="text-sm uppercase tracking-wide-sm font-semibold text-ink border-b border-line pb-2">Basic Info</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6">
               <FormField label="Stage / Artist Name" full>
                 <input
                   type="text"
@@ -297,16 +397,6 @@ export default function ArtistProfileEditPage() {
                   className="input-field"
                   placeholder="e.g. DJ Spark"
                   required
-                />
-              </FormField>
-
-              <FormField label="Hourly Rate (ZAR)" full={false}>
-                <input
-                  type="number"
-                  value={hourlyRate}
-                  onChange={(e) => setHourlyRate(e.target.value)}
-                  className="input-field"
-                  placeholder="e.g. 1500"
                 />
               </FormField>
 
@@ -341,6 +431,111 @@ export default function ArtistProfileEditPage() {
                 </button>
               ))}
             </div>
+          </section>
+
+          {/* Pricing & Rates Section */}
+          <section className="space-y-6">
+            <h2 className="text-sm uppercase tracking-wide-sm font-semibold text-ink border-b border-line pb-2">Pricing & Rates</h2>
+
+            {/* Music Producers */}
+            {categories.includes('Producer') && (
+              <FormField label="Rate Per Beat (ZAR)" full={false}>
+                <input
+                  type="number"
+                  value={baseRate}
+                  onChange={(e) => setBaseRate(e.target.value)}
+                  className="input-field"
+                  placeholder="e.g. 500"
+                  required
+                />
+              </FormField>
+            )}
+
+            {/* Beauty Professionals */}
+            {categories.includes('Beauty Professional') && (
+              <div className="space-y-4">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Services & Pricing Menu</label>
+                {services.map((service, idx) => (
+                  <div key={idx} className="flex gap-2 items-center">
+                    <input
+                      type="text"
+                      placeholder="Service Name (e.g. Knotless Braids)"
+                      value={service.service_name}
+                      onChange={(e) => {
+                        const updated = [...services];
+                        updated[idx].service_name = e.target.value;
+                        setServices(updated);
+                      }}
+                      className="input-field flex-1"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Price (ZAR)"
+                      value={service.price}
+                      onChange={(e) => {
+                        const updated = [...services];
+                        updated[idx].price = e.target.value;
+                        setServices(updated);
+                      }}
+                      className="input-field w-32"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setServices(services.filter((_, i) => i !== idx))}
+                      className="p-2 text-red-600 hover:text-red-800"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setServices([...services, { service_name: '', price: '', duration_minutes: 60 }])}
+                  className="flex items-center gap-2 text-xs uppercase tracking-wide-sm text-ink hover:underline pt-2"
+                >
+                  <Plus className="w-4 h-4" /> Add Service
+                </button>
+              </div>
+            )}
+
+            {/* General Talent */}
+            {!categories.includes('Producer') && !categories.includes('Beauty Professional') && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Pricing Structure</label>
+                  <div className="flex gap-4 pt-2">
+                    <label className="flex items-center gap-2 text-xs uppercase text-ink cursor-pointer">
+                      <input
+                        type="radio"
+                        name="pricingType"
+                        checked={pricingType === 'per_hour'}
+                        onChange={() => setPricingType('per_hour')}
+                      />
+                      Per Hour
+                    </label>
+                    <label className="flex items-center gap-2 text-xs uppercase text-ink cursor-pointer">
+                      <input
+                        type="radio"
+                        name="pricingType"
+                        checked={pricingType === 'per_gig'}
+                        onChange={() => setPricingType('per_gig')}
+                      />
+                      Per Gig / Event
+                    </label>
+                  </div>
+                </div>
+
+                <FormField label={pricingType === 'per_hour' ? "Hourly Rate (ZAR)" : "Flat Rate Per Gig (ZAR)"} full={false}>
+                  <input
+                    type="number"
+                    value={baseRate}
+                    onChange={(e) => setBaseRate(e.target.value)}
+                    className="input-field"
+                    placeholder="e.g. 1500"
+                  />
+                </FormField>
+              </div>
+            )}
           </section>
 
           {/* Genres */}
@@ -441,7 +636,7 @@ export default function ArtistProfileEditPage() {
               </div>
             </div>
 
-            {/* Gallery Media Upload (Images, Audio & Videos) */}
+            {/* Gallery Media Upload */}
             <div className="space-y-3 pt-4">
               <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Portfolio Media (Photos, Audio & Video)</label>
               <label className="cursor-pointer border-2 border-dashed border-line hover:border-ink p-6 text-center block transition-colors bg-paper-100">
