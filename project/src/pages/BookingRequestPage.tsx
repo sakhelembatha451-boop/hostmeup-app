@@ -2,7 +2,7 @@ import { useState, useEffect, FormEvent, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck, ShieldAlert, UserPlus, Trash2, Search } from 'lucide-react';
 import type { ArtistWithProfile } from '@/types';
 import { getAdminId, createConversation, createNotification } from '@/lib/messaging';
 
@@ -10,6 +10,12 @@ declare global {
   interface Window {
     YocoSDK?: any;
   }
+}
+
+interface SelectedTalent {
+  artist: ArtistWithProfile;
+  rate: number;
+  rateUnit: string;
 }
 
 const EQUIPMENT_OPTIONS = ['PA System', 'Microphones', 'DJ Controller', 'Speakers', 'Mixing Board', 'Stage Lighting', 'Instruments', 'Cables', 'Drum Kit', 'Keyboard'];
@@ -22,7 +28,7 @@ export default function BookingRequestPage() {
   const { id } = useParams<{ id: string }>();
   const { profile } = useAuth();
   const navigate = useNavigate();
-  const [artist, setArtist] = useState<ArtistWithProfile | null>(null);
+  
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [paying, setPaying] = useState(false);
@@ -30,6 +36,14 @@ export default function BookingRequestPage() {
   const [showCheckout, setShowCheckout] = useState(false);
   const [bookingCreated, setBookingCreated] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
+
+  // Selected talents list for multi-talent support
+  const [selectedTalents, setSelectedTalents] = useState<SelectedTalent[]>([]);
+  
+  // Talent search & add state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ArtistWithProfile[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const [hostVerification, setHostVerification] = useState<{
     is_identity_verified: boolean;
@@ -45,6 +59,19 @@ export default function BookingRequestPage() {
   const [equipment, setEquipment] = useState<string[]>([]);
   const [customEquipment, setCustomEquipment] = useState('');
 
+  // Helper to structure artist profile
+  const extractTalentInfo = (artistData: ArtistWithProfile): SelectedTalent => {
+    const ap = artistData.artist_profile;
+    const rateUnit = ap?.rate_unit || 'hour';
+    const baseRate = ap?.base_rate ?? ap?.hourly_rate ?? ap?.rate ?? 0;
+    return {
+      artist: artistData,
+      rate: Number(baseRate) || 0,
+      rateUnit,
+    };
+  };
+
+  // 1. Initial Load for Primary Talent
   useEffect(() => {
     if (!id) return;
     let isMounted = true;
@@ -57,7 +84,6 @@ export default function BookingRequestPage() {
         let targetUserId: string | null = null;
         let artistProfileData: any = null;
 
-        // 1. Check artist_profiles by user_id
         const { data: apByUser } = await supabase
           .from('artist_profiles')
           .select('*')
@@ -68,7 +94,6 @@ export default function BookingRequestPage() {
           targetUserId = id;
           artistProfileData = apByUser;
         } else {
-          // 2. Check artist_profiles by artist profile primary key ID
           const { data: apById } = await supabase
             .from('artist_profiles')
             .select('*')
@@ -81,7 +106,8 @@ export default function BookingRequestPage() {
           }
         }
 
-        // 3. Resolve user profile once artist is identified
+        let fetchedArtist: ArtistWithProfile | null = null;
+
         if (targetUserId) {
           const { data: userProfile } = await supabase
             .from('profiles')
@@ -90,17 +116,21 @@ export default function BookingRequestPage() {
             .maybeSingle();
 
           if (userProfile && isMounted) {
-            setArtist({
+            fetchedArtist = {
               ...userProfile,
               artist_profile: artistProfileData || null,
-            } as ArtistWithProfile);
+            } as ArtistWithProfile;
           }
         } else if (artistProfileData && isMounted) {
-          setArtist({
+          fetchedArtist = {
             id: artistProfileData.user_id,
             full_name: artistProfileData.stage_name || 'Talent',
             artist_profile: artistProfileData,
-          } as unknown as ArtistWithProfile);
+          } as unknown as ArtistWithProfile;
+        }
+
+        if (fetchedArtist && isMounted) {
+          setSelectedTalents([extractTalentInfo(fetchedArtist)]);
         }
 
         if (profile?.id && isMounted) {
@@ -123,39 +153,94 @@ export default function BookingRequestPage() {
     return () => { isMounted = false; };
   }, [id, profile?.id]);
 
-  const ap = artist?.artist_profile;
-  const rateUnit = ap?.rate_unit || 'hour';
-  const baseRate = ap?.base_rate ?? ap?.hourly_rate ?? ap?.rate ?? null;
-  const numericBaseRate = baseRate != null ? Number(baseRate) : null;
-
-  const { totalAmount, depositAmount, remainingBalance } = useMemo(() => {
-    if (!numericBaseRate || numericBaseRate <= 0) return { totalAmount: 0, depositAmount: 0, remainingBalance: 0 };
-    let total = 0;
-    if (rateUnit === 'hour') {
-      const hours = parseFloat(durationHours) || 0;
-      total = numericBaseRate * hours;
-    } else {
-      total = numericBaseRate;
+  // Search additional talent to add to booking
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
+      return;
     }
+
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const { data: profiles } = await supabase
+          .from('artist_profiles')
+          .select('*, profiles:user_id(*)')
+          .or(`stage_name.ilike.%${searchQuery}%,bio.ilike.%${searchQuery}%`)
+          .limit(5);
+
+        if (profiles) {
+          const formatted: ArtistWithProfile[] = profiles.map((ap: any) => ({
+            ...(ap.profiles || {}),
+            id: ap.user_id,
+            full_name: ap.stage_name || ap.profiles?.full_name || 'Talent Provider',
+            artist_profile: ap,
+          }));
+          setSearchResults(formatted.filter(item => !selectedTalents.some(st => st.artist.id === item.id)));
+        }
+      } catch (err) {
+        console.error('Error searching talents:', err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, selectedTalents]);
+
+  const addTalentToBooking = (artistToAdd: ArtistWithProfile) => {
+    setSelectedTalents(prev => [...prev, extractTalentInfo(artistToAdd)]);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  const removeTalentFromBooking = (artistId: string) => {
+    if (selectedTalents.length <= 1) {
+      setError('A booking must have at least one talent provider.');
+      return;
+    }
+    setSelectedTalents(prev => prev.filter(t => t.artist.id !== artistId));
+  };
+
+  // Calculating total pricing across all selected talent
+  const { totalAmount, depositAmount, remainingBalance } = useMemo(() => {
+    const hours = parseFloat(durationHours) || 0;
+    let total = 0;
+
+    selectedTalents.forEach(item => {
+      if (item.rateUnit === 'hour') {
+        total += item.rate * hours;
+      } else {
+        total += item.rate;
+      }
+    });
+
     const deposit = total * 0.4;
     const remaining = total * 0.6;
     return { totalAmount: total, depositAmount: deposit, remainingBalance: remaining };
-  }, [numericBaseRate, rateUnit, durationHours]);
-
-  const canCalculate = numericBaseRate != null && numericBaseRate > 0 && (rateUnit !== 'hour' || (parseFloat(durationHours) || 0) > 0);
+  }, [selectedTalents, durationHours]);
 
   const toggleEquipment = (item: string) => setEquipment(equipment.includes(item) ? equipment.filter((e) => e !== item) : [...equipment, item]);
   const addCustomEquipment = () => { if (customEquipment.trim()) { setEquipment([...equipment, customEquipment.trim()]); setCustomEquipment(''); } };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const targetArtistId = artist?.id || ap?.user_id || id;
-    if (!targetArtistId || !profile) return;
+    if (!profile) return;
+    if (selectedTalents.length === 0) { setError('Please select at least one talent provider.'); return; }
     if (!eventName || !eventDate || !location) { setError('Please fill in all required fields'); return; }
-    if (rateUnit === 'hour' && (!durationHours || parseFloat(durationHours) <= 0)) { setError('Please enter the duration in hours'); return; }
+
+    const hasHourlyTalent = selectedTalents.some(t => t.rateUnit === 'hour');
+    if (hasHourlyTalent && (!durationHours || parseFloat(durationHours) <= 0)) { 
+      setError('Please enter the duration in hours for hourly talent.'); 
+      return; 
+    }
 
     setSubmitting(true);
     setError('');
+
+    // Primary artist is the first in the list
+    const primaryTalent = selectedTalents[0].artist;
+    const targetArtistId = primaryTalent.id || primaryTalent.artist_profile?.user_id || id;
 
     const payload = {
       artist_id: targetArtistId,
@@ -163,10 +248,10 @@ export default function BookingRequestPage() {
       event_name: eventName,
       event_date: eventDate,
       start_time: startTime || null,
-      gig_duration: rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee',
+      gig_duration: `${durationHours || '1'} hours`,
       equipment_needed: equipment,
       location,
-      notes,
+      notes: `Hired Talent Providers (${selectedTalents.length}): ${selectedTalents.map(t => t.artist.artist_profile?.stage_name || t.artist.full_name).join(', ')}. ${notes}`,
       status: 'pending',
       total_amount: totalAmount,
       deposit_amount: depositAmount,
@@ -198,20 +283,29 @@ export default function BookingRequestPage() {
         
         try {
           const adminId = await getAdminId();
-          const artistName = ap?.stage_name || artist?.full_name || 'Talent';
           const hostName = profile.full_name || 'A host';
-          const initialMsg = `New booking request for ${artistName} — ${eventName} on ${new Date(eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${location}. Duration: ${rateUnit === 'hour' ? `${durationHours} hours` : 'Flat fee'}. Total: ${formatCurrency(totalAmount)} | Deposit (40%): ${formatCurrency(depositAmount)}.`;
-          
-          await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
-          await createNotification(
-            targetArtistId,
-            'booking',
-            'New Booking Request! 📅',
-            `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
-            '/artist-dashboard',
-            undefined,
-            data.id
-          );
+
+          // Notify all selected talent providers
+          for (const item of selectedTalents) {
+            const artistObj = item.artist;
+            const artistName = artistObj.artist_profile?.stage_name || artistObj.full_name || 'Talent';
+            const artistUserId = artistObj.id || artistObj.artist_profile?.user_id;
+
+            if (artistUserId) {
+              const initialMsg = `New booking request for ${artistName} — ${eventName} on ${new Date(eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${location}. Duration: ${durationHours ? `${durationHours} hours` : 'Event'}. Total: ${formatCurrency(item.rateUnit === 'hour' ? item.rate * (parseFloat(durationHours) || 1) : item.rate)}.`;
+              
+              await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
+              await createNotification(
+                artistUserId,
+                'booking',
+                'New Booking Request! 📅',
+                `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
+                '/artist-dashboard',
+                undefined,
+                data.id
+              );
+            }
+          }
         } catch (err) {
           console.warn('Non-fatal notification dispatch error:', err);
         }
@@ -226,8 +320,7 @@ export default function BookingRequestPage() {
   };
 
   const handlePayDeposit = async () => {
-    const targetArtistId = artist?.id || ap?.user_id || id;
-    if (!createdBookingId || !targetArtistId) return;
+    if (!createdBookingId) return;
     setPaying(true);
     setError('');
 
@@ -245,7 +338,7 @@ export default function BookingRequestPage() {
       yoco.showPopup({
         amountInCents: Math.round(depositAmount * 100),
         currency: 'ZAR',
-        name: 'HostMeUp Deposit',
+        name: 'HostMeUp Multi-Talent Deposit',
         description: `40% Deposit for ${eventName}`,
         callback: async (result: any) => {
           if (result.error) {
@@ -264,8 +357,7 @@ export default function BookingRequestPage() {
   };
 
   const confirmDepositInDatabase = async () => {
-    const targetArtistId = artist?.id || ap?.user_id || id;
-    if (!createdBookingId || !targetArtistId) return;
+    if (!createdBookingId) return;
 
     let { error: payErr } = await supabase.from('bookings')
       .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
@@ -282,15 +374,20 @@ export default function BookingRequestPage() {
     if (payErr) { setError(payErr.message); return; }
 
     try {
-      await createNotification(
-        targetArtistId,
-        'booking',
-        'Booking Deposit Paid! 🎉',
-        `Deposit of ${formatCurrency(depositAmount)} for "${eventName}" has been paid. Your booking is confirmed!`,
-        '/artist-dashboard',
-        undefined,
-        createdBookingId
-      );
+      for (const item of selectedTalents) {
+        const artistUserId = item.artist.id || item.artist.artist_profile?.user_id;
+        if (artistUserId) {
+          await createNotification(
+            artistUserId,
+            'booking',
+            'Booking Deposit Paid! 🎉',
+            `Deposit for "${eventName}" has been paid. Your booking is confirmed!`,
+            '/artist-dashboard',
+            undefined,
+            createdBookingId
+          );
+        }
+      }
     } catch (notifErr) {
       console.warn('Could not dispatch deposit notification:', notifErr);
     }
@@ -308,7 +405,7 @@ export default function BookingRequestPage() {
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
-  if (!artist) return (
+  if (selectedTalents.length === 0) return (
     <div className="min-h-screen flex flex-col items-center justify-center text-center px-4">
       <h2 className="font-display text-2xl text-ink mb-2">Talent not found</h2>
       <p className="text-sm text-ink-400 mb-4">The artist or talent profile you are looking for could not be located.</p>
@@ -320,19 +417,18 @@ export default function BookingRequestPage() {
     <div className="min-h-screen flex items-center justify-center bg-paper px-4">
       <div className="text-center animate-scale-in">
         <div className="w-16 h-16 border border-accent-200 bg-accent-50 flex items-center justify-center text-accent mx-auto mb-6"><CheckCircle2 className="w-8 h-8" /></div>
-        <h2 className="font-display text-3xl font-bold text-ink mb-2">Booking Request Sent.</h2>
+        <h2 className="font-display text-3xl font-bold text-ink mb-2">Booking Requests Sent!</h2>
         <p className="text-ink-400">Redirecting to your dashboard...</p>
       </div>
     </div>
   );
 
-  const noRateSet = !numericBaseRate || numericBaseRate <= 0;
   const isHostVerified = hostVerification?.is_identity_verified || hostVerification?.verification_status === 'approved';
 
   return (
     <div className="min-h-screen bg-paper">
-      <div className="max-w-2xl mx-auto px-6 lg:px-12 py-12">
-        <Link to={`/artists/${artist?.id || id}`} aria-label="Back to talent profile" className="inline-flex items-center gap-2 text-xs font-medium text-ink-400 hover:text-ink uppercase tracking-wide-sm mb-8 transition-colors">
+      <div className="max-w-3xl mx-auto px-6 lg:px-12 py-12">
+        <Link to={`/artists/${selectedTalents[0]?.artist.id || id}`} aria-label="Back to talent profile" className="inline-flex items-center gap-2 text-xs font-medium text-ink-400 hover:text-ink uppercase tracking-wide-sm mb-8 transition-colors">
           <ArrowLeft className="w-3.5 h-3.5" /> Back to Profile
         </Link>
 
@@ -355,29 +451,87 @@ export default function BookingRequestPage() {
           </div>
         )}
 
-        <div className="flex items-center gap-5 border border-line p-5 mb-8">
-          {artist.avatar_url ? (
-            <img src={artist.avatar_url} alt={`Profile photo of ${artist?.full_name || 'talent'}`} width={64} height={64} className="w-16 h-16 rounded-full object-cover border border-line" />
-          ) : (
-            <div className="w-16 h-16 rounded-full bg-ink text-paper flex items-center justify-center font-display text-xl font-bold">{artist.full_name?.[0]?.toUpperCase() || '?'}</div>
-          )}
-          <div>
-            <h2 className="font-display text-xl font-bold text-ink">{ap?.stage_name || artist.full_name}</h2>
-            {ap?.performance_roles && ap.performance_roles.length > 0 && <p className="text-sm text-ink-400">{ap.performance_roles.join(', ')}</p>}
-            {numericBaseRate != null && numericBaseRate > 0 && <p className="text-sm font-semibold text-accent mt-1">{formatCurrency(numericBaseRate)}/{rateUnit === 'hour' ? 'hr' : rateUnit}</p>}
+        <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-2">— Multi-Talent Booking Request</p>
+        <h1 className="font-display text-3xl font-bold text-ink mb-2">Hire talent for your event.</h1>
+        <p className="text-ink-400 mb-8">Add multiple providers to a single event booking and pay one combined 40% deposit.</p>
+
+        {/* Selected Talent Roster Section */}
+        <div className="border border-line p-6 mb-8 bg-paper-100">
+          <h3 className="font-display text-base font-bold text-ink mb-4 flex items-center justify-between">
+            <span>Selected Talent Roster ({selectedTalents.length})</span>
+          </h3>
+
+          <div className="space-y-3 mb-6">
+            {selectedTalents.map((item, idx) => {
+              const ap = item.artist.artist_profile;
+              const name = ap?.stage_name || item.artist.full_name;
+              return (
+                <div key={item.artist.id || idx} className="flex items-center justify-between p-4 bg-paper border border-line">
+                  <div className="flex items-center gap-4">
+                    {item.artist.avatar_url ? (
+                      <img src={item.artist.avatar_url} alt={name} className="w-12 h-12 rounded-full object-cover border border-line" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-ink text-paper flex items-center justify-center font-bold">{name[0]?.toUpperCase()}</div>
+                    )}
+                    <div>
+                      <h4 className="font-bold text-ink text-sm">{name}</h4>
+                      <p className="text-xs text-ink-400">{ap?.performance_roles?.join(', ') || ap?.category || 'Talent Provider'}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-semibold text-accent">
+                      {formatCurrency(item.rate)}/{item.rateUnit === 'hour' ? 'hr' : item.rateUnit}
+                    </span>
+                    {selectedTalents.length > 1 && (
+                      <button 
+                        type="button" 
+                        onClick={() => removeTalentFromBooking(item.artist.id)} 
+                        className="text-ink-400 hover:text-red-600 transition-colors"
+                        title="Remove talent"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Add Additional Talent Input */}
+          <div className="relative">
+            <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 flex items-center gap-1">
+              <UserPlus className="w-3.5 h-3.5" /> Add Another Talent / Asset Provider to Event
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search talent or asset by stage name..."
+                className="input-editorial w-full pl-9 pr-4 py-2.5 text-sm"
+              />
+              <Search className="w-4 h-4 text-ink-400 absolute left-3 top-3" />
+              {isSearching && <Loader2 className="w-4 h-4 text-ink-400 animate-spin absolute right-3 top-3" />}
+            </div>
+
+            {searchResults.length > 0 && (
+              <div className="absolute z-20 left-0 right-0 mt-1 bg-paper border border-line shadow-lg max-h-48 overflow-y-auto">
+                {searchResults.map((res) => (
+                  <button
+                    key={res.id}
+                    type="button"
+                    onClick={() => addTalentToBooking(res)}
+                    className="w-full flex items-center justify-between p-3 text-left hover:bg-paper-200 border-b border-line last:border-0 transition-colors"
+                  >
+                    <span className="text-sm font-medium text-ink">{res.artist_profile?.stage_name || res.full_name}</span>
+                    <span className="text-xs text-accent font-semibold">+ Add Provider</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-
-        <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Booking Request</p>
-        <h1 className="font-display text-3xl font-bold text-ink mb-2">Request this talent.</h1>
-        <p className="text-ink-400 mb-10">Fill in your event details below. A 40% deposit is required to confirm your booking.</p>
-
-        {noRateSet && (
-          <div className="flex items-start gap-2 p-4 mb-6 border border-amber-200 bg-amber-50 text-amber-800 text-sm">
-            <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-            <span>This talent has not set a booking rate yet. You can still send a request, but pricing won't be calculated automatically.</span>
-          </div>
-        )}
 
         {error && <div className="flex items-start gap-2 p-3 mb-6 border border-red-200 bg-red-50 text-red-700 text-sm"><AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>}
 
@@ -397,57 +551,44 @@ export default function BookingRequestPage() {
                 <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Start Time</label>
                 <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" />
               </div>
-              {rateUnit === 'hour' ? (
-                <div>
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 flex items-center gap-1"><Clock className="w-3 h-3" /> Duration (hours) *</label>
-                  <input type="number" min="0.5" step="0.5" required value={durationHours} onChange={(e) => setDurationHours(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="e.g. 3" />
-                  <p className="text-xs text-ink-300 mt-1">Enter the number of hours for this booking.</p>
-                </div>
-              ) : (
-                <div className="sm:col-span-1">
-                  <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Booking Type</label>
-                  <div className="input-editorial w-full px-4 py-2.5 text-sm text-ink-500">Flat {rateUnit} rate</div>
-                </div>
-              )}
-              <div>
-                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 flex items-center gap-1"><MapPin className="w-3 h-3" /> Location *</label>
+              <div className="sm:col-span-2">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 flex items-center gap-1"><Clock className="w-3 h-3" /> Booking Duration (Hours) *</label>
+                <input type="number" min="0.5" step="0.5" required value={durationHours} onChange={(e) => setDurationHours(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="e.g. 4" />
+                <p className="text-xs text-ink-300 mt-1">This duration applies to all hourly rate talent selected above.</p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 flex items-center gap-1"><MapPin className="w-3 h-3" /> Location / Venue *</label>
                 <input type="text" required value={location} onChange={(e) => setLocation(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="Venue address" />
               </div>
             </div>
           </div>
 
-          {canCalculate && (
-            <div className="border border-line p-6 lg:p-8 bg-paper-200">
-              <h3 className="font-display text-lg font-semibold text-ink mb-6 flex items-center gap-2"><CreditCard className="w-4 h-4 text-accent" /> Pricing Summary</h3>
-              <div className="space-y-4">
-                <div className="flex items-baseline justify-between pb-4 border-b border-line">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Total Booking Cost</p>
-                    <p className="text-sm text-ink-500">
-                      {rateUnit === 'hour'
-                        ? `${formatCurrency(numericBaseRate!)} x ${durationHours || 0} hours`
-                        : `Flat ${rateUnit} rate`}
-                    </p>
-                  </div>
-                  <span className="font-display text-3xl font-bold text-ink">{formatCurrency(totalAmount)}</span>
+          <div className="border border-line p-6 lg:p-8 bg-paper-200">
+            <h3 className="font-display text-lg font-semibold text-ink mb-6 flex items-center gap-2"><CreditCard className="w-4 h-4 text-accent" /> Pricing Summary</h3>
+            <div className="space-y-4">
+              <div className="flex items-baseline justify-between pb-4 border-b border-line">
+                <div>
+                  <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Total Booking Cost</p>
+                  <p className="text-sm text-ink-500">Combined total for {selectedTalents.length} provider(s)</p>
                 </div>
-                <div className="flex items-baseline justify-between">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Required Upfront Deposit (40%)</p>
-                    <p className="text-sm text-ink-400">Due now to confirm booking</p>
-                  </div>
-                  <span className="font-display text-2xl font-semibold text-accent">{formatCurrency(depositAmount)}</span>
+                <span className="font-display text-3xl font-bold text-ink">{formatCurrency(totalAmount)}</span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Required Upfront Deposit (40%)</p>
+                  <p className="text-sm text-ink-400">Due now to confirm all providers</p>
                 </div>
-                <div className="flex items-baseline justify-between pt-4 border-t border-line">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Remaining Balance (60%)</p>
-                    <p className="text-sm text-ink-400">Due after the event</p>
-                  </div>
-                  <span className="font-display text-2xl font-semibold text-ink-600">{formatCurrency(remainingBalance)}</span>
+                <span className="font-display text-2xl font-semibold text-accent">{formatCurrency(depositAmount)}</span>
+              </div>
+              <div className="flex items-baseline justify-between pt-4 border-t border-line">
+                <div>
+                  <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Remaining Balance (60%)</p>
+                  <p className="text-sm text-ink-400">Due after event completion</p>
                 </div>
+                <span className="font-display text-2xl font-semibold text-ink-600">{formatCurrency(remainingBalance)}</span>
               </div>
             </div>
-          )}
+          </div>
 
           <div className="border border-line p-6 lg:p-8">
             <h3 className="font-display text-lg font-semibold text-ink mb-6">Equipment Needed</h3>
@@ -467,14 +608,14 @@ export default function BookingRequestPage() {
 
           <div className="border border-line p-6 lg:p-8">
             <h3 className="font-display text-lg font-semibold text-ink mb-6 flex items-center gap-2"><Music className="w-4 h-4 text-accent" /> Additional Notes</h3>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="Special requests, set preferences, or other details..." />
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="Special requests or instructions for the team..." />
           </div>
 
           <div className="flex items-center gap-3">
             <button type="submit" disabled={submitting} className="btn-primary inline-flex items-center gap-2 px-8 py-3.5 text-xs uppercase tracking-wide-sm disabled:opacity-50">
               {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />} Continue to Checkout
             </button>
-            <button type="button" onClick={() => navigate(`/artists/${artist?.id || id}`)} className="btn-outline px-8 py-3.5 text-xs uppercase tracking-wide-sm">Cancel</button>
+            <button type="button" onClick={() => navigate(-1)} className="btn-outline px-8 py-3.5 text-xs uppercase tracking-wide-sm">Cancel</button>
           </div>
         </form>
       </div>
@@ -486,14 +627,14 @@ export default function BookingRequestPage() {
               <div className="w-10 h-10 border border-accent-200 bg-accent-50 flex items-center justify-center text-accent"><Lock className="w-5 h-5" /></div>
               <div>
                 <h3 className="font-display text-xl font-bold text-ink">Secure Deposit Checkout</h3>
-                <p className="text-xs text-ink-400">Pay 40% now to lock in your booking with Yoco</p>
+                <p className="text-xs text-ink-400">Pay combined 40% deposit with Yoco</p>
               </div>
             </div>
 
             <div className="border border-line p-4 mb-6 space-y-3">
               <div className="flex justify-between text-sm">
-                <span className="text-ink-400">Talent</span>
-                <span className="font-medium text-ink">{ap?.stage_name || artist.full_name}</span>
+                <span className="text-ink-400">Providers Hired</span>
+                <span className="font-medium text-ink">{selectedTalents.length} Talent(s)</span>
               </div>
               <div className="flex justify-between text-sm">
                 <span className="text-ink-400">Event</span>
