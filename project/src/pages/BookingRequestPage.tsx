@@ -324,7 +324,7 @@ export default function BookingRequestPage() {
       }
     } catch (err: any) {
       setError(err.message || 'Failed to submit booking request.');
-    } fontally {
+    } finally {
       setSubmitting(false);
     }
   };
