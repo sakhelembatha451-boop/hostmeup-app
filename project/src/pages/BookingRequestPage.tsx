@@ -59,11 +59,11 @@ export default function BookingRequestPage() {
   const [equipment, setEquipment] = useState<string[]>([]);
   const [customEquipment, setCustomEquipment] = useState('');
 
-  // Dynamically load Yoco SDK script
+  // Dynamically load Yoco SDK script using active URL
   useEffect(() => {
     if (typeof window !== 'undefined' && !window.YocoSDK) {
       const script = document.createElement('script');
-      script.src = 'https://js.yoco.com/sdk/v1/yoco.js';
+      script.src = 'https://js.yoco.com/sdk/v1/yoco-sdk-web.js';
       script.async = true;
       document.head.appendChild(script);
     }
@@ -324,7 +324,7 @@ export default function BookingRequestPage() {
       }
     } catch (err: any) {
       setError(err.message || 'Failed to submit booking request.');
-    } finally {
+    } fontally {
       setSubmitting(false);
     }
   };
