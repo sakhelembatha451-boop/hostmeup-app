@@ -59,6 +59,16 @@ export default function BookingRequestPage() {
   const [equipment, setEquipment] = useState<string[]>([]);
   const [customEquipment, setCustomEquipment] = useState('');
 
+  // Dynamically load Yoco SDK script
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !window.YocoSDK) {
+      const script = document.createElement('script');
+      script.src = 'https://js.yoco.com/sdk/v1/yoco.js';
+      script.async = true;
+      document.head.appendChild(script);
+    }
+  }, []);
+
   // Helper to structure artist profile
   const extractTalentInfo = (artistData: ArtistWithProfile): SelectedTalent => {
     const ap = artistData.artist_profile;
