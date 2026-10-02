@@ -14,19 +14,25 @@ export default function Navbar() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
+  // Check user role strictly
+  const isHost = profile?.role === 'host';
+  const isArtist = profile?.role === 'artist' || profile?.role === 'producer' || profile?.role === 'talent';
+
   // Dynamic dashboard path based on role and admin status
   const dashboardPath = profile?.is_admin
     ? '/admin'
-    : profile?.role === 'artist'
+    : isArtist
     ? '/artist-dashboard'
-    : '/host-dashboard';
+    : isHost
+    ? '/host-dashboard'
+    : '/artist-dashboard'; // Default safe fallback for creative accounts
 
-  // Dynamic profile edit path based on role (Changed /host-profile/edit to /host-settings)
+  // Dynamic profile edit/view path based on role
   const profileEditPath = profile?.is_admin
     ? '/admin/settings'
-    : profile?.role === 'host'
+    : isHost
     ? '/host-settings'
-    : '/artist-profile/edit';
+    : '/artist-profile/edit'; // Direct artists & producers to artist edit/profile page
 
   const inboxPath = profile?.is_admin ? '/admin/inbox' : '/inbox';
 
@@ -114,7 +120,7 @@ export default function Navbar() {
       navigate(inboxPath);
     } else if (notif.booking_id) {
       navigate(dashboardPath);
-    } else if (profile?.role === 'host') {
+    } else if (isHost) {
       navigate('/host-settings');
     } else {
       navigate(dashboardPath);
@@ -162,7 +168,7 @@ export default function Navbar() {
                 {/* Profile Link */}
                 <Link
                   to={profileEditPath}
-                  aria-label="Edit your profile"
+                  aria-label="View or edit your profile"
                   className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
                 >
                   <User className="w-3.5 h-3.5" /> Profile
@@ -291,10 +297,10 @@ export default function Navbar() {
 
                 <div className="w-px h-5 bg-line" />
                 
-                {/* Desktop User Avatar & Name direct link to edit profile */}
+                {/* Desktop User Avatar & Name */}
                 <Link
                   to={profileEditPath}
-                  aria-label="Edit your profile"
+                  aria-label="View or edit your profile"
                   className="flex items-center gap-2 hover:opacity-80 transition-opacity"
                 >
                   {profile.avatar_url ? (
