@@ -2,7 +2,7 @@ import { useState, useEffect, FormEvent, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck, ShieldAlert, UserPlus, Trash2, Search } from 'lucide-react';
+import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck, ShieldAlert, UserPlus, Trash2, Search, ExternalLink } from 'lucide-react';
 import type { ArtistWithProfile } from '@/types';
 import { getAdminId, createConversation, createNotification } from '@/lib/messaging';
 
@@ -25,7 +25,6 @@ export default function BookingRequestPage() {
   
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [paying, setPaying] = useState(false);
   const [error, setError] = useState('');
   const [showCheckout, setShowCheckout] = useState(false);
   const [bookingCreated, setBookingCreated] = useState(false);
@@ -305,44 +304,12 @@ export default function BookingRequestPage() {
     }
   };
 
-  const handlePayDeposit = async () => {
-    if (!createdBookingId) return;
-    setPaying(true);
-    setError('');
-
-    try {
-      const secretKey = import.meta.env.VITE_YOCO_SECRET_KEY || 'sk_live_1cbf5078e2da1a88_5d9c5f79ac06b8726c9dcf1bd7c158ee';
-
-      const response = await fetch('https://online.yoco.com/v1/checkouts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${secretKey}`,
-        },
-        body: JSON.stringify({
-          amount: Math.round(depositAmount * 100),
-          currency: 'ZAR',
-          successUrl: `${window.location.origin}/host-dashboard?booking_id=${createdBookingId}&payment=success`,
-          cancelUrl: `${window.location.origin}/booking/${id}?payment=cancelled`,
-          metadata: {
-            bookingId: createdBookingId,
-            eventName: eventName,
-          },
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.redirectUrl) {
-        throw new Error(data.message || 'Failed to initialize Yoco Checkout session.');
-      }
-
-      window.location.href = data.redirectUrl;
-    } catch (err: any) {
-      console.error('Yoco Checkout error:', err);
-      setError(err.message || 'Payment gateway failed to initialize.');
-      setPaying(false);
-    }
+  const handlePayDepositRedirect = () => {
+    // Redirect host directly to the permanent Yoco Payment Page
+    window.open('https://pay.yoco.com/hostmeup', '_blank');
+    setShowCheckout(false);
+    setBookingCreated(true);
+    setTimeout(() => navigate('/host-dashboard'), 1500);
   };
 
   const handleSkipPayment = () => {
@@ -573,7 +540,7 @@ export default function BookingRequestPage() {
               <div className="w-10 h-10 border border-accent-200 bg-accent-50 flex items-center justify-center text-accent"><Lock className="w-5 h-5" /></div>
               <div>
                 <h3 className="font-display text-xl font-bold text-ink">Secure Deposit Checkout</h3>
-                <p className="text-xs text-ink-400">Pay combined 40% deposit with Yoco</p>
+                <p className="text-xs text-ink-400">Pay deposit with Yoco Payment Page</p>
               </div>
             </div>
 
@@ -599,17 +566,21 @@ export default function BookingRequestPage() {
                 <span className="text-sm text-accent font-medium">Upfront Deposit (40%)</span>
                 <span className="font-display text-xl font-bold text-accent">{formatCurrency(depositAmount)}</span>
               </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-ink-400">Remaining Balance (60%)</span>
-                <span className="font-medium text-ink-500">{formatCurrency(remainingBalance)}</span>
-              </div>
+            </div>
+
+            <div className="p-3 mb-6 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-none">
+              <p className="font-semibold mb-1">Important Instructions for Yoco Checkout:</p>
+              <ul className="list-disc pl-4 space-y-1 text-amber-800">
+                <li>Enter Amount: <strong>{formatCurrency(depositAmount)}</strong></li>
+                <li>Enter Reference: <strong>Booking #{createdBookingId?.slice(0, 8)}</strong></li>
+              </ul>
             </div>
 
             {error && <div className="flex items-start gap-2 p-3 mb-4 border border-red-200 bg-red-50 text-red-700 text-sm"><AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>}
 
-            <button onClick={handlePayDeposit} disabled={paying} className="btn-accent w-full flex items-center justify-center gap-2 py-4 text-xs uppercase tracking-wide-sm disabled:opacity-50 mb-3">
-              {paying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
-              Pay {formatCurrency(depositAmount)} with Yoco
+            <button onClick={handlePayDepositRedirect} className="btn-accent w-full flex items-center justify-center gap-2 py-4 text-xs uppercase tracking-wide-sm mb-3">
+              <Lock className="w-4 h-4" />
+              Pay {formatCurrency(depositAmount)} on Yoco <ExternalLink className="w-3.5 h-3.5 ml-1" />
             </button>
             <button onClick={handleSkipPayment} className="btn-ghost w-full text-center text-xs uppercase tracking-wide-sm py-2">
               Skip for now — pay later
