@@ -37,10 +37,8 @@ export default function BookingRequestPage() {
   const [bookingCreated, setBookingCreated] = useState(false);
   const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
 
-  // Selected talents list for multi-talent support
   const [selectedTalents, setSelectedTalents] = useState<SelectedTalent[]>([]);
   
-  // Talent search & add state
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<ArtistWithProfile[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -59,7 +57,6 @@ export default function BookingRequestPage() {
   const [equipment, setEquipment] = useState<string[]>([]);
   const [customEquipment, setCustomEquipment] = useState('');
 
-  // Helper to structure artist profile
   const extractTalentInfo = (artistData: ArtistWithProfile): SelectedTalent => {
     const ap = artistData.artist_profile;
     const rateUnit = ap?.rate_unit || 'hour';
@@ -71,7 +68,6 @@ export default function BookingRequestPage() {
     };
   };
 
-  // 1. Initial Load for Primary Talent
   useEffect(() => {
     if (!id) return;
     let isMounted = true;
@@ -153,7 +149,6 @@ export default function BookingRequestPage() {
     return () => { isMounted = false; };
   }, [id, profile?.id]);
 
-  // Search additional talent to add to booking
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSearchResults([]);
@@ -202,7 +197,6 @@ export default function BookingRequestPage() {
     setSelectedTalents(prev => prev.filter(t => t.artist.id !== artistId));
   };
 
-  // Calculating total pricing across all selected talent
   const { totalAmount, depositAmount, remainingBalance } = useMemo(() => {
     const hours = parseFloat(durationHours) || 0;
     let total = 0;
@@ -238,7 +232,6 @@ export default function BookingRequestPage() {
     setSubmitting(true);
     setError('');
 
-    // Primary artist is the first in the list
     const primaryTalent = selectedTalents[0].artist;
     const targetArtistId = primaryTalent.id || primaryTalent.artist_profile?.user_id || id;
 
@@ -285,7 +278,6 @@ export default function BookingRequestPage() {
           const adminId = await getAdminId();
           const hostName = profile.full_name || 'A host';
 
-          // Notify all selected talent providers
           for (const item of selectedTalents) {
             const artistObj = item.artist;
             const artistName = artistObj.artist_profile?.stage_name || artistObj.full_name || 'Talent';
@@ -319,53 +311,13 @@ export default function BookingRequestPage() {
     }
   };
 
-  const ensureYocoLoaded = (): Promise<boolean> => {
-    return new Promise((resolve) => {
-      // 1. Check if globally available
-      if (typeof window !== 'undefined' && window.YocoSDK) {
-        resolve(true);
-        return;
-      }
-
-      // 2. Check if script element already exists in document
-      let script = document.getElementById('yoco-sdk-script') as HTMLScriptElement;
-      
-      if (!script) {
-        script = document.createElement('script');
-        script.id = 'yoco-sdk-script';
-        script.src = 'https://js.yoco.com/sdk/v1/yoco-sdk-web.js';
-        script.async = true;
-        document.head.appendChild(script);
-      }
-
-      // 3. Listen for load/error events
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-
-      // 4. Polling fallback check
-      let attempts = 0;
-      const interval = setInterval(() => {
-        attempts++;
-        if (typeof window !== 'undefined' && window.YocoSDK) {
-          clearInterval(interval);
-          resolve(true);
-        } else if (attempts > 30) {
-          clearInterval(interval);
-          resolve(false);
-        }
-      }, 100);
-    });
-  };
-
   const handlePayDeposit = async () => {
     if (!createdBookingId) return;
     setPaying(true);
     setError('');
 
-    const loaded = await ensureYocoLoaded();
-
-    if (!loaded || typeof window.YocoSDK === 'undefined') {
-      setError('Payment gateway failed to initialize. Please refresh the page or disable browser ad-blockers.');
+    if (typeof window === 'undefined' || !window.YocoSDK) {
+      setError('Yoco Payment SDK is not loaded. Please check your internet connection or disable tracking protection.');
       setPaying(false);
       return;
     }
@@ -390,8 +342,8 @@ export default function BookingRequestPage() {
         },
       });
     } catch (err: any) {
-      console.error('Yoco SDK initialization error:', err);
-      setError('Payment popup could not be initialized. Please try again.');
+      console.error('Yoco SDK popup error:', err);
+      setError('Payment popup could not be opened. Please try again.');
       setPaying(false);
     }
   };
@@ -495,7 +447,6 @@ export default function BookingRequestPage() {
         <h1 className="font-display text-3xl font-bold text-ink mb-2">Hire talent for your event.</h1>
         <p className="text-ink-400 mb-8">Add multiple providers to a single event booking and pay one combined 40% deposit.</p>
 
-        {/* Selected Talent Roster Section */}
         <div className="border border-line p-6 mb-8 bg-paper-100">
           <h3 className="font-display text-base font-bold text-ink mb-4 flex items-center justify-between">
             <span>Selected Talent Roster ({selectedTalents.length})</span>
@@ -538,7 +489,6 @@ export default function BookingRequestPage() {
             })}
           </div>
 
-          {/* Add Additional Talent Input */}
           <div className="relative">
             <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 flex items-center gap-1">
               <UserPlus className="w-3.5 h-3.5" /> Add Another Talent / Asset Provider to Event
