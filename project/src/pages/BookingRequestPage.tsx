@@ -59,16 +59,6 @@ export default function BookingRequestPage() {
   const [equipment, setEquipment] = useState<string[]>([]);
   const [customEquipment, setCustomEquipment] = useState('');
 
-  // Dynamically load Yoco SDK script using active URL
-  useEffect(() => {
-    if (typeof window !== 'undefined' && !window.YocoSDK) {
-      const script = document.createElement('script');
-      script.src = 'https://js.yoco.com/sdk/v1/yoco-sdk-web.js';
-      script.async = true;
-      document.head.appendChild(script);
-    }
-  }, []);
-
   // Helper to structure artist profile
   const extractTalentInfo = (artistData: ArtistWithProfile): SelectedTalent => {
     const ap = artistData.artist_profile;
@@ -329,13 +319,53 @@ export default function BookingRequestPage() {
     }
   };
 
+  const ensureYocoLoaded = (): Promise<boolean> => {
+    return new Promise((resolve) => {
+      // 1. Check if globally available
+      if (typeof window !== 'undefined' && window.YocoSDK) {
+        resolve(true);
+        return;
+      }
+
+      // 2. Check if script element already exists in document
+      let script = document.getElementById('yoco-sdk-script') as HTMLScriptElement;
+      
+      if (!script) {
+        script = document.createElement('script');
+        script.id = 'yoco-sdk-script';
+        script.src = 'https://js.yoco.com/sdk/v1/yoco-sdk-web.js';
+        script.async = true;
+        document.head.appendChild(script);
+      }
+
+      // 3. Listen for load/error events
+      script.onload = () => resolve(true);
+      script.onerror = () => resolve(false);
+
+      // 4. Polling fallback check
+      let attempts = 0;
+      const interval = setInterval(() => {
+        attempts++;
+        if (typeof window !== 'undefined' && window.YocoSDK) {
+          clearInterval(interval);
+          resolve(true);
+        } else if (attempts > 30) {
+          clearInterval(interval);
+          resolve(false);
+        }
+      }, 100);
+    });
+  };
+
   const handlePayDeposit = async () => {
     if (!createdBookingId) return;
     setPaying(true);
     setError('');
 
-    if (typeof window.YocoSDK === 'undefined') {
-      setError('Yoco SDK is not loaded. Please ensure the payment gateway script is included.');
+    const loaded = await ensureYocoLoaded();
+
+    if (!loaded || typeof window.YocoSDK === 'undefined') {
+      setError('Payment gateway failed to initialize. Please refresh the page or disable browser ad-blockers.');
       setPaying(false);
       return;
     }
@@ -360,7 +390,7 @@ export default function BookingRequestPage() {
         },
       });
     } catch (err: any) {
-      console.error('Yoco SDK initialization failed:', err);
+      console.error('Yoco SDK initialization error:', err);
       setError('Payment popup could not be initialized. Please try again.');
       setPaying(false);
     }
