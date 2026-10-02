@@ -6,12 +6,6 @@ import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, Chec
 import type { ArtistWithProfile } from '@/types';
 import { getAdminId, createConversation, createNotification } from '@/lib/messaging';
 
-declare global {
-  interface Window {
-    YocoSDK?: any;
-  }
-}
-
 interface SelectedTalent {
   artist: ArtistWithProfile;
   rate: number;
@@ -316,77 +310,39 @@ export default function BookingRequestPage() {
     setPaying(true);
     setError('');
 
-    if (typeof window === 'undefined' || !window.YocoSDK) {
-      setError('Yoco Payment SDK is not loaded. Please check your internet connection or disable tracking protection.');
-      setPaying(false);
-      return;
-    }
-
     try {
-      const yoco = new window.YocoSDK({
-        publicKey: import.meta.env.VITE_YOCO_PUBLIC_KEY || 'pk_live_1cbf5078e2da1a88_5d9c5f79ac06b8726c9dcf1bd7c158ee',
-      });
+      const secretKey = import.meta.env.VITE_YOCO_SECRET_KEY || 'sk_live_1cbf5078e2da1a88_5d9c5f79ac06b8726c9dcf1bd7c158ee';
 
-      yoco.showPopup({
-        amountInCents: Math.round(depositAmount * 100),
-        currency: 'ZAR',
-        name: 'HostMeUp Multi-Talent Deposit',
-        description: `40% Deposit for ${eventName}`,
-        callback: async (result: any) => {
-          if (result.error) {
-            setError(result.error.message || 'Payment failed. Please try again.');
-            setPaying(false);
-          } else {
-            await confirmDepositInDatabase();
-          }
+      const response = await fetch('https://online.yoco.com/v1/checkouts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${secretKey}`,
         },
+        body: JSON.stringify({
+          amount: Math.round(depositAmount * 100),
+          currency: 'ZAR',
+          successUrl: `${window.location.origin}/host-dashboard?booking_id=${createdBookingId}&payment=success`,
+          cancelUrl: `${window.location.origin}/booking/${id}?payment=cancelled`,
+          metadata: {
+            bookingId: createdBookingId,
+            eventName: eventName,
+          },
+        }),
       });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.redirectUrl) {
+        throw new Error(data.message || 'Failed to initialize Yoco Checkout session.');
+      }
+
+      window.location.href = data.redirectUrl;
     } catch (err: any) {
-      console.error('Yoco SDK popup error:', err);
-      setError('Payment popup could not be opened. Please try again.');
+      console.error('Yoco Checkout error:', err);
+      setError(err.message || 'Payment gateway failed to initialize.');
       setPaying(false);
     }
-  };
-
-  const confirmDepositInDatabase = async () => {
-    if (!createdBookingId) return;
-
-    let { error: payErr } = await supabase.from('bookings')
-      .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
-      .eq('id', createdBookingId);
-
-    if (payErr && payErr.message.includes("Could not find the table")) {
-      const fallback = await supabase.from('booking')
-        .update({ deposit_paid: true, status: 'confirmed', updated_at: new Date().toISOString() })
-        .eq('id', createdBookingId);
-      payErr = fallback.error;
-    }
-
-    setPaying(false);
-    if (payErr) { setError(payErr.message); return; }
-
-    try {
-      for (const item of selectedTalents) {
-        const artistUserId = item.artist.id || item.artist.artist_profile?.user_id;
-        if (artistUserId) {
-          await createNotification(
-            artistUserId,
-            'booking',
-            'Booking Deposit Paid! 🎉',
-            `Deposit for "${eventName}" has been paid. Your booking is confirmed!`,
-            '/artist-dashboard',
-            undefined,
-            createdBookingId
-          );
-        }
-      }
-    } catch (notifErr) {
-      console.warn('Could not dispatch deposit notification:', notifErr);
-    }
-
-    setShowCheckout(false);
-    setBookingCreated(true);
-    setTimeout(() => navigate('/host-dashboard'), 2000);
   };
 
   const handleSkipPayment = () => {
