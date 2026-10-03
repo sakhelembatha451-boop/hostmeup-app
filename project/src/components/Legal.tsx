@@ -48,7 +48,7 @@ export default function Legal() {
           We use collected personal information in compliance with the Protection of Personal Information Act (POPIA) to process bookings, facilitate payment collection and service provider payouts, communicate booking updates, maintain platform security, and satisfy legal compliance requirements (FICA).
         </p>
         <p>
-          We do not sell or rent personal data to third parties. Necessary booking information is shared only with the relevant assigned service provider to execute the booking. Payment processing is handled securely by accredited gateway providers (Payfast); Host-Me-Up does not store full credit card details on its servers.
+          We do not sell or rent personal data to third parties. Necessary booking information is shared only with the relevant assigned service provider to execute the booking. Payment processing is handled securely by accredited gateway providers (YOCO); Host-Me-Up does not store full credit card details on its servers.
         </p>
         <p>
           Users have the right to request access to, correction of, or deletion of their personal information held by Host-Me-Up by contacting us at <strong>sakhelembatha451@gmail.com</strong>.
