@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
-import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon, Music, Car } from 'lucide-react';
+import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon, Music } from 'lucide-react';
 import type { Category, Genre } from '@/types';
 
 const CATEGORIES: Category[] = [
@@ -39,6 +39,8 @@ interface AssetItem {
   image_url?: string;
 }
 
+const DRAFT_KEY = 'artist_profile_edit_draft';
+
 export default function ArtistProfileEditPage() {
   const { profile, refreshProfile } = useAuth();
   const navigate = useNavigate();
@@ -61,12 +63,11 @@ export default function ArtistProfileEditPage() {
   const [pricingType, setPricingType] = useState<'per_hour' | 'per_gig' | 'per_beat' | 'per_service' | 'per_tattoo' | 'per_asset'>('per_hour');
   const [baseRate, setBaseRate] = useState('');
   
-  // Services (for Beauty Professionals & Tattoo Artists)
+  // Services & Assets
   const [services, setServices] = useState<ServiceItem[]>([
     { service_name: '', price: '', duration_minutes: 60 }
   ]);
 
-  // Asset Inventory (for Asset Hire)
   const [assets, setAssets] = useState<AssetItem[]>([
     { asset_name: '', asset_category: 'Vehicle', daily_rate: '' }
   ]);
@@ -83,14 +84,34 @@ export default function ArtistProfileEditPage() {
   const [soundcloud, setSoundcloud] = useState('');
   const [youtube, setYoutube] = useState('');
 
+  // 1. Initial Data Fetching
   useEffect(() => {
     if (!profile) return;
     loadArtistProfile();
   }, [profile]);
 
+  // 2. Draft Autosave to localStorage
+  useEffect(() => {
+    if (loading) return;
+    const draft = {
+      stageName, bio, categories, genres, pricingType, baseRate,
+      services, assets, locationCity, locationProvince, travelRadius,
+      avatarUrl, coverUrl, galleryUrls, instagram, spotify, soundcloud, youtube
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  }, [
+    stageName, bio, categories, genres, pricingType, baseRate,
+    services, assets, locationCity, locationProvince, travelRadius,
+    avatarUrl, coverUrl, galleryUrls, instagram, spotify, soundcloud, youtube, loading
+  ]);
+
   const loadArtistProfile = async () => {
     try {
       setLoading(true);
+
+      // Check if user has an unsaved local draft first
+      const savedDraft = localStorage.getItem(DRAFT_KEY);
+      
       const { data, error } = await supabase
         .from('artist_profiles')
         .select('*')
@@ -104,8 +125,6 @@ export default function ArtistProfileEditPage() {
         setBio(data.bio || '');
         setCategories(data.categories || []);
         setGenres(data.genres || []);
-        
-        // Load Pricing Model & Base Rates
         setPricingType(data.pricing_type || 'per_hour');
         setBaseRate(
           data.base_rate !== null && data.base_rate !== undefined
@@ -114,7 +133,6 @@ export default function ArtistProfileEditPage() {
             ? String(data.hourly_rate)
             : ''
         );
-
         setLocationCity(data.location_city || '');
         setLocationProvince(data.location_province || '');
         setTravelRadius(data.travel_radius ? String(data.travel_radius) : '50');
@@ -126,19 +144,19 @@ export default function ArtistProfileEditPage() {
         setSoundcloud(data.social_links?.soundcloud || '');
         setYoutube(data.social_links?.youtube || '');
 
-        // Fetch Services if user is a Beauty Professional, Tattoo Artist, or has per_service/per_tattoo selected
+        // Fetch Services
         if (
           data.pricing_type === 'per_service' || 
           data.pricing_type === 'per_tattoo' ||
           data.categories?.includes('Beauty Professional') || 
           data.categories?.includes('Tattoo Artist')
         ) {
-          const { data: serviceData, error: serviceErr } = await supabase
+          const { data: serviceData } = await supabase
             .from('talent_services')
             .select('*')
             .eq('profile_id', profile?.id);
 
-          if (!serviceErr && serviceData && serviceData.length > 0) {
+          if (serviceData && serviceData.length > 0) {
             setServices(
               serviceData.map((s) => ({
                 id: s.id,
@@ -150,14 +168,14 @@ export default function ArtistProfileEditPage() {
           }
         }
 
-        // Fetch Assets if user is an Asset Hire Provider
+        // Fetch Assets
         if (data.pricing_type === 'per_asset' || data.categories?.includes('Asset Hire')) {
-          const { data: assetData, error: assetErr } = await supabase
+          const { data: assetData } = await supabase
             .from('talent_assets')
             .select('*')
             .eq('profile_id', profile?.id);
 
-          if (!assetErr && assetData && assetData.length > 0) {
+          if (assetData && assetData.length > 0) {
             setAssets(
               assetData.map((a) => ({
                 id: a.id,
@@ -171,6 +189,22 @@ export default function ArtistProfileEditPage() {
           }
         }
       }
+
+      // Restore unsaved draft overrides if they exist
+      if (savedDraft) {
+        const parsed = JSON.parse(savedDraft);
+        if (parsed.stageName) setStageName(parsed.stageName);
+        if (parsed.bio) setBio(parsed.bio);
+        if (parsed.categories?.length) setCategories(parsed.categories);
+        if (parsed.genres?.length) setGenres(parsed.genres);
+        if (parsed.locationCity) setLocationCity(parsed.locationCity);
+        if (parsed.locationProvince) setLocationProvince(parsed.locationProvince);
+        if (parsed.baseRate) setBaseRate(parsed.baseRate);
+        if (parsed.instagram) setInstagram(parsed.instagram);
+        if (parsed.spotify) setSpotify(parsed.spotify);
+        if (parsed.soundcloud) setSoundcloud(parsed.soundcloud);
+        if (parsed.youtube) setYoutube(parsed.youtube);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -178,7 +212,7 @@ export default function ArtistProfileEditPage() {
     }
   };
 
-  // Generic File Upload Helper
+  // Helper for Uploading Files
   const uploadFileToSupabase = async (file: File, folder: string) => {
     if (!profile) throw new Error('User not authenticated');
     const fileExt = file.name.split('.').pop();
@@ -194,8 +228,9 @@ export default function ArtistProfileEditPage() {
     return data.publicUrl;
   };
 
-  // Avatar Upload Handler
+  // Avatar Upload Handler (No longer overwrites unsubmitted text fields)
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -203,16 +238,6 @@ export default function ArtistProfileEditPage() {
       setError(null);
       const url = await uploadFileToSupabase(file, 'avatar');
       setAvatarUrl(url);
-      await supabase
-        .from('artist_profiles')
-        .upsert(
-          { user_id: profile?.id, avatar_url: url, updated_at: new Date().toISOString() },
-          { onConflict: 'user_id' }
-        );
-      if (profile?.id) {
-        await supabase.from('profiles').update({ avatar_url: url }).eq('id', profile.id);
-      }
-      await refreshProfile();
     } catch (err: any) {
       setError(err.message || 'Failed to upload avatar');
     } finally {
@@ -222,6 +247,7 @@ export default function ArtistProfileEditPage() {
 
   // Cover Upload Handler
   const handleCoverChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
     const file = e.target.files?.[0];
     if (!file) return;
     try {
@@ -229,12 +255,6 @@ export default function ArtistProfileEditPage() {
       setError(null);
       const url = await uploadFileToSupabase(file, 'cover');
       setCoverUrl(url);
-      await supabase
-        .from('artist_profiles')
-        .upsert(
-          { user_id: profile?.id, cover_url: url, updated_at: new Date().toISOString() },
-          { onConflict: 'user_id' }
-        );
     } catch (err: any) {
       setError(err.message || 'Failed to upload cover banner');
     } finally {
@@ -242,8 +262,9 @@ export default function ArtistProfileEditPage() {
     }
   };
 
-  // Gallery Files Upload Handler
+  // Gallery Upload Handler
   const handleGalleryFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.preventDefault();
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
     try {
@@ -254,14 +275,7 @@ export default function ArtistProfileEditPage() {
         const url = await uploadFileToSupabase(file, 'gallery');
         uploadedUrls.push(url);
       }
-      const updatedGallery = [...galleryUrls, ...uploadedUrls];
-      setGalleryUrls(updatedGallery);
-      await supabase
-        .from('artist_profiles')
-        .upsert(
-          { user_id: profile?.id, gallery_urls: updatedGallery, updated_at: new Date().toISOString() },
-          { onConflict: 'user_id' }
-        );
+      setGalleryUrls((prev) => [...prev, ...uploadedUrls]);
     } catch (err: any) {
       setError(err.message || 'Failed to upload gallery media');
     } finally {
@@ -269,48 +283,29 @@ export default function ArtistProfileEditPage() {
     }
   };
 
-  const handleRemoveGalleryUrl = async (index: number) => {
-    const updated = galleryUrls.filter((_, i) => i !== index);
-    setGalleryUrls(updated);
-    if (profile?.id) {
-      await supabase
-        .from('artist_profiles')
-        .upsert(
-          { user_id: profile.id, gallery_urls: updated, updated_at: new Date().toISOString() },
-          { onConflict: 'user_id' }
-        );
-    }
+  const handleRemoveGalleryUrl = (index: number) => {
+    setGalleryUrls((prev) => prev.filter((_, i) => i !== index));
   };
 
-  // Category Toggle & Auto Pricing Type Switch
   const handleCategoryToggle = (cat: Category) => {
     setCategories((prev) => {
       const nextCategories = prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat];
-
-      // Auto-set pricing rules based on selected categories
-      if (nextCategories.includes('Producer')) {
-        setPricingType('per_beat');
-      } else if (nextCategories.includes('Beauty Professional')) {
-        setPricingType('per_service');
-      } else if (nextCategories.includes('Tattoo Artist')) {
-        setPricingType('per_tattoo');
-      } else if (nextCategories.includes('Asset Hire')) {
-        setPricingType('per_asset');
-      } else if (['per_beat', 'per_service', 'per_tattoo', 'per_asset'].includes(pricingType)) {
+      if (nextCategories.includes('Producer')) setPricingType('per_beat');
+      else if (nextCategories.includes('Beauty Professional')) setPricingType('per_service');
+      else if (nextCategories.includes('Tattoo Artist')) setPricingType('per_tattoo');
+      else if (nextCategories.includes('Asset Hire')) setPricingType('per_asset');
+      else if (['per_beat', 'per_service', 'per_tattoo', 'per_asset'].includes(pricingType)) {
         setPricingType('per_hour');
       }
-
       return nextCategories;
     });
   };
 
   const handleGenreToggle = (g: Genre) => {
-    setGenres((prev) =>
-      prev.includes(g) ? prev.filter((item) => item !== g) : [...prev, g]
-    );
+    setGenres((prev) => (prev.includes(g) ? prev.filter((item) => item !== g) : [...prev, g]));
   };
 
-  // Submit Handler
+  // Save All Changes Submit Handler
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setSaving(true);
@@ -337,12 +332,7 @@ export default function ArtistProfileEditPage() {
         avatar_url: avatarUrl,
         cover_url: coverUrl,
         gallery_urls: galleryUrls,
-        social_links: {
-          instagram,
-          spotify,
-          soundcloud,
-          youtube,
-        },
+        social_links: { instagram, spotify, soundcloud, youtube },
         updated_at: new Date().toISOString(),
       };
 
@@ -398,11 +388,11 @@ export default function ArtistProfileEditPage() {
       }
 
       if (avatarUrl) {
-        await supabase
-          .from('profiles')
-          .update({ avatar_url: avatarUrl })
-          .eq('id', profile.id);
+        await supabase.from('profiles').update({ avatar_url: avatarUrl }).eq('id', profile.id);
       }
+
+      // Clear draft on success
+      localStorage.removeItem(DRAFT_KEY);
 
       await refreshProfile();
       setSuccess(true);
@@ -433,6 +423,7 @@ export default function ArtistProfileEditPage() {
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
       <div className="max-w-4xl mx-auto">
         <button
+          type="button"
           onClick={() => navigate('/artist-dashboard')}
           className="flex items-center gap-2 text-xs uppercase tracking-wide-sm text-ink-500 hover:text-ink mb-8 transition-colors"
         >
@@ -445,6 +436,7 @@ export default function ArtistProfileEditPage() {
             <p className="text-sm text-ink-500 mt-1">Keep your profile updated so event hosts can discover and book you.</p>
           </div>
           <button
+            type="button"
             onClick={() => handleSubmit()}
             disabled={saving}
             className="btn-primary flex items-center gap-2 px-6 py-3 text-xs uppercase tracking-wide-sm"
@@ -454,17 +446,8 @@ export default function ArtistProfileEditPage() {
           </button>
         </div>
 
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm">
-            {error}
-          </div>
-        )}
-
-        {success && (
-          <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">
-            Profile saved successfully!
-          </div>
-        )}
+        {error && <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>}
+        {success && <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">Profile saved successfully!</div>}
 
         <form onSubmit={handleSubmit} className="space-y-10">
           {/* Identity & Bio */}
@@ -519,7 +502,6 @@ export default function ArtistProfileEditPage() {
           <section className="space-y-6">
             <h2 className="text-sm uppercase tracking-wide-sm font-semibold text-ink border-b border-line pb-2">Pricing & Rates</h2>
 
-            {/* Music Producers */}
             {categories.includes('Producer') && (
               <FormField label="Rate Per Beat (ZAR)" full={false}>
                 <input
@@ -533,7 +515,6 @@ export default function ArtistProfileEditPage() {
               </FormField>
             )}
 
-            {/* Beauty Professionals */}
             {categories.includes('Beauty Professional') && (
               <div className="space-y-4">
                 <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Services & Pricing Menu</label>
@@ -580,11 +561,9 @@ export default function ArtistProfileEditPage() {
               </div>
             )}
 
-            {/* Tattoo Artists */}
             {categories.includes('Tattoo Artist') && (
               <div className="space-y-4">
                 <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Tattoo Size & Style Rates</label>
-                <p className="text-xs text-ink-500">Add price tiers for different tattoo types (e.g. Small Flash, Half Sleeve, Hourly Custom Rate).</p>
                 {services.map((service, idx) => (
                   <div key={idx} className="flex gap-2 items-center">
                     <input
@@ -628,11 +607,9 @@ export default function ArtistProfileEditPage() {
               </div>
             )}
 
-            {/* Asset Hire (Cars, Houses, Helicopters, Props) */}
             {categories.includes('Asset Hire') && (
               <div className="space-y-4">
                 <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Assets Available for Music Video & Shoot Hire</label>
-                <p className="text-xs text-ink-500">List vehicles, luxury mansions, helicopters, or props available for film and music video shoots.</p>
                 {assets.map((asset, idx) => (
                   <div key={idx} className="p-4 border border-line bg-paper-100 space-y-3">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -705,7 +682,6 @@ export default function ArtistProfileEditPage() {
               </div>
             )}
 
-            {/* General Talent */}
             {!categories.includes('Producer') && 
              !categories.includes('Beauty Professional') && 
              !categories.includes('Tattoo Artist') && 
