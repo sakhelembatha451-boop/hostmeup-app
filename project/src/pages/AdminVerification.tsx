@@ -1,92 +1,100 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Loader2, CheckCircle, XCircle, ShieldAlert, FileText, ExternalLink, User, Building2, MapPin, Mail, Phone, X } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, ShieldAlert, FileText, ExternalLink, User, Mail, Clock, X } from 'lucide-react';
 
-interface PendingHost {
+interface VerificationSubmission {
   id: string;
-  user_id?: string;
-  full_legal_name: string | null;
-  company_name?: string | null;
-  phone_number?: string | null;
-  id_document_url: string | null;
+  user_id: string;
+  full_name: string | null;
+  email: string | null;
+  avatar_url?: string | null;
   id_type: string | null;
-  is_identity_verified: boolean;
+  id_number?: string | null;
+  document_url: string | null;
+  selfie_url?: string | null;
   verification_status: 'pending' | 'approved' | 'rejected' | null;
-  created_at?: string;
-  profiles?: {
-    id?: string;
-    full_name: string;
-    email: string;
-    avatar_url?: string | null;
-    location?: string | null;
-  } | null;
+  updated_at?: string;
+  source: 'profiles' | 'host_profiles';
 }
 
 export default function AdminVerification() {
-  const [hosts, setHosts] = useState<PendingHost[]>([]);
+  const [submissions, setSubmissions] = useState<VerificationSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [processingId, setProcessingId] = useState<string | null>(null);
-  const [selectedHost, setSelectedHost] = useState<PendingHost | null>(null);
+  const [selectedSub, setSelectedSub] = useState<VerificationSubmission | null>(null);
+
+  // Helper to create valid bucket links for private or public paths
+  const getStorageUrl = (path: string | null) => {
+    if (!path) return null;
+    if (path.startsWith('http')) return path;
+    const { data } = supabase.storage.from('verification-docs').getPublicUrl(path);
+    return data?.publicUrl || null;
+  };
 
   const fetchSubmissions = useCallback(async () => {
     setLoading(true);
     try {
-      let { data, error } = await supabase
-        .from('host_profiles')
-        .select(`
-          *,
-          profiles:user_id(id, full_name, email, avatar_url, location)
-        `)
-        .or('verification_status.eq.pending,verification_status.is.null')
-        .neq('verification_status', 'approved')
+      // 1. Fetch pending/submitted records from 'profiles'
+      const { data: profileData, error: profileErr } = await supabase
+        .from('profiles')
+        .select('*')
+        .or('verification_status.eq.pending,verification_status.eq.rejected')
         .order('updated_at', { ascending: false });
 
-      if (error) {
-        const retry = await supabase
-          .from('host_profiles')
-          .select('*')
-          .or('verification_status.eq.pending,verification_status.is.null')
-          .neq('verification_status', 'approved');
+      if (profileErr) console.error('Profiles fetch error:', profileErr);
 
-        if (!retry.error && retry.data) {
-          data = retry.data;
-          error = null;
+      // 2. Fetch pending records from 'host_profiles'
+      const { data: hostData, error: hostErr } = await supabase
+        .from('host_profiles')
+        .select('*, profiles:user_id(id, full_name, email, avatar_url)')
+        .or('verification_status.eq.pending,verification_status.is.null')
+        .neq('verification_status', 'approved');
+
+      if (hostErr) console.error('Host profiles fetch error:', hostErr);
+
+      const list: VerificationSubmission[] = [];
+
+      // Format profile records
+      (profileData || []).forEach((p: any) => {
+        list.push({
+          id: p.id,
+          user_id: p.id,
+          full_name: p.full_name || p.username || 'User',
+          email: p.email || 'N/A',
+          avatar_url: p.avatar_url,
+          id_type: p.id_type,
+          id_number: p.id_number,
+          document_url: p.document_url,
+          selfie_url: p.selfie_url,
+          verification_status: p.verification_status || 'pending',
+          updated_at: p.updated_at,
+          source: 'profiles',
+        });
+      });
+
+      // Format host_profile records
+      (hostData || []).forEach((h: any) => {
+        // avoid duplicating if already in profile list
+        if (!list.some((existing) => existing.user_id === (h.user_id || h.id))) {
+          list.push({
+            id: h.id,
+            user_id: h.user_id || h.id,
+            full_name: h.full_legal_name || h.profiles?.full_name || 'Host',
+            email: h.profiles?.email || 'N/A',
+            avatar_url: h.profiles?.avatar_url,
+            id_type: h.id_type,
+            document_url: h.id_document_url,
+            verification_status: h.verification_status || 'pending',
+            updated_at: h.updated_at,
+            source: 'host_profiles',
+          });
         }
-      }
+      });
 
-      let rawHosts: PendingHost[] = (data as unknown as PendingHost[]) || [];
-
-      if (rawHosts.length > 0) {
-        const userIds = Array.from(
-          new Set(rawHosts.map((h) => h.user_id || h.id).filter(Boolean))
-        );
-
-        if (userIds.length > 0) {
-          const { data: userProfiles } = await supabase
-            .from('profiles')
-            .select('id, full_name, email, avatar_url, location')
-            .in('id', userIds);
-
-          const profileMap = new Map((userProfiles || []).map((p) => [p.id, p]));
-
-          rawHosts = rawHosts.map((h) => ({
-            ...h,
-            profiles: h.profiles || profileMap.get(h.user_id || h.id) || null,
-          }));
-        }
-      }
-
-      const validSubmissions = rawHosts.filter(
-        (host) =>
-          host.id_document_url ||
-          host.verification_status === 'pending' ||
-          host.full_legal_name
-      );
-
-      setHosts(validSubmissions);
+      setSubmissions(list);
     } catch (err) {
       console.error('Error fetching verification submissions:', err);
-      setHosts([]);
+      setSubmissions([]);
     } finally {
       setLoading(false);
     }
@@ -96,29 +104,45 @@ export default function AdminVerification() {
     fetchSubmissions();
   }, [fetchSubmissions]);
 
-  const handleReview = async (hostId: string, approve: boolean) => {
-    setProcessingId(hostId);
+  const handleReview = async (submission: VerificationSubmission, approve: boolean) => {
+    setProcessingId(submission.id);
 
-    const updates = {
-      is_identity_verified: approve,
-      verification_status: approve ? 'approved' : 'rejected',
-      updated_at: new Date().toISOString(),
-    };
+    const newStatus = approve ? 'approved' : 'rejected';
 
-    const { error } = await supabase
-      .from('host_profiles')
-      .update(updates)
-      .eq('id', hostId);
+    try {
+      if (submission.source === 'profiles') {
+        const { error } = await supabase
+          .from('profiles')
+          .update({
+            verification_status: newStatus,
+            is_verified: approve,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', submission.id);
 
-    if (!error) {
-      if (selectedHost?.id === hostId) {
-        setSelectedHost(null);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from('host_profiles')
+          .update({
+            verification_status: newStatus,
+            is_identity_verified: approve,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', submission.id);
+
+        if (error) throw error;
+      }
+
+      if (selectedSub?.id === submission.id) {
+        setSelectedSub(null);
       }
       fetchSubmissions();
-    } else {
-      console.error('Error updating verification status:', error);
+    } catch (error) {
+      console.error('Error updating status:', error);
+    } finally {
+      setProcessingId(null);
     }
-    setProcessingId(null);
   };
 
   if (loading) {
@@ -134,102 +158,114 @@ export default function AdminVerification() {
       <div className="max-w-5xl mx-auto space-y-8">
         <div>
           <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-2">— Admin Control</p>
-          <h1 className="font-display text-3xl font-bold text-ink">Host Verification Requests</h1>
-          <p className="text-xs text-ink-500 mt-1">Review identity documents and verify host accounts.</p>
+          <h1 className="font-display text-3xl font-bold text-ink">Identity Verification Requests</h1>
+          <p className="text-xs text-ink-500 mt-1">Review identity documents and verify user & host accounts.</p>
         </div>
 
-        {hosts.length === 0 ? (
+        {submissions.length === 0 ? (
           <div className="border border-line p-12 text-center bg-paper">
             <ShieldAlert className="w-8 h-8 text-ink-400 mx-auto mb-3" />
             <h3 className="font-display font-semibold text-ink">No Submissions Found</h3>
-            <p className="text-xs text-ink-500 mt-1">There are currently no host identity verification requests to review.</p>
+            <p className="text-xs text-ink-500 mt-1">There are currently no pending identity verification requests to review.</p>
           </div>
         ) : (
           <div className="space-y-4">
-            {hosts.map((host) => (
-              <div key={host.id} className="border border-line p-6 bg-paper flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-ink/20 transition-all">
+            {submissions.map((sub) => {
+              const docUrl = getStorageUrl(sub.document_url);
+              const selfieUrl = getStorageUrl(sub.selfie_url);
 
-                {/* Host Brief Details */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-3">
-                    <h3 className="font-display text-lg font-bold text-ink">
-                      {host.full_legal_name || host.profiles?.full_name || 'Unnamed Host'}
-                    </h3>
+              return (
+                <div key={sub.id} className="border border-line p-6 bg-paper flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-ink/20 transition-all">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      <h3 className="font-display text-lg font-bold text-ink">
+                        {sub.full_name}
+                      </h3>
 
-                    <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 tracking-wider border ${
-                      host.verification_status === 'approved'
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        : host.verification_status === 'rejected'
-                        ? 'bg-red-50 text-red-800 border-red-200'
-                        : 'bg-amber-50 text-amber-800 border-amber-200'
-                    }`}>
-                      {host.verification_status || 'Pending'}
-                    </span>
+                      <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 tracking-wider border ${
+                        sub.verification_status === 'approved'
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                          : sub.verification_status === 'rejected'
+                          ? 'bg-red-50 text-red-800 border-red-200'
+                          : 'bg-amber-50 text-amber-800 border-amber-200'
+                      }`}>
+                        {sub.verification_status || 'Pending'}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-ink-500">Email: {sub.email}</p>
+                    {sub.id_number && (
+                      <p className="text-xs text-ink-400">
+                        ID/Passport No: <span className="font-mono text-ink">{sub.id_number}</span>
+                      </p>
+                    )}
                   </div>
 
-                  <p className="text-xs text-ink-500">Email: {host.profiles?.email || 'N/A'}</p>
-                </div>
-
-                {/* Actions & Inspection Buttons */}
-                <div className="flex flex-wrap items-center gap-3 border-t md:border-t-0 pt-4 md:pt-0 border-line">
-                  
-                  {/* View Full Host Profile Button */}
-                  <button
-                    onClick={() => setSelectedHost(host)}
-                    className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
-                  >
-                    <User className="w-3.5 h-3.5" /> View Full Profile
-                  </button>
-
-                  {/* View ID Document Link */}
-                  {host.id_document_url ? (
-                    <a
-                      href={host.id_document_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                  <div className="flex flex-wrap items-center gap-3 border-t md:border-t-0 pt-4 md:pt-0 border-line">
+                    <button
+                      onClick={() => setSelectedSub(sub)}
                       className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
                     >
-                      <FileText className="w-3.5 h-3.5" /> View ID Document <ExternalLink className="w-3 h-3 ml-1" />
-                    </a>
-                  ) : (
-                    <span className="text-xs text-ink-400 italic">No document attached</span>
-                  )}
-
-                  {/* Decision Buttons */}
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleReview(host.id, true)}
-                      disabled={processingId === host.id || host.verification_status === 'approved'}
-                      className="btn-primary inline-flex items-center gap-1 px-4 py-2 text-xs uppercase tracking-wide-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
-                    >
-                      {processingId === host.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Approve
+                      <User className="w-3.5 h-3.5" /> View Details
                     </button>
 
-                    <button
-                      onClick={() => handleReview(host.id, false)}
-                      disabled={processingId === host.id || host.verification_status === 'rejected'}
-                      className="btn-outline inline-flex items-center gap-1 px-4 py-2 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-50"
-                    >
-                      {processingId === host.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />} Reject
-                    </button>
+                    {docUrl ? (
+                      <a
+                        href={docUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> ID Doc <ExternalLink className="w-3 h-3 ml-1" />
+                      </a>
+                    ) : (
+                      <span className="text-xs text-ink-400 italic">No ID Doc</span>
+                    )}
+
+                    {selfieUrl && (
+                      <a
+                        href={selfieUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
+                      >
+                        <FileText className="w-3.5 h-3.5" /> Selfie <ExternalLink className="w-3 h-3 ml-1" />
+                      </a>
+                    )}
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleReview(sub, true)}
+                        disabled={processingId === sub.id || sub.verification_status === 'approved'}
+                        className="btn-primary inline-flex items-center gap-1 px-4 py-2 text-xs uppercase tracking-wide-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                      >
+                        {processingId === sub.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Approve
+                      </button>
+
+                      <button
+                        onClick={() => handleReview(sub, false)}
+                        disabled={processingId === sub.id || sub.verification_status === 'rejected'}
+                        className="btn-outline inline-flex items-center gap-1 px-4 py-2 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        {processingId === sub.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />} Reject
+                      </button>
+                    </div>
                   </div>
                 </div>
-
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* FULL HOST PROFILE MODAL */}
-      {selectedHost && (
+      {/* DETAILED MODAL */}
+      {selectedSub && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-paper border border-line max-w-lg w-full p-6 space-y-6 shadow-xl relative max-h-[90vh] overflow-y-auto">
-            
             <div className="flex items-center justify-between border-b border-line pb-4">
-              <h2 className="font-display text-xl font-bold text-ink">Host Details</h2>
+              <h2 className="font-display text-xl font-bold text-ink">Verification Details</h2>
               <button 
-                onClick={() => setSelectedHost(null)}
+                onClick={() => setSelectedSub(null)}
                 className="p-1 hover:bg-paper-200 rounded text-ink-400 hover:text-ink"
               >
                 <X className="w-5 h-5" />
@@ -237,116 +273,93 @@ export default function AdminVerification() {
             </div>
 
             <div className="space-y-4 text-xs">
-              
-              {/* Profile Avatar & Primary Name */}
               <div className="flex items-center gap-4 border-b border-line pb-4">
-                {selectedHost.profiles?.avatar_url ? (
+                {selectedSub.avatar_url ? (
                   <img 
-                    src={selectedHost.profiles.avatar_url} 
-                    alt="Host Avatar" 
+                    src={selectedSub.avatar_url} 
+                    alt="User Avatar" 
                     className="w-16 h-16 rounded-full object-cover border border-line" 
                   />
                 ) : (
                   <div className="w-16 h-16 rounded-full bg-ink-200 flex items-center justify-center text-ink-500 font-display font-bold text-xl">
-                    {(selectedHost.profiles?.full_name || selectedHost.full_legal_name || 'H')[0]?.toUpperCase()}
+                    {(selectedSub.full_name || 'U')[0]?.toUpperCase()}
                   </div>
                 )}
                 <div>
-                  <p className="font-display text-lg font-bold text-ink">
-                    {selectedHost.profiles?.full_name || 'N/A'}
-                  </p>
-                  <p className="text-ink-400">
-                    Legal Name: {selectedHost.full_legal_name || 'Not provided'}
-                  </p>
+                  <p className="font-display text-lg font-bold text-ink">{selectedSub.full_name}</p>
+                  <p className="text-ink-400">{selectedSub.email}</p>
                 </div>
               </div>
 
-              {/* Information Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-1">
                   <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Email Address</p>
                   <p className="text-ink font-medium flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5 text-ink-300" />
-                    {selectedHost.profiles?.email || 'N/A'}
+                    <Mail className="w-3.5 h-3.5 text-ink-300" /> {selectedSub.email}
                   </p>
                 </div>
 
                 <div className="space-y-1">
-                  <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Company / Organization</p>
-                  <p className="text-ink font-medium flex items-center gap-1.5">
-                    <Building2 className="w-3.5 h-3.5 text-ink-300" />
-                    {selectedHost.company_name || 'Individual Host'}
-                  </p>
+                  <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Document Type</p>
+                  <p className="text-ink font-medium uppercase">{selectedSub.id_type || 'N/A'}</p>
                 </div>
 
-                <div className="space-y-1">
-                  <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Location</p>
-                  <p className="text-ink font-medium flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-ink-300" />
-                    {selectedHost.profiles?.location || 'Not provided'}
-                  </p>
-                </div>
+                {selectedSub.id_number && (
+                  <div className="space-y-1">
+                    <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">ID / Passport Number</p>
+                    <p className="text-ink font-mono font-medium">{selectedSub.id_number}</p>
+                  </div>
+                )}
 
                 <div className="space-y-1">
-                  <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Phone Number</p>
-                  <p className="text-ink font-medium flex items-center gap-1.5">
-                    <Phone className="w-3.5 h-3.5 text-ink-300" />
-                    {selectedHost.phone_number || 'N/A'}
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Submitted Document Type</p>
-                  <p className="text-ink font-medium capitalize">
-                    {selectedHost.id_type || 'ID Card / Passport'}
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Verification Status</p>
-                  <span className="capitalize font-semibold text-accent">
-                    {selectedHost.verification_status || 'Pending Review'}
-                  </span>
+                  <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Current Status</p>
+                  <p className="capitalize font-semibold text-amber-600">{selectedSub.verification_status || 'Pending'}</p>
                 </div>
               </div>
 
-              {/* ID Document Link inside Modal */}
-              <div className="pt-4 border-t border-line">
-                <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold mb-2">Attached Verification File</p>
-                {selectedHost.id_document_url ? (
+              <div className="pt-4 border-t border-line space-y-2">
+                <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Submitted Files</p>
+                
+                {getStorageUrl(selectedSub.document_url) && (
                   <a
-                    href={selectedHost.id_document_url}
+                    href={getStorageUrl(selectedSub.document_url)!}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="btn-outline w-full flex items-center justify-center gap-2 py-2.5 text-xs uppercase tracking-wide-sm"
+                    className="btn-outline w-full flex items-center justify-center gap-2 py-2 text-xs uppercase tracking-wide-sm"
                   >
-                    <FileText className="w-4 h-4" /> Open Document in New Tab <ExternalLink className="w-3.5 h-3.5" />
+                    <FileText className="w-4 h-4" /> Open ID Document <ExternalLink className="w-3.5 h-3.5" />
                   </a>
-                ) : (
-                  <p className="text-ink-400 italic">No document file uploaded.</p>
+                )}
+
+                {getStorageUrl(selectedSub.selfie_url) && (
+                  <a
+                    href={getStorageUrl(selectedSub.selfie_url)!}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn-outline w-full flex items-center justify-center gap-2 py-2 text-xs uppercase tracking-wide-sm"
+                  >
+                    <FileText className="w-4 h-4" /> Open Holding Selfie <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
                 )}
               </div>
-
             </div>
 
-            {/* Decision Controls inside Modal */}
             <div className="flex items-center justify-end gap-3 pt-4 border-t border-line">
               <button
-                onClick={() => handleReview(selectedHost.id, false)}
-                disabled={processingId === selectedHost.id}
+                onClick={() => handleReview(selectedSub, false)}
+                disabled={processingId === selectedSub.id}
                 className="btn-outline px-4 py-2 text-xs uppercase text-red-600 border-red-200 hover:bg-red-50"
               >
-                Reject Host
+                Reject Submission
               </button>
               <button
-                onClick={() => handleReview(selectedHost.id, true)}
-                disabled={processingId === selectedHost.id}
+                onClick={() => handleReview(selectedSub, true)}
+                disabled={processingId === selectedSub.id}
                 className="btn-primary px-4 py-2 text-xs uppercase bg-emerald-600 hover:bg-emerald-700"
               >
-                Approve Host
+                Approve Submission
               </button>
             </div>
-
           </div>
         </div>
       )}
