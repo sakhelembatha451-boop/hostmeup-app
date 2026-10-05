@@ -26,6 +26,209 @@ interface ServiceItem {
   duration_minutes?: number;
 }
 
+interface BookingModalProps {
+  artistId: string;
+  artistName: string;
+  services: ServiceItem[];
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess?: () => void;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                BOOKING MODAL                               */
+/* -------------------------------------------------------------------------- */
+const BookingModal: React.FC<BookingModalProps> = ({
+  artistId,
+  artistName,
+  services,
+  isOpen,
+  onClose,
+  onSuccess,
+}) => {
+  const [selectedServiceId, setSelectedServiceId] = useState<string>(services[0]?.id || '');
+  const [eventDate, setEventDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [duration, setDuration] = useState(1);
+  const [location, setLocation] = useState('');
+  const [notes, setNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (services.length > 0 && !selectedServiceId) {
+      setSelectedServiceId(services[0].id);
+    }
+  }, [services, selectedServiceId]);
+
+  if (!isOpen) return null;
+
+  const selectedService = services.find((s) => s.id === selectedServiceId);
+  const calculatedTotal = selectedService ? selectedService.price * duration : 0;
+
+  const handleSubmitBooking = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('You must be logged in to send a booking request.');
+
+      const { error: bookingError } = await supabase.from('bookings').insert([
+        {
+          client_id: user.id,
+          artist_id: artistId,
+          service_id: selectedServiceId || null,
+          event_date: eventDate,
+          start_time: startTime,
+          duration_hours: duration,
+          total_price: calculatedTotal,
+          location,
+          notes,
+          status: 'pending',
+        },
+      ]);
+
+      if (bookingError) throw bookingError;
+
+      alert('Booking request sent successfully!');
+      if (onSuccess) onSuccess();
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'Failed to send booking request.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+      <div className="bg-paper border border-line rounded-none max-w-lg w-full p-6 shadow-2xl relative">
+        <button
+          onClick={onClose}
+          type="button"
+          className="absolute top-4 right-4 text-ink-400 hover:text-ink text-lg font-bold"
+        >
+          <X className="w-5 h-5" />
+        </button>
+
+        <h2 className="font-display text-2xl font-bold mb-1 text-ink">Book {artistName}</h2>
+        <p className="text-ink-500 text-xs mb-6">Select details to send a direct booking request.</p>
+
+        {error && <div className="mb-4 p-3 bg-red-100 text-red-700 text-xs">{error}</div>}
+
+        <form onSubmit={handleSubmitBooking} className="space-y-4">
+          {services.length > 0 && (
+            <div>
+              <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Select Service</label>
+              <select
+                value={selectedServiceId}
+                onChange={(e) => setSelectedServiceId(e.target.value)}
+                className="w-full bg-paper-100 border border-line p-2 text-xs text-ink focus:outline-none focus:border-ink"
+                required
+              >
+                {services.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {service.service_name} — R{service.price}/hr
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Date</label>
+              <input
+                type="date"
+                required
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+                className="w-full bg-paper-100 border border-line p-2 text-xs text-ink focus:outline-none focus:border-ink"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Start Time</label>
+              <input
+                type="time"
+                required
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="w-full bg-paper-100 border border-line p-2 text-xs text-ink focus:outline-none focus:border-ink"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Duration (Hours)</label>
+              <input
+                type="number"
+                min="0.5"
+                step="0.5"
+                required
+                value={duration}
+                onChange={(e) => setDuration(parseFloat(e.target.value) || 1)}
+                className="w-full bg-paper-100 border border-line p-2 text-xs text-ink focus:outline-none focus:border-ink"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Estimated Total</label>
+              <div className="p-2 border border-line bg-paper-200 text-xs font-bold text-ink">
+                R{calculatedTotal.toFixed(2)}
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Location / Venue</label>
+            <input
+              type="text"
+              placeholder="e.g. Cape Town City Hall"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              className="w-full bg-paper-100 border border-line p-2 text-xs text-ink focus:outline-none focus:border-ink"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Notes / Special Requests</label>
+            <textarea
+              rows={3}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Share event details or setup requirements..."
+              className="w-full bg-paper-100 border border-line p-2 text-xs text-ink focus:outline-none focus:border-ink"
+            />
+          </div>
+
+          <div className="flex justify-end space-x-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs uppercase tracking-wide-sm font-semibold text-ink-600 hover:text-ink"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="px-5 py-2.5 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 disabled:opacity-50"
+            >
+              {loading ? 'Sending Request...' : 'Confirm Request'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/*                             MAIN PAGE COMPONENT                             */
+/* -------------------------------------------------------------------------- */
 export default function ArtistProfilePage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -36,6 +239,9 @@ export default function ArtistProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
+  // State for Booking Modal
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+
   // State for image lightbox modal
   const [activeImage, setActiveImage] = useState<string | null>(null);
 
@@ -115,7 +321,6 @@ export default function ArtistProfilePage() {
       if (fetchError) throw fetchError;
       setArtist(data);
 
-      // Fetch Services Menu if Beauty Professional or per_service pricing
       if (data && (data.pricing_type === 'per_service' || data.categories?.includes('Beauty Professional'))) {
         const { data: serviceData } = await supabase
           .from('talent_services')
@@ -165,7 +370,6 @@ export default function ArtistProfilePage() {
 
     const targetUserId = artist.user_id || artist.id;
 
-    // Check for existing conversation or route to admin inbox
     const { data: convData } = await supabase
       .from('conversations')
       .select('id')
@@ -197,15 +401,9 @@ export default function ArtistProfilePage() {
     const pType = artist.pricing_type || 'per_hour';
     const rate = artist.base_rate ?? artist.hourly_rate ?? 0;
 
-    if (pType === 'per_gig') {
-      return `R${rate} / gig`;
-    }
-    if (pType === 'per_beat') {
-      return `R${rate} / beat`;
-    }
-    if (pType === 'per_service') {
-      return 'See Services Menu';
-    }
+    if (pType === 'per_gig') return `R${rate} / gig`;
+    if (pType === 'per_beat') return `R${rate} / beat`;
+    if (pType === 'per_service') return 'See Services Menu';
     return `R${rate} / hr`;
   };
 
@@ -259,7 +457,6 @@ export default function ArtistProfilePage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
           {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-8">
-            {/* Main Cover / Avatar */}
             <div className="aspect-[16/9] bg-paper-200 border border-line overflow-hidden relative">
               {artist.cover_url || artist.avatar_url ? (
                 <img
@@ -299,7 +496,6 @@ export default function ArtistProfilePage() {
               )}
             </div>
 
-            {/* About / Bio */}
             <div className="border-t border-line pt-6">
               <h3 className="font-display text-lg font-bold text-ink mb-3">About</h3>
               <p className="text-sm text-ink-600 leading-relaxed whitespace-pre-line">
@@ -307,7 +503,6 @@ export default function ArtistProfilePage() {
               </p>
             </div>
 
-            {/* Itemized Services Menu (for Beauty Professionals) */}
             {(artist.pricing_type === 'per_service' || artist.categories?.includes('Beauty Professional')) && services.length > 0 && (
               <div className="border-t border-line pt-6">
                 <h3 className="font-display text-lg font-bold text-ink mb-4">Services & Rates Menu</h3>
@@ -327,7 +522,6 @@ export default function ArtistProfilePage() {
               </div>
             )}
 
-            {/* Gallery Photos */}
             {galleryImages.length > 0 && (
               <div className="border-t border-line pt-6">
                 <h3 className="font-display text-lg font-bold text-ink mb-4">Gallery & Portfolio</h3>
@@ -350,7 +544,6 @@ export default function ArtistProfilePage() {
               </div>
             )}
 
-            {/* Embedded Audio / Video Link */}
             {artist.demo_url && (
               <div className="border-t border-line pt-6">
                 <h3 className="font-display text-lg font-bold text-ink mb-3">Demo Reel / Track</h3>
@@ -366,7 +559,6 @@ export default function ArtistProfilePage() {
               </div>
             )}
 
-            {/* Social & Streaming Links */}
             {(instagram || spotify || soundcloud || youtube) && (
               <div className="space-y-4 pt-6 border-t border-line">
                 <h3 className="text-xs uppercase tracking-wide-sm font-semibold text-ink-500">
@@ -458,17 +650,17 @@ export default function ArtistProfilePage() {
                   Contact User
                 </button>
               ) : (
-                <Link
-                  to={`/booking/${artist.id}`}
+                <button
+                  type="button"
+                  onClick={() => setIsBookingModalOpen(true)}
                   className="w-full text-center flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
                 >
                   <Calendar className="w-4 h-4" />
                   Request Booking
-                </Link>
+                </button>
               )}
             </div>
 
-            {/* Emergency Safety Protocols Form (Visible to Owner) */}
             {isOwner && (
               <div className="border border-line bg-paper p-6 space-y-4">
                 <div className="flex items-center gap-2 border-b border-line pb-3">
@@ -538,7 +730,6 @@ export default function ArtistProfilePage() {
               </div>
             )}
 
-            {/* Links & Socials Sidebar Panel */}
             {(artist.website_url || artist.instagram_url) && (
               <div className="border border-line bg-paper p-6 space-y-3">
                 <h4 className="text-xs uppercase tracking-wide-sm font-bold text-ink mb-2">Links & Socials</h4>
@@ -557,6 +748,15 @@ export default function ArtistProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Render Booking Modal */}
+      <BookingModal
+        isOpen={isBookingModalOpen}
+        onClose={() => setIsBookingModalOpen(false)}
+        artistId={artist.user_id || artist.id}
+        artistName={artist.stage_name || 'Artist'}
+        services={services}
+      />
 
       {/* Fullscreen Lightbox Modal */}
       {activeImage && (
