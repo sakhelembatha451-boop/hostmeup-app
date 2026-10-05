@@ -12,7 +12,7 @@ import BookingRequestPage from '@/pages/BookingRequestPage';
 import HostDashboard from '@/pages/HostDashboard';
 import ArtistDashboard from '@/pages/ArtistDashboard';
 import HostSettingsPage from '@/pages/HostSettingsPage';
-import InboxPage from '@/pages/InboxPage';
+import { InboxPage } from '@/pages/InboxPage';
 import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminDashboard from '@/pages/AdminDashboard';
 import AdminSettingsPage from '@/pages/AdminSettingsPage';
