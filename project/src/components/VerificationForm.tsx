@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { ShieldCheck, Upload, Loader2, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Upload, Loader2, FileText, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 
 export const VerificationForm: React.FC = () => {
   const { profile, refreshProfile } = useAuth();
@@ -28,7 +28,7 @@ export const VerificationForm: React.FC = () => {
   if (profile?.verification_status === 'pending') {
     return (
       <div className="p-6 border border-amber-300 bg-amber-50 text-amber-900 flex items-center gap-3">
-        <Loader2 className="w-6 h-6 text-amber-600 animate-spin flex-shrink-0" />
+        <Clock className="w-6 h-6 text-amber-600 flex-shrink-0" />
         <div>
           <h4 className="font-semibold text-sm uppercase tracking-wide">Verification Under Review</h4>
           <p className="text-xs">Your documents are currently being reviewed by our admin team.</p>
