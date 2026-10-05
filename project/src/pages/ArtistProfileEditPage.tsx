@@ -45,8 +45,7 @@ export default function ArtistProfileEdit() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Form & ID State
-  const [existingProfileId, setExistingProfileId] = useState<string | null>(null);
+  // Form State
   const [selectedCategory, setSelectedCategory] = useState<string>('PHOTOGRAPHER');
   const [pricingStructure, setPricingStructure] = useState<'per_hour' | 'per_event'>('per_hour');
   const [hourlyRate, setHourlyRate] = useState<string>('350');
@@ -72,7 +71,6 @@ export default function ArtistProfileEdit() {
         if (error) throw error;
 
         if (data) {
-          setExistingProfileId(data.id);
           if (data.category) setSelectedCategory(data.category.toUpperCase());
           if (data.pricing_type) setPricingStructure(data.pricing_type);
           if (data.hourly_rate) setHourlyRate(String(data.hourly_rate));
@@ -93,7 +91,6 @@ export default function ArtistProfileEdit() {
   const handleCategorySelect = (category: string) => {
     if (category !== selectedCategory) {
       setSelectedCategory(category);
-      // Reset selected tags so music genres aren't assigned to photographers, etc.
       setSelectedGenres([]);
     }
   };
@@ -107,7 +104,7 @@ export default function ArtistProfileEdit() {
     }
   };
 
-  // Save changes cleanly using user_id
+  // Save changes cleanly using user_id constraint
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -117,7 +114,7 @@ export default function ArtistProfileEdit() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const payload: Record<string, any> = {
+      const payload = {
         user_id: user.id,
         category: selectedCategory,
         pricing_type: pricingStructure,
@@ -127,22 +124,11 @@ export default function ArtistProfileEdit() {
         updated_at: new Date().toISOString(),
       };
 
-      // Include existing primary key ID if profile already exists in DB
-      if (existingProfileId) {
-        payload.id = existingProfileId;
-      }
-
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('host_profiles')
-        .upsert(payload, { onConflict: 'user_id' })
-        .select()
-        .single();
+        .upsert(payload, { onConflict: 'user_id' });
 
       if (error) throw error;
-
-      if (data?.id) {
-        setExistingProfileId(data.id);
-      }
 
       setMessage({ type: 'success', text: 'Profile updated successfully!' });
     } catch (err: any) {
@@ -161,7 +147,6 @@ export default function ArtistProfileEdit() {
     );
   }
 
-  // Get current available specialties based on category state
   const currentSpecialties = CATEGORY_SPECIALTIES[selectedCategory] || CATEGORY_SPECIALTIES['PHOTOGRAPHER'];
 
   return (
