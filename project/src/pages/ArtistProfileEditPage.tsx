@@ -40,6 +40,19 @@ interface AssetItem {
   image_url?: string;
 }
 
+interface FormFieldProps {
+  label: string;
+  children: React.ReactNode;
+  full?: boolean;
+}
+
+const FormField: React.FC<FormFieldProps> = ({ label, children, full = false }) => (
+  <div className={full ? 'col-span-full' : ''}>
+    <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">{label}</label>
+    {children}
+  </div>
+);
+
 const DRAFT_KEY = 'artist_profile_edit_draft';
 
 export default function ArtistProfileEditPage() {
@@ -450,6 +463,7 @@ export default function ArtistProfileEditPage() {
         {error && <div className="mb-6 p-4 bg-red-50 border border-red-200 text-red-700 text-sm">{error}</div>}
         {success && <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 text-emerald-700 text-sm">Profile saved successfully!</div>}
 
+        {/* MAIN ARTIST PROFILE FORM */}
         <form onSubmit={handleSubmit} className="space-y-10">
           {/* Identity & Bio */}
           <section className="space-y-6">
@@ -795,138 +809,112 @@ export default function ArtistProfileEditPage() {
                       <ImageIcon className="w-6 h-6 text-ink-400" />
                     )}
                   </div>
-                  <label className="cursor-pointer btn-primary px-4 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-2">
+                  <label className="cursor-pointer btn-secondary px-4 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-2">
                     {uploadingAvatar ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    Browse Avatar
-                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarChange} disabled={uploadingAvatar} />
+                    Upload Avatar
+                    <input type="file" accept="image/*" onChange={handleAvatarChange} className="hidden" />
                   </label>
                 </div>
               </div>
 
-              {/* Cover Banner Upload */}
+              {/* Cover Upload */}
               <div>
-                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Cover Banner Image</label>
-                <div className="flex items-center gap-4">
-                  <div className="w-24 h-16 overflow-hidden bg-paper-200 border border-line flex items-center justify-center flex-shrink-0">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Cover Banner</label>
+                <div className="space-y-3">
+                  <div className="h-16 w-full rounded bg-paper-200 border border-line flex items-center justify-center overflow-hidden">
                     {coverUrl ? (
-                      <img src={coverUrl} alt="Cover" className="w-full h-full object-cover" />
+                      <img src={coverUrl} alt="Cover Banner" className="w-full h-full object-cover" />
                     ) : (
                       <ImageIcon className="w-6 h-6 text-ink-400" />
                     )}
                   </div>
-                  <label className="cursor-pointer btn-primary px-4 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-2">
+                  <label className="cursor-pointer btn-secondary px-4 py-2 text-xs uppercase tracking-wide-sm flex items-center justify-center gap-2 w-full">
                     {uploadingCover ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                    Browse Banner
-                    <input type="file" accept="image/*" className="hidden" onChange={handleCoverChange} disabled={uploadingCover} />
+                    Upload Cover Banner
+                    <input type="file" accept="image/*" onChange={handleCoverChange} className="hidden" />
                   </label>
                 </div>
               </div>
             </div>
 
-            {/* Gallery Media Upload */}
-            <div className="space-y-3 pt-4">
-              <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Portfolio Media (Photos, Audio & Video)</label>
-              <label className="cursor-pointer border-2 border-dashed border-line hover:border-ink p-6 text-center block transition-colors bg-paper-100">
-                {uploadingGallery ? (
-                  <div className="flex items-center justify-center gap-2 text-xs uppercase tracking-wide-sm text-ink-600">
-                    <Loader2 className="w-5 h-5 animate-spin" /> Uploading portfolio media...
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-2">
-                    <Upload className="w-6 h-6 text-ink-500" />
-                    <span className="text-xs uppercase tracking-wide-sm font-semibold text-ink">Click to browse & upload media</span>
-                    <span className="text-xs text-ink-400">Supports Images, MP3/Audio, and MP4/Video files</span>
-                  </div>
-                )}
-                <input
-                  type="file"
-                  accept="image/*,audio/*,video/*"
-                  multiple
-                  className="hidden"
-                  onChange={handleGalleryFilesChange}
-                  disabled={uploadingGallery}
-                />
-              </label>
+            {/* Gallery Section */}
+            <div className="pt-4">
+              <div className="flex justify-between items-center mb-4">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400">Media Portfolio & Gallery</label>
+                <label className="cursor-pointer text-xs uppercase tracking-wide-sm text-ink hover:underline flex items-center gap-1">
+                  {uploadingGallery ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  Add Media Files
+                  <input type="file" multiple accept="image/*,video/*,audio/*" onChange={handleGalleryFilesChange} className="hidden" />
+                </label>
+              </div>
 
-              {galleryUrls.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mt-4">
-                  {galleryUrls.map((url, i) => {
-                    const mediaType = getMediaType(url);
-                    return (
-                      <div key={i} className="relative group aspect-square bg-paper-200 border border-line overflow-hidden flex flex-col items-center justify-center">
-                        {mediaType === 'image' && (
-                          <img src={url} alt={`Portfolio Media ${i}`} className="w-full h-full object-cover" />
-                        )}
-
-                        {mediaType === 'video' && (
-                          <video src={url} controls className="w-full h-full object-cover" />
-                        )}
-
-                        {mediaType === 'audio' && (
-                          <div className="w-full h-full p-2 flex flex-col items-center justify-center bg-paper-300 text-center">
-                            <Music className="w-8 h-8 text-ink-600 mb-2" />
-                            <audio src={url} controls className="w-full h-8 max-w-[90%]" />
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => handleRemoveGalleryUrl(i)}
-                          className="absolute top-2 right-2 p-1.5 bg-red-600 text-white rounded-none opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {galleryUrls.map((url, idx) => {
+                  const mediaType = getMediaType(url);
+                  return (
+                    <div key={idx} className="relative group aspect-square bg-paper-200 border border-line overflow-hidden rounded">
+                      {mediaType === 'image' && <img src={url} alt={`Gallery ${idx}`} className="w-full h-full object-cover" />}
+                      {mediaType === 'video' && (
+                        <video src={url} className="w-full h-full object-cover" controls />
+                      )}
+                      {mediaType === 'audio' && (
+                        <div className="w-full h-full flex flex-col items-center justify-center p-2 bg-paper-300 text-center">
+                          <Music className="w-8 h-8 text-ink-500 mb-2" />
+                          <audio src={url} controls className="w-full h-8 max-w-[120px]" />
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveGalleryUrl(idx)}
+                        className="absolute top-2 right-2 p-1 bg-red-600 text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          </section>
-
-          {/* Identity & Safety Verification */}
-          <section className="space-y-6">
-            <VerificationForm />
           </section>
 
           {/* Social Links */}
           <section className="space-y-6">
-            <h2 className="text-sm uppercase tracking-wide-sm font-semibold text-ink border-b border-line pb-2">Social & Streaming Handles</h2>
+            <h2 className="text-sm uppercase tracking-wide-sm font-semibold text-ink border-b border-line pb-2">Social & Streaming Profiles</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <FormField label="Instagram Handle or Link" full={false}>
+              <FormField label="Instagram Profile URL" full={false}>
                 <input
-                  type="text"
+                  type="url"
                   value={instagram}
                   onChange={(e) => setInstagram(e.target.value)}
                   className="input-field"
-                  placeholder="@username or link"
+                  placeholder="https://instagram.com/yourhandle"
                 />
               </FormField>
-              <FormField label="Spotify Link" full={false}>
+              <FormField label="Spotify Artist URL" full={false}>
                 <input
-                  type="text"
+                  type="url"
                   value={spotify}
                   onChange={(e) => setSpotify(e.target.value)}
                   className="input-field"
-                  placeholder="https://open.spotify.com/..."
+                  placeholder="https://open.spotify.com/artist/..."
                 />
               </FormField>
-              <FormField label="SoundCloud Link" full={false}>
+              <FormField label="SoundCloud URL" full={false}>
                 <input
-                  type="text"
+                  type="url"
                   value={soundcloud}
                   onChange={(e) => setSoundcloud(e.target.value)}
                   className="input-field"
-                  placeholder="https://soundcloud.com/..."
+                  placeholder="https://soundcloud.com/yourhandle"
                 />
               </FormField>
-              <FormField label="YouTube Link" full={false}>
+              <FormField label="YouTube Channel URL" full={false}>
                 <input
-                  type="text"
+                  type="url"
                   value={youtube}
                   onChange={(e) => setYoutube(e.target.value)}
                   className="input-field"
-                  placeholder="https://youtube.com/..."
+                  placeholder="https://youtube.com/@yourchannel"
                 />
               </FormField>
             </div>
@@ -939,20 +927,20 @@ export default function ArtistProfileEditPage() {
               className="btn-primary flex items-center gap-2 px-8 py-3 text-xs uppercase tracking-wide-sm"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              Save Changes
+              Save Profile Changes
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  );
-}
 
-function FormField({ label, children, full }: { label: string; children: React.ReactNode; full?: boolean }) {
-  return (
-    <div className={full ? 'sm:col-span-2' : ''}>
-      <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">{label}</label>
-      {children}
+        {/* VERIFICATION FORM SECTION (RENDERED OUTSIDE OF MAIN FORM) */}
+        <section className="mt-16 pt-10 border-t border-line space-y-6">
+          <div>
+            <h2 className="text-lg font-bold text-ink">Account Verification</h2>
+            <p className="text-sm text-ink-500 mt-1">Get verified to earn a trust badge and unlock priority booking features.</p>
+          </div>
+          <VerificationForm />
+        </section>
+      </div>
     </div>
   );
 }
