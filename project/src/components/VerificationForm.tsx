@@ -37,10 +37,11 @@ export const VerificationForm: React.FC = () => {
     );
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+
     if (!profile || !docFile || !selfieFile || !idNumber.trim()) {
-      setErrorMsg('Please enter your ID/Passport number and attach both files.');
+      setErrorMsg('Please enter your ID/Passport number and attach both required files.');
       return;
     }
 
@@ -110,7 +111,7 @@ export const VerificationForm: React.FC = () => {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="space-y-4">
         <div>
           <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-600 mb-2">
             Document Type
@@ -132,7 +133,6 @@ export const VerificationForm: React.FC = () => {
           </label>
           <input
             type="text"
-            required
             placeholder="Enter ID / Passport Number"
             value={idNumber}
             onChange={(e) => setIdNumber(e.target.value)}
@@ -149,7 +149,6 @@ export const VerificationForm: React.FC = () => {
               <input
                 type="file"
                 accept="image/*,application/pdf"
-                required
                 onChange={(e) => setDocFile(e.target.files?.[0] || null)}
                 className="hidden"
                 id="doc-upload"
@@ -171,7 +170,6 @@ export const VerificationForm: React.FC = () => {
               <input
                 type="file"
                 accept="image/*"
-                required
                 onChange={(e) => setSelfieFile(e.target.files?.[0] || null)}
                 className="hidden"
                 id="selfie-upload"
@@ -188,15 +186,16 @@ export const VerificationForm: React.FC = () => {
 
         <div className="pt-4 flex justify-end">
           <button
-            type="submit"
+            type="button"
+            onClick={handleSubmit}
             disabled={submitting}
-            className="px-6 py-3 text-xs font-semibold uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink/90 disabled:opacity-50 flex items-center gap-2"
+            className="px-6 py-3 text-xs font-semibold uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink/90 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
           >
             {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
             Submit Document
           </button>
         </div>
-      </form>
+      </div>
     </div>
   );
 };
