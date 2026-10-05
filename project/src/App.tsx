@@ -144,6 +144,15 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
+        {/* Dynamic route for direct user messaging */}
+        <Route
+          path="/inbox/:recipientId"
+          element={
+            <ProtectedRoute>
+              <InboxPage />
+            </ProtectedRoute>
+          }
+        />
 
         {/* ADMIN ROUTES */}
         <Route
