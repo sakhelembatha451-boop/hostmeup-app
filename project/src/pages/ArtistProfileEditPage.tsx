@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { supabase } from '@/lib/supabase';
+import { VerificationForm } from '@/components/VerificationForm';
 import { Plus, Trash2, ArrowLeft, Loader2, Save, Upload, Image as ImageIcon, Music } from 'lucide-react';
 import type { Category, Genre } from '@/types';
 
@@ -228,7 +229,7 @@ export default function ArtistProfileEditPage() {
     return data.publicUrl;
   };
 
-  // Avatar Upload Handler (No longer overwrites unsubmitted text fields)
+  // Avatar Upload Handler
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();
     const file = e.target.files?.[0];
@@ -881,6 +882,11 @@ export default function ArtistProfileEditPage() {
                 </div>
               )}
             </div>
+          </section>
+
+          {/* Identity & Safety Verification */}
+          <section className="space-y-6">
+            <VerificationForm />
           </section>
 
           {/* Social Links */}
