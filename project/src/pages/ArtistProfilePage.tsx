@@ -650,14 +650,26 @@ export default function ArtistProfilePage() {
                   Contact User
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsBookingModalOpen(true)}
-                  className="w-full text-center flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
-                >
-                  <Calendar className="w-4 h-4" />
-                  Request Booking
-                </button>
+                <div className="space-y-3">
+                  {/* Primary Action: Request Booking */}
+                  <button
+                    type="button"
+                    onClick={() => setIsBookingModalOpen(true)}
+                    className="w-full text-center flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
+                  >
+                    <Calendar className="w-4 h-4" />
+                    Request Booking
+                  </button>
+
+                  {/* Direct Messaging Action for Hosts / Users */}
+                  <Link
+                    to={`/inbox/${artist.user_id || artist.id}`}
+                    className="w-full text-center flex items-center justify-center gap-2 py-2.5 border border-ink text-ink text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink hover:text-paper transition-colors"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    Start Conversation
+                  </Link>
+                </div>
               )}
             </div>
 
