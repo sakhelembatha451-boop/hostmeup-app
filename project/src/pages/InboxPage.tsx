@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   MessageSquare,
   Plus,
@@ -70,11 +71,17 @@ interface InboxPageProps {
 const EMOJI_LIST = ['😊', '😂', '👍', '❤️', '🔥', '🙏', '🙌', '🎉', '💡', '✨', '👋', '👀', '💯', '👏'];
 
 export const InboxPage: React.FC<InboxPageProps> = ({
-  targetUserId,
-  targetConvId,
+  targetUserId: propTargetUserId,
+  targetConvId: propTargetConvId,
   onClearTargets,
 }) => {
   const { profile } = useAuth();
+  const [searchParams] = useSearchParams();
+
+  // Read URL query parameters as fallbacks if props aren't explicitly passed
+  const effectiveUserId = propTargetUserId || searchParams.get('userId') || searchParams.get('targetUserId') || searchParams.get('recipientId');
+  const effectiveConvId = propTargetConvId || searchParams.get('convId') || searchParams.get('targetConvId');
+
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -125,6 +132,10 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
       if (!convs || convs.length === 0) {
         setConversations([]);
+        if (effectiveUserId) {
+          setSelectedRecipientId(effectiveUserId);
+          setShowNewModal(true);
+        }
         return;
       }
 
@@ -170,20 +181,21 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
       setConversations(mappedConversations as Conversation[]);
 
-      if (targetConvId) {
-        const matchedConv = mappedConversations.find((c) => c.id === targetConvId);
+      // Check targets from props or URL
+      if (effectiveConvId) {
+        const matchedConv = mappedConversations.find((c) => c.id === effectiveConvId);
         if (matchedConv) setSelectedConv(matchedConv as Conversation);
-      } else if (targetUserId) {
+      } else if (effectiveUserId) {
         const existingConv = mappedConversations.find(
           (c) =>
-            c.user_id === targetUserId ||
-            c.participant1_id === targetUserId ||
-            c.participant2_id === targetUserId
+            c.user_id === effectiveUserId ||
+            c.participant1_id === effectiveUserId ||
+            c.participant2_id === effectiveUserId
         );
         if (existingConv) {
           setSelectedConv(existingConv as Conversation);
         } else {
-          setSelectedRecipientId(targetUserId);
+          setSelectedRecipientId(effectiveUserId);
           setShowNewModal(true);
         }
       }
@@ -192,9 +204,9 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [profile, targetConvId, targetUserId]);
+  }, [profile, effectiveConvId, effectiveUserId]);
 
-  // Load all users on platform for the recipient dropdown
+  // Load all users on platform for recipient dropdown
   const loadRecipients = useCallback(async () => {
     if (!profile) return;
     try {
@@ -850,14 +862,10 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                                 type="button"
                                 onClick={uploadAndSendVoiceNote}
                                 disabled={uploadingAudio}
-                                className="btn-primary px-4 py-1.5 text-xs flex items-center gap-2"
+                                className="px-3 py-1.5 text-xs bg-ink text-paper hover:bg-ink/90 disabled:opacity-50 flex items-center gap-1"
                               >
-                                {uploadingAudio ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
-                                  <Send className="w-3.5 h-3.5" />
-                                )}
-                                Send Voice
+                                {uploadingAudio ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                                Send Voice Note
                               </button>
                             </>
                           )}
@@ -867,84 +875,76 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                       <form onSubmit={handleSendMessage} className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                          className="p-3 text-ink-400 hover:text-ink border border-line bg-paper-100 hover:bg-paper-200 transition-colors"
-                          title="Insert emoji"
+                          onClick={() => setShowEmojiPicker((prev) => !prev)}
+                          className="p-2 text-ink-400 hover:text-ink transition-colors"
                         >
-                          <Smile className="w-4 h-4" />
+                          <Smile className="w-5 h-5" />
                         </button>
 
                         <button
                           type="button"
                           onClick={startRecording}
-                          className="p-3 text-ink-400 hover:text-ink border border-line bg-paper-100 hover:bg-paper-200 transition-colors"
-                          title="Record Voice Note"
+                          className="p-2 text-ink-400 hover:text-ink transition-colors"
                         >
-                          <Mic className="w-4 h-4" />
+                          <Mic className="w-5 h-5" />
                         </button>
 
                         <input
                           type="text"
                           value={replyText}
                           onChange={(e) => setReplyText(e.target.value)}
-                          placeholder="Type a response..."
-                          className="flex-1 px-4 py-2.5 bg-paper-100 border border-line text-sm text-ink placeholder:text-ink-300 focus:outline-none focus:border-ink"
+                          placeholder="Type your reply..."
+                          className="flex-1 bg-paper border border-line px-4 py-2.5 text-sm text-ink focus:outline-none focus:border-ink"
                         />
 
                         <button
                           type="submit"
                           disabled={sending || !replyText.trim()}
-                          className="btn-primary px-5 py-2.5 text-xs flex items-center gap-2 disabled:opacity-50"
+                          className="p-2.5 bg-ink text-paper hover:bg-ink/90 disabled:opacity-50 transition-colors"
                         >
-                          {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                          Send
+                          {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
                         </button>
                       </form>
                     )}
                   </div>
                 </>
               ) : (
-                <div className="flex flex-col items-center justify-center flex-1 py-12 text-ink-300">
-                  <MessageSquare className="w-10 h-10 mb-2 opacity-50" />
-                  <p className="text-sm">Select a conversation from the left to view messages</p>
+                <div className="flex flex-col items-center justify-center flex-1 py-24 text-center text-ink-400">
+                  <MessageSquare className="w-10 h-10 text-ink-300 mb-3" />
+                  <p className="text-sm">Select a conversation from the left to view messages.</p>
                 </div>
               )}
             </div>
           </div>
         )}
 
-        {/* Modal for Starting New Conversation */}
+        {/* New Message Modal */}
         {showNewModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-            <div className="bg-paper border border-line p-6 max-w-lg w-full shadow-2xl relative">
+          <div className="fixed inset-0 z-50 bg-ink/50 backdrop-blur-sm flex items-center justify-center p-4">
+            <div className="bg-paper border border-line max-w-lg w-full p-6 shadow-xl relative">
               <button
                 type="button"
-                onClick={() => {
-                  setShowNewModal(false);
-                  if (onClearTargets) onClearTargets();
-                }}
+                onClick={() => setShowNewModal(false)}
                 className="absolute top-4 right-4 text-ink-400 hover:text-ink"
               >
                 <X className="w-5 h-5" />
               </button>
 
-              <h2 className="font-display text-xl font-bold text-ink mb-4">New Message</h2>
+              <h2 className="font-display text-2xl font-bold text-ink mb-6">New Message</h2>
 
               <form onSubmit={handleCreateConversation} className="space-y-4">
-                {/* Search & Recipient Selector */}
                 <div>
-                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
-                    Recipient
+                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-600 mb-2">
+                    Select Recipient
                   </label>
-
                   <div className="relative mb-2">
-                    <Search className="w-4 h-4 absolute left-3 top-2.5 text-ink-400" />
+                    <Search className="w-4 h-4 absolute left-3 top-3 text-ink-400" />
                     <input
                       type="text"
-                      placeholder="Search users by name, role or email..."
+                      placeholder="Search users..."
                       value={recipientSearch}
                       onChange={(e) => setRecipientSearch(e.target.value)}
-                      className="w-full pl-9 pr-3 py-2 bg-paper-100 border border-line text-xs text-ink focus:outline-none focus:border-ink"
+                      className="w-full bg-paper border border-line pl-9 pr-4 py-2 text-sm text-ink focus:outline-none focus:border-ink"
                     />
                   </div>
 
@@ -952,65 +952,58 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                     value={selectedRecipientId}
                     onChange={(e) => setSelectedRecipientId(e.target.value)}
                     required
-                    className="w-full px-3 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink rounded-none"
+                    className="w-full bg-paper border border-line px-4 py-2.5 text-sm text-ink focus:outline-none focus:border-ink"
                   >
                     <option value="">Select a user...</option>
-                    {filteredRecipients.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.full_name || 'Unnamed User'} ({r.email || r.role || 'User'})
+                    {filteredRecipients.map((user) => (
+                      <option key={user.id} value={user.id}>
+                        {user.full_name || user.email} ({user.role || 'user'})
                       </option>
                     ))}
                   </select>
                 </div>
 
-                {/* Subject */}
                 <div>
-                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
+                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-600 mb-2">
                     Subject
                   </label>
                   <input
                     type="text"
                     value={newSubject}
                     onChange={(e) => setNewSubject(e.target.value)}
-                    placeholder="Enter subject..."
-                    required
-                    className="w-full px-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink"
+                    placeholder="Direct Message"
+                    className="w-full bg-paper border border-line px-4 py-2.5 text-sm text-ink focus:outline-none focus:border-ink"
                   />
                 </div>
 
-                {/* Message */}
                 <div>
-                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-500 mb-2">
+                  <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-600 mb-2">
                     Message
                   </label>
                   <textarea
-                    rows={4}
                     value={firstMessage}
                     onChange={(e) => setFirstMessage(e.target.value)}
-                    placeholder="Type message here..."
+                    placeholder="Write your message..."
+                    rows={4}
                     required
-                    className="w-full px-4 py-2 text-sm bg-paper-100 border border-line text-ink focus:outline-none focus:border-ink resize-none"
+                    className="w-full bg-paper border border-line p-4 text-sm text-ink focus:outline-none focus:border-ink resize-none"
                   />
                 </div>
 
-                {/* Actions */}
-                <div className="flex justify-end gap-3 pt-2">
+                <div className="flex justify-end gap-3 pt-4">
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowNewModal(false);
-                      if (onClearTargets) onClearTargets();
-                    }}
-                    className="px-4 py-2 text-xs uppercase tracking-wide-sm border border-line hover:bg-paper-100"
+                    onClick={() => setShowNewModal(false)}
+                    className="px-5 py-2.5 text-xs font-semibold uppercase tracking-wide-sm border border-line text-ink hover:bg-paper-100"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
                     disabled={startingConv || !selectedRecipientId || !firstMessage.trim()}
-                    className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-2 disabled:opacity-50"
+                    className="px-5 py-2.5 text-xs font-semibold uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink/90 disabled:opacity-50 flex items-center gap-2"
                   >
-                    {startingConv ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    {startingConv && <Loader2 className="w-4 h-4 animate-spin" />}
                     Send Message
                   </button>
                 </div>
@@ -1022,5 +1015,3 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     </div>
   );
 };
-
-export default InboxPage;
