@@ -23,7 +23,7 @@ export default function AdminVerification() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [selectedSub, setSelectedSub] = useState<VerificationSubmission | null>(null);
 
-  // Helper function to reliably fetch storage links for files
+  // Safely open media files from Supabase Storage
   const openStorageFile = async (path: string | null) => {
     if (!path) return;
     if (path.startsWith('http://') || path.startsWith('https://')) {
@@ -31,27 +31,23 @@ export default function AdminVerification() {
       return;
     }
 
-    // Strip bucket prefix if accidentally prepended
     const cleanPath = path.replace(/^verification-docs\//, '');
 
-    // 1. Try public URL first
     const { data: publicData } = supabase.storage.from('verification-docs').getPublicUrl(cleanPath);
-    
-    // 2. Fallback to signed URL if access is restricted by policy
     const { data: signedData } = await supabase.storage.from('verification-docs').createSignedUrl(cleanPath, 3600);
 
     const targetUrl = signedData?.signedUrl || publicData?.publicUrl;
     if (targetUrl) {
       window.open(targetUrl, '_blank');
     } else {
-      alert('Could not generate document download link.');
+      alert('Could not generate document link.');
     }
   };
 
   const fetchSubmissions = useCallback(async () => {
     setLoading(true);
     try {
-      // Fetch from profiles table
+      // Fetch pending & rejected profiles
       const { data: profileData, error: profileErr } = await supabase
         .from('profiles')
         .select('*')
@@ -60,7 +56,7 @@ export default function AdminVerification() {
 
       if (profileErr) console.error('Profiles fetch error:', profileErr);
 
-      // Fetch from host_profiles table
+      // Fetch pending host profiles
       const { data: hostData, error: hostErr } = await supabase
         .from('host_profiles')
         .select('*, profiles:user_id(id, full_name, email, avatar_url)')
@@ -133,7 +129,11 @@ export default function AdminVerification() {
           })
           .eq('id', submission.id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error updating profiles:', error);
+          alert(`Profile update failed: ${error.message}`);
+          return;
+        }
       } else {
         const { error } = await supabase
           .from('host_profiles')
@@ -144,15 +144,21 @@ export default function AdminVerification() {
           })
           .eq('id', submission.id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Error updating host_profiles:', error);
+          alert(`Host profile update failed: ${error.message}`);
+          return;
+        }
       }
 
       if (selectedSub?.id === submission.id) {
         setSelectedSub(null);
       }
-      fetchSubmissions();
-    } catch (error) {
-      console.error('Error updating status:', error);
+
+      await fetchSubmissions();
+    } catch (err: any) {
+      console.error('Unexpected review error:', err);
+      alert('An unexpected error occurred while updating status.');
     } finally {
       setProcessingId(null);
     }
@@ -312,52 +318,4 @@ export default function AdminVerification() {
 
                 <div className="space-y-1">
                   <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Current Status</p>
-                  <p className="capitalize font-semibold text-amber-600">{selectedSub.verification_status || 'Pending'}</p>
-                </div>
-              </div>
-
-              <div className="pt-4 border-t border-line space-y-2">
-                <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Submitted Files</p>
-                
-                {selectedSub.document_url && (
-                  <button
-                    onClick={() => openStorageFile(selectedSub.document_url)}
-                    className="btn-outline w-full flex items-center justify-center gap-2 py-2 text-xs uppercase tracking-wide-sm"
-                  >
-                    <FileText className="w-4 h-4" /> Open ID Document <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
-                )}
-
-                {selectedSub.selfie_url && (
-                  <button
-                    onClick={() => openStorageFile(selectedSub.selfie_url)}
-                    className="btn-outline w-full flex items-center justify-center gap-2 py-2 text-xs uppercase tracking-wide-sm"
-                  >
-                    <FileText className="w-4 h-4" /> Open Holding Selfie <ExternalLink className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-line">
-              <button
-                onClick={() => handleReview(selectedSub, false)}
-                disabled={processingId === selectedSub.id}
-                className="btn-outline px-4 py-2 text-xs uppercase text-red-600 border-red-200 hover:bg-red-50"
-              >
-                Reject Submission
-              </button>
-              <button
-                onClick={() => handleReview(selectedSub, true)}
-                disabled={processingId === selectedSub.id}
-                className="btn-primary px-4 py-2 text-xs uppercase bg-emerald-600 hover:bg-emerald-700"
-              >
-                Approve Submission
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+                  <p className="capitalize font-semibold text
