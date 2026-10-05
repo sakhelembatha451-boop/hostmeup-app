@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useParams } from 'react-router-dom';
 import {
   MessageSquare,
   Plus,
@@ -77,9 +77,16 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 }) => {
   const { profile } = useAuth();
   const [searchParams] = useSearchParams();
+  const { recipientId } = useParams<{ recipientId?: string }>();
 
-  // Read URL query parameters as fallbacks if props aren't explicitly passed
-  const effectiveUserId = propTargetUserId || searchParams.get('userId') || searchParams.get('targetUserId') || searchParams.get('recipientId');
+  // Read URL route params and search params as fallbacks if props aren't explicitly passed
+  const effectiveUserId =
+    propTargetUserId ||
+    recipientId ||
+    searchParams.get('userId') ||
+    searchParams.get('targetUserId') ||
+    searchParams.get('recipientId');
+
   const effectiveConvId = propTargetConvId || searchParams.get('convId') || searchParams.get('targetConvId');
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -181,7 +188,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
       setConversations(mappedConversations as Conversation[]);
 
-      // Check targets from props or URL
+      // Check targets from route params, search params, or props
       if (effectiveConvId) {
         const matchedConv = mappedConversations.find((c) => c.id === effectiveConvId);
         if (matchedConv) setSelectedConv(matchedConv as Conversation);
