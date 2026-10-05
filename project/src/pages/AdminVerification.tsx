@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
-import { Loader2, CheckCircle, XCircle, ShieldAlert, FileText, ExternalLink, User, Mail, Clock, X } from 'lucide-react';
+import { Loader2, CheckCircle, XCircle, ShieldAlert, FileText, ExternalLink, User, Mail, X } from 'lucide-react';
 
 interface VerificationSubmission {
   id: string;
@@ -23,18 +23,35 @@ export default function AdminVerification() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [selectedSub, setSelectedSub] = useState<VerificationSubmission | null>(null);
 
-  // Helper to create valid bucket links for private or public paths
-  const getStorageUrl = (path: string | null) => {
-    if (!path) return null;
-    if (path.startsWith('http')) return path;
-    const { data } = supabase.storage.from('verification-docs').getPublicUrl(path);
-    return data?.publicUrl || null;
+  // Helper function to reliably fetch storage links for files
+  const openStorageFile = async (path: string | null) => {
+    if (!path) return;
+    if (path.startsWith('http://') || path.startsWith('https://')) {
+      window.open(path, '_blank');
+      return;
+    }
+
+    // Strip bucket prefix if accidentally prepended
+    const cleanPath = path.replace(/^verification-docs\//, '');
+
+    // 1. Try public URL first
+    const { data: publicData } = supabase.storage.from('verification-docs').getPublicUrl(cleanPath);
+    
+    // 2. Fallback to signed URL if access is restricted by policy
+    const { data: signedData } = await supabase.storage.from('verification-docs').createSignedUrl(cleanPath, 3600);
+
+    const targetUrl = signedData?.signedUrl || publicData?.publicUrl;
+    if (targetUrl) {
+      window.open(targetUrl, '_blank');
+    } else {
+      alert('Could not generate document download link.');
+    }
   };
 
   const fetchSubmissions = useCallback(async () => {
     setLoading(true);
     try {
-      // 1. Fetch pending/submitted records from 'profiles'
+      // Fetch from profiles table
       const { data: profileData, error: profileErr } = await supabase
         .from('profiles')
         .select('*')
@@ -43,7 +60,7 @@ export default function AdminVerification() {
 
       if (profileErr) console.error('Profiles fetch error:', profileErr);
 
-      // 2. Fetch pending records from 'host_profiles'
+      // Fetch from host_profiles table
       const { data: hostData, error: hostErr } = await supabase
         .from('host_profiles')
         .select('*, profiles:user_id(id, full_name, email, avatar_url)')
@@ -54,7 +71,6 @@ export default function AdminVerification() {
 
       const list: VerificationSubmission[] = [];
 
-      // Format profile records
       (profileData || []).forEach((p: any) => {
         list.push({
           id: p.id,
@@ -72,9 +88,7 @@ export default function AdminVerification() {
         });
       });
 
-      // Format host_profile records
       (hostData || []).forEach((h: any) => {
-        // avoid duplicating if already in profile list
         if (!list.some((existing) => existing.user_id === (h.user_id || h.id))) {
           list.push({
             id: h.id,
@@ -106,7 +120,6 @@ export default function AdminVerification() {
 
   const handleReview = async (submission: VerificationSubmission, approve: boolean) => {
     setProcessingId(submission.id);
-
     const newStatus = approve ? 'approved' : 'rejected';
 
     try {
@@ -170,95 +183,81 @@ export default function AdminVerification() {
           </div>
         ) : (
           <div className="space-y-4">
-            {submissions.map((sub) => {
-              const docUrl = getStorageUrl(sub.document_url);
-              const selfieUrl = getStorageUrl(sub.selfie_url);
-
-              return (
-                <div key={sub.id} className="border border-line p-6 bg-paper flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-ink/20 transition-all">
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-display text-lg font-bold text-ink">
-                        {sub.full_name}
-                      </h3>
-
-                      <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 tracking-wider border ${
-                        sub.verification_status === 'approved'
-                          ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                          : sub.verification_status === 'rejected'
-                          ? 'bg-red-50 text-red-800 border-red-200'
-                          : 'bg-amber-50 text-amber-800 border-amber-200'
-                      }`}>
-                        {sub.verification_status || 'Pending'}
-                      </span>
-                    </div>
-
-                    <p className="text-xs text-ink-500">Email: {sub.email}</p>
-                    {sub.id_number && (
-                      <p className="text-xs text-ink-400">
-                        ID/Passport No: <span className="font-mono text-ink">{sub.id_number}</span>
-                      </p>
-                    )}
+            {submissions.map((sub) => (
+              <div key={sub.id} className="border border-line p-6 bg-paper flex flex-col md:flex-row md:items-center justify-between gap-6 hover:border-ink/20 transition-all">
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <h3 className="font-display text-lg font-bold text-ink">{sub.full_name}</h3>
+                    <span className={`text-[10px] font-semibold uppercase px-2 py-0.5 tracking-wider border ${
+                      sub.verification_status === 'approved'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : sub.verification_status === 'rejected'
+                        ? 'bg-red-50 text-red-800 border-red-200'
+                        : 'bg-amber-50 text-amber-800 border-amber-200'
+                    }`}>
+                      {sub.verification_status || 'Pending'}
+                    </span>
                   </div>
+                  <p className="text-xs text-ink-500">Email: {sub.email}</p>
+                  {sub.id_number && (
+                    <p className="text-xs text-ink-400">
+                      ID/Passport No: <span className="font-mono text-ink">{sub.id_number}</span>
+                    </p>
+                  )}
+                </div>
 
-                  <div className="flex flex-wrap items-center gap-3 border-t md:border-t-0 pt-4 md:pt-0 border-line">
+                <div className="flex flex-wrap items-center gap-3 border-t md:border-t-0 pt-4 md:pt-0 border-line">
+                  <button
+                    onClick={() => setSelectedSub(sub)}
+                    className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
+                  >
+                    <User className="w-3.5 h-3.5" /> View Details
+                  </button>
+
+                  {sub.document_url ? (
                     <button
-                      onClick={() => setSelectedSub(sub)}
+                      onClick={() => openStorageFile(sub.document_url)}
                       className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
                     >
-                      <User className="w-3.5 h-3.5" /> View Details
+                      <FileText className="w-3.5 h-3.5" /> ID Doc <ExternalLink className="w-3 h-3 ml-1" />
+                    </button>
+                  ) : (
+                    <span className="text-xs text-ink-400 italic">No ID Doc</span>
+                  )}
+
+                  {sub.selfie_url && (
+                    <button
+                      onClick={() => openStorageFile(sub.selfie_url)}
+                      className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
+                    >
+                      <FileText className="w-3.5 h-3.5" /> Selfie <ExternalLink className="w-3 h-3 ml-1" />
+                    </button>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleReview(sub, true)}
+                      disabled={processingId === sub.id || sub.verification_status === 'approved'}
+                      className="btn-primary inline-flex items-center gap-1 px-4 py-2 text-xs uppercase tracking-wide-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {processingId === sub.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Approve
                     </button>
 
-                    {docUrl ? (
-                      <a
-                        href={docUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
-                      >
-                        <FileText className="w-3.5 h-3.5" /> ID Doc <ExternalLink className="w-3 h-3 ml-1" />
-                      </a>
-                    ) : (
-                      <span className="text-xs text-ink-400 italic">No ID Doc</span>
-                    )}
-
-                    {selfieUrl && (
-                      <a
-                        href={selfieUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
-                      >
-                        <FileText className="w-3.5 h-3.5" /> Selfie <ExternalLink className="w-3 h-3 ml-1" />
-                      </a>
-                    )}
-
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleReview(sub, true)}
-                        disabled={processingId === sub.id || sub.verification_status === 'approved'}
-                        className="btn-primary inline-flex items-center gap-1 px-4 py-2 text-xs uppercase tracking-wide-sm bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
-                      >
-                        {processingId === sub.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />} Approve
-                      </button>
-
-                      <button
-                        onClick={() => handleReview(sub, false)}
-                        disabled={processingId === sub.id || sub.verification_status === 'rejected'}
-                        className="btn-outline inline-flex items-center gap-1 px-4 py-2 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        {processingId === sub.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />} Reject
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => handleReview(sub, false)}
+                      disabled={processingId === sub.id || sub.verification_status === 'rejected'}
+                      className="btn-outline inline-flex items-center gap-1 px-4 py-2 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50 disabled:opacity-50"
+                    >
+                      {processingId === sub.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <XCircle className="w-3.5 h-3.5" />} Reject
+                    </button>
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* DETAILED MODAL */}
       {selectedSub && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-paper border border-line max-w-lg w-full p-6 space-y-6 shadow-xl relative max-h-[90vh] overflow-y-auto">
@@ -320,26 +319,22 @@ export default function AdminVerification() {
               <div className="pt-4 border-t border-line space-y-2">
                 <p className="text-ink-400 uppercase tracking-wide-sm text-[10px] font-semibold">Submitted Files</p>
                 
-                {getStorageUrl(selectedSub.document_url) && (
-                  <a
-                    href={getStorageUrl(selectedSub.document_url)!}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                {selectedSub.document_url && (
+                  <button
+                    onClick={() => openStorageFile(selectedSub.document_url)}
                     className="btn-outline w-full flex items-center justify-center gap-2 py-2 text-xs uppercase tracking-wide-sm"
                   >
                     <FileText className="w-4 h-4" /> Open ID Document <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                  </button>
                 )}
 
-                {getStorageUrl(selectedSub.selfie_url) && (
-                  <a
-                    href={getStorageUrl(selectedSub.selfie_url)!}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                {selectedSub.selfie_url && (
+                  <button
+                    onClick={() => openStorageFile(selectedSub.selfie_url)}
                     className="btn-outline w-full flex items-center justify-center gap-2 py-2 text-xs uppercase tracking-wide-sm"
                   >
                     <FileText className="w-4 h-4" /> Open Holding Selfie <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
+                  </button>
                 )}
               </div>
             </div>
