@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Loader2, Save, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Loader2, Save, ArrowLeft, CheckCircle2, AlertCircle, Upload, X, Image as ImageIcon } from 'lucide-react';
 
 // Primary categories available on HostMeUp
 const CATEGORIES = [
@@ -43,6 +43,7 @@ export default function ArtistProfileEdit() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Form State
@@ -51,6 +52,8 @@ export default function ArtistProfileEdit() {
   const [hourlyRate, setHourlyRate] = useState<string>('350');
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [location, setLocation] = useState<string>('');
+  const [bio, setBio] = useState<string>('');
+  const [portfolioUrls, setPortfolioUrls] = useState<string[]>([]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -76,6 +79,10 @@ export default function ArtistProfileEdit() {
           if (data.hourly_rate) setHourlyRate(String(data.hourly_rate));
           if (data.genres && Array.isArray(data.genres)) setSelectedGenres(data.genres);
           if (data.location) setLocation(data.location);
+          if (data.bio) setBio(data.bio);
+          if (data.portfolio_urls && Array.isArray(data.portfolio_urls)) {
+            setPortfolioUrls(data.portfolio_urls);
+          }
         }
       } catch (err: any) {
         console.error('Error fetching profile:', err);
@@ -87,7 +94,7 @@ export default function ArtistProfileEdit() {
     fetchProfile();
   }, [navigate]);
 
-  // Handle Switching Main Category
+  // Handle Category Select
   const handleCategorySelect = (category: string) => {
     if (category !== selectedCategory) {
       setSelectedCategory(category);
@@ -104,7 +111,56 @@ export default function ArtistProfileEdit() {
     }
   };
 
-  // Save changes cleanly using user_id constraint
+  // Handle Portfolio Image Upload
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadingImage(true);
+    setMessage(null);
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const uploadedList: string[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileExt = file.name.split('.').pop();
+        const filePath = `${user.id}/portfolio_${Date.now()}_${i}.${fileExt}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('verification-docs') // or your designated public storage bucket
+          .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from('verification-docs')
+          .getPublicUrl(filePath);
+
+        if (publicUrlData?.publicUrl) {
+          uploadedList.push(publicUrlData.publicUrl);
+        }
+      }
+
+      setPortfolioUrls((prev) => [...prev, ...uploadedList]);
+      setMessage({ type: 'success', text: 'Portfolio photos uploaded successfully!' });
+    } catch (err: any) {
+      console.error('Error uploading image:', err);
+      setMessage({ type: 'error', text: err.message || 'Failed to upload portfolio image.' });
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  // Remove Portfolio Image
+  const handleRemoveImage = (urlToRemove: string) => {
+    setPortfolioUrls(portfolioUrls.filter((url) => url !== urlToRemove));
+  };
+
+  // Save changes cleanly to Supabase
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -121,6 +177,8 @@ export default function ArtistProfileEdit() {
         hourly_rate: parseFloat(hourlyRate) || 0,
         genres: selectedGenres,
         location: location,
+        bio: bio,
+        portfolio_urls: portfolioUrls,
         updated_at: new Date().toISOString(),
       };
 
@@ -213,6 +271,80 @@ export default function ArtistProfileEdit() {
                 );
               })}
             </div>
+          </div>
+
+          {/* About / Bio Section */}
+          <div className="space-y-4">
+            <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
+              About & Bio
+            </h2>
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
+                Artist Bio / Tagline
+              </label>
+              <textarea
+                rows={3}
+                value={bio}
+                onChange={(e) => setBio(e.target.value)}
+                className="w-full bg-paper border border-line p-3 text-xs font-medium text-ink focus:outline-none focus:border-ink resize-none"
+                placeholder="Visual poetry for people who feel too much."
+              />
+            </div>
+          </div>
+
+          {/* Portfolio & Gallery Section */}
+          <div className="space-y-4">
+            <div className="border-b border-line pb-2 flex items-center justify-between">
+              <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink">
+                Gallery & Portfolio
+              </h2>
+              <span className="text-[10px] text-ink-400 uppercase tracking-wide-sm">
+                {portfolioUrls.length} Photo(s)
+              </span>
+            </div>
+
+            {/* Existing Portfolio Grid */}
+            {portfolioUrls.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
+                {portfolioUrls.map((url, idx) => (
+                  <div key={idx} className="relative group aspect-square border border-line bg-paper overflow-hidden">
+                    <img src={url} alt={`Portfolio ${idx + 1}`} className="w-full h-full object-cover" />
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveImage(url)}
+                      className="absolute top-2 right-2 p-1 bg-black/70 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Upload Button Box */}
+            <label className="border-2 border-dashed border-line hover:border-ink/40 transition-all p-8 flex flex-col items-center justify-center gap-2 cursor-pointer bg-paper">
+              {uploadingImage ? (
+                <Loader2 className="w-6 h-6 animate-spin text-ink" />
+              ) : (
+                <>
+                  <Upload className="w-6 h-6 text-ink-400" />
+                  <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink">
+                    Upload Portfolio Photos
+                  </span>
+                  <span className="text-[10px] text-ink-400">
+                    PNG, JPG, or WEBP up to 10MB
+                  </span>
+                </>
+              )}
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handleImageUpload}
+                disabled={uploadingImage}
+                className="hidden"
+              />
+            </label>
           </div>
 
           {/* Pricing & Rates */}
