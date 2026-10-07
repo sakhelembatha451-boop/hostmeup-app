@@ -111,7 +111,7 @@ export default function ArtistProfileEdit() {
     }
   };
 
-  // Handle Portfolio Image Upload
+  // Handle Portfolio Image Upload using public 'media' bucket
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -130,14 +130,16 @@ export default function ArtistProfileEdit() {
         const fileExt = file.name.split('.').pop();
         const filePath = `${user.id}/portfolio_${Date.now()}_${i}.${fileExt}`;
 
+        // Upload to the public 'media' bucket
         const { error: uploadError } = await supabase.storage
-          .from('verification-docs') // or your designated public storage bucket
-          .upload(filePath, file);
+          .from('media')
+          .upload(filePath, file, { upsert: true });
 
         if (uploadError) throw uploadError;
 
+        // Fetch the public URL from the 'media' bucket
         const { data: publicUrlData } = supabase.storage
-          .from('verification-docs')
+          .from('media')
           .getPublicUrl(filePath);
 
         if (publicUrlData?.publicUrl) {
