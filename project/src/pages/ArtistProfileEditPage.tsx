@@ -162,7 +162,7 @@ export default function ArtistProfileEdit() {
     setPortfolioUrls(portfolioUrls.filter((url) => url !== urlToRemove));
   };
 
-  // Save changes cleanly to Supabase
+  // Save changes cleanly to Supabase using user.id as primary key target
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -173,6 +173,7 @@ export default function ArtistProfileEdit() {
       if (!user) throw new Error('Not authenticated');
 
       const payload = {
+        id: user.id, // Explicitly match foreign key constraint for host_profiles_id_fkey
         user_id: user.id,
         category: selectedCategory,
         pricing_type: pricingStructure,
@@ -186,7 +187,7 @@ export default function ArtistProfileEdit() {
 
       const { error } = await supabase
         .from('host_profiles')
-        .upsert(payload, { onConflict: 'user_id' });
+        .upsert(payload, { onConflict: 'id' });
 
       if (error) throw error;
 
