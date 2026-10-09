@@ -61,6 +61,16 @@ export default function ArtistsPage() {
     }
   };
 
+  // Helper function to format dynamic rates across different user categories
+  const formatRate = (rateValue: any, rateUnit: string | null) => {
+    const numericRate = parseFloat(rateValue);
+    if (isNaN(numericRate) || numericRate <= 0) {
+      return 'Rate on Request';
+    }
+    const unit = rateUnit ? rateUnit.trim() : 'hr';
+    return `R${numericRate} / ${unit}`;
+  };
+
   return (
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
       <div className="max-w-7xl mx-auto">
@@ -134,59 +144,71 @@ export default function ArtistsPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {artists.map((artist) => (
-              <Link
-                key={artist.id}
-                to={`/artists/${artist.id}`}
-                className="group border border-line bg-paper hover:border-ink transition-colors overflow-hidden flex flex-col"
-              >
-                <div className="aspect-[4/3] bg-paper-200 relative overflow-hidden">
-                  {artist.cover_url || artist.avatar_url ? (
-                    <img
-                      src={artist.cover_url || artist.avatar_url}
-                      alt={artist.stage_name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center bg-paper-200 text-ink-400">
-                      <Music2 className="w-8 h-8" />
-                    </div>
-                  )}
-                  {artist.hourly_rate && (
-                    <div className="absolute top-3 right-3 bg-ink text-paper text-xs px-2.5 py-1 font-semibold">
-                      R{artist.hourly_rate}/hr
-                    </div>
-                  )}
-                </div>
+            {artists.map((artist) => {
+              const rateDisplay = formatRate(
+                artist.hourly_rate ?? artist.rate,
+                artist.rate_unit ?? artist.pricing_unit
+              );
 
-                <div className="p-6 flex-1 flex flex-col justify-between">
-                  <div>
-                    <h3 className="font-display text-xl font-bold text-ink group-hover:underline">
-                      {artist.stage_name || 'Unnamed Artist'}
-                    </h3>
-                    <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
-                      <MapPin className="w-3.5 h-3.5" />
-                      {artist.location_city ? `${artist.location_city}, ${artist.location_province || 'ZA'}` : 'Location not specified'}
-                    </p>
-                    {artist.bio && (
-                      <p className="text-xs text-ink-600 mt-3 line-clamp-2 leading-relaxed">
-                        {artist.bio}
-                      </p>
+              return (
+                <Link
+                  key={artist.id}
+                  to={`/artists/${artist.id}`}
+                  className="group border border-line bg-paper hover:border-ink transition-colors overflow-hidden flex flex-col"
+                >
+                  <div className="aspect-[4/3] bg-paper-200 relative overflow-hidden">
+                    {artist.cover_url || artist.avatar_url ? (
+                      <img
+                        src={artist.cover_url || artist.avatar_url}
+                        alt={artist.stage_name || artist.name || 'Artist'}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center bg-paper-200 text-ink-400">
+                        <Music2 className="w-8 h-8" />
+                      </div>
                     )}
+                    
+                    {/* Dynamic Rate Badge */}
+                    <div className="absolute top-3 right-3 bg-ink text-paper text-xs px-2.5 py-1 font-semibold">
+                      {rateDisplay}
+                    </div>
                   </div>
 
-                  {artist.categories && artist.categories.length > 0 && (
-                    <div className="flex flex-wrap gap-1.5 mt-4 pt-4 border-t border-line">
-                      {artist.categories.map((cat: string) => (
-                        <span key={cat} className="text-[10px] uppercase tracking-wide-sm bg-paper-200 px-2 py-0.5 text-ink-600">
-                          {cat}
-                        </span>
-                      ))}
+                  <div className="p-6 flex-1 flex flex-col justify-between">
+                    <div>
+                      <h3 className="font-display text-xl font-bold text-ink group-hover:underline">
+                        {artist.stage_name || artist.name || 'Unnamed Artist'}
+                      </h3>
+                      <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
+                        <MapPin className="w-3.5 h-3.5" />
+                        {artist.location_city
+                          ? `${artist.location_city}, ${artist.location_province || 'ZA'}`
+                          : artist.location || 'Location not specified'}
+                      </p>
+                      {artist.bio && (
+                        <p className="text-xs text-ink-600 mt-3 line-clamp-2 leading-relaxed">
+                          {artist.bio}
+                        </p>
+                      )}
                     </div>
-                  )}
-                </div>
-              </Link>
-            ))}
+
+                    {artist.categories && artist.categories.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-4 pt-4 border-t border-line">
+                        {artist.categories.map((cat: string) => (
+                          <span
+                            key={cat}
+                            className="text-[10px] uppercase tracking-wide-sm bg-paper-200 px-2 py-0.5 text-ink-600"
+                          >
+                            {cat}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>
