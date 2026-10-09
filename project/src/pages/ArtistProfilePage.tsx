@@ -130,7 +130,7 @@ const BookingModal: React.FC<BookingModalProps> = ({
               >
                 {services.map((service) => (
                   <option key={service.id} value={service.id}>
-                    {service.service_name} — R{service.price}/hr
+                    {service.service_name} — R{service.price}
                   </option>
                 ))}
               </select>
@@ -396,15 +396,23 @@ export default function ArtistProfilePage() {
     }
   };
 
+  // Dynamic Rate Rendering across Creator Categories
   const renderPricingBadge = () => {
-    if (!artist) return 'R0/hr';
-    const pType = artist.pricing_type || 'per_hour';
-    const rate = artist.base_rate ?? artist.hourly_rate ?? 0;
+    if (!artist) return 'Rate on Request';
 
-    if (pType === 'per_gig') return `R${rate} / gig`;
-    if (pType === 'per_beat') return `R${rate} / beat`;
-    if (pType === 'per_service') return 'See Services Menu';
-    return `R${rate} / hr`;
+    if (artist.pricing_type === 'per_service' || artist.categories?.includes('Beauty Professional')) {
+      if (services.length > 0) return 'See Services Menu';
+    }
+
+    const rawRate = artist.hourly_rate ?? artist.base_rate ?? artist.rate;
+    const numericRate = parseFloat(rawRate);
+
+    if (isNaN(numericRate) || numericRate <= 0) {
+      return 'Rate on Request';
+    }
+
+    const unit = (artist.rate_unit || artist.pricing_unit || 'hr').trim();
+    return `R${numericRate} / ${unit}`;
   };
 
   if (loading) {
