@@ -160,7 +160,7 @@ export default function ArtistProfileEdit() {
     setPortfolioUrls(portfolioUrls.filter((url) => url !== urlToRemove));
   };
 
-  // Save changes cleanly to Supabase using user.id as primary key target
+  // Save changes to Supabase updating both host_profiles and artist_profiles
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -182,11 +182,28 @@ export default function ArtistProfileEdit() {
         updated_at: new Date().toISOString(),
       };
 
-      const { error } = await supabase
+      // 1. Update host_profiles
+      const { error: hostError } = await supabase
         .from('host_profiles')
         .upsert(payload, { onConflict: 'id' });
 
-      if (error) throw error;
+      if (hostError) throw hostError;
+
+      // 2. Sync custom_rate_display directly into artist_profiles
+      const { error: artistError } = await supabase
+        .from('artist_profiles')
+        .update({
+          custom_rate_display: customRateDisplay,
+          bio: bio,
+          location: location,
+          categories: [selectedCategory],
+          portfolio_urls: portfolioUrls,
+        })
+        .or(`id.eq.${user.id},user_id.eq.${user.id}`);
+
+      if (artistError && artistError.code !== 'PGRST116') {
+        console.warn('Could not update artist_profiles directly:', artistError.message);
+      }
 
       setMessage({ type: 'success', text: 'Profile updated successfully!' });
     } catch (err: any) {
