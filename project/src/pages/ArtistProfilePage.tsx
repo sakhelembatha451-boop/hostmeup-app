@@ -319,13 +319,35 @@ export default function ArtistProfilePage() {
         .single();
 
       if (fetchError) throw fetchError;
-      setArtist(data);
 
-      if (data && (data.pricing_type === 'per_service' || data.categories?.includes('Beauty Professional'))) {
+      let mergedArtist = { ...data };
+
+      // Secondary check against host_profiles table to ensure rates and rate units are synced
+      const targetUserId = data.user_id || data.id;
+      if (targetUserId) {
+        const { data: hostData } = await supabase
+          .from('host_profiles')
+          .select('hourly_rate, rate_unit, pricing_type')
+          .or(`user_id.eq.${targetUserId},id.eq.${targetUserId}`)
+          .maybeSingle();
+
+        if (hostData) {
+          mergedArtist = {
+            ...mergedArtist,
+            hourly_rate: hostData.hourly_rate ?? mergedArtist.hourly_rate,
+            rate_unit: hostData.rate_unit || mergedArtist.rate_unit,
+            pricing_type: hostData.pricing_type || mergedArtist.pricing_type,
+          };
+        }
+      }
+
+      setArtist(mergedArtist);
+
+      if (mergedArtist && (mergedArtist.pricing_type === 'per_service' || mergedArtist.categories?.includes('Beauty Professional'))) {
         const { data: serviceData } = await supabase
           .from('talent_services')
           .select('*')
-          .eq('profile_id', data.user_id || data.id);
+          .eq('profile_id', mergedArtist.user_id || mergedArtist.id);
 
         setServices(serviceData || []);
       }
@@ -400,19 +422,19 @@ export default function ArtistProfilePage() {
   const renderPricingBadge = () => {
     if (!artist) return 'Rate on Request';
 
-    if (artist.pricing_type === 'per_service' || artist.categories?.includes('Beauty Professional')) {
-      if (services.length > 0) return 'See Services Menu';
-    }
-
-    const rawRate = artist.hourly_rate ?? artist.base_rate ?? artist.rate;
+    const rawRate = artist.hourly_rate ?? artist.base_rate ?? artist.rate ?? artist.price;
     const numericRate = parseFloat(rawRate);
 
-    if (isNaN(numericRate) || numericRate <= 0) {
-      return 'Rate on Request';
+    if (!isNaN(numericRate) && numericRate > 0) {
+      const unit = (artist.rate_unit || artist.pricing_unit || 'hr').trim();
+      return `R${numericRate} / ${unit}`;
     }
 
-    const unit = (artist.rate_unit || artist.pricing_unit || 'hr').trim();
-    return `R${numericRate} / ${unit}`;
+    if ((artist.pricing_type === 'per_service' || artist.categories?.includes('Beauty Professional')) && services.length > 0) {
+      return 'See Services Menu';
+    }
+
+    return 'Rate on Request';
   };
 
   if (loading) {
@@ -779,27 +801,3 @@ export default function ArtistProfilePage() {
       />
 
       {/* Fullscreen Lightbox Modal */}
-      {activeImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setActiveImage(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              onClick={() => setActiveImage(null)}
-              className="absolute top-3 right-3 bg-ink text-paper p-2 hover:bg-ink-800 transition-colors z-10"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <img
-              src={activeImage}
-              alt="Expanded view"
-              className="w-full h-full object-contain max-h-[85vh]"
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
