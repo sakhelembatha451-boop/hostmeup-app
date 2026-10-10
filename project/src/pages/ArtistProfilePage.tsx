@@ -28,6 +28,8 @@ interface ServiceItem {
 interface BookingModalProps {
   artistId: string;
   artistName: string;
+  artistRate?: any;
+  customRateDisplay?: string;
   services: ServiceItem[];
   isOpen: boolean;
   onClose: () => void;
@@ -40,6 +42,8 @@ interface BookingModalProps {
 const BookingModal: React.FC<BookingModalProps> = ({
   artistId,
   artistName,
+  artistRate,
+  customRateDisplay,
   services,
   isOpen,
   onClose,
@@ -62,8 +66,29 @@ const BookingModal: React.FC<BookingModalProps> = ({
 
   if (!isOpen) return null;
 
+  // Extract base numerical rate from artist rate or custom text if possible
+  const extractNumericRate = (): number => {
+    const rawRate = parseFloat(String(artistRate));
+    if (!isNaN(rawRate) && rawRate > 0) return rawRate;
+
+    if (customRateDisplay) {
+      const match = customRateDisplay.match(/\d+/);
+      if (match) {
+        const parsed = parseFloat(match[0]);
+        if (!isNaN(parsed)) return parsed;
+      }
+    }
+    return 0;
+  };
+
   const selectedService = services.find((s) => s.id === selectedServiceId);
-  const calculatedTotal = selectedService ? selectedService.price * duration : 0;
+  
+  // Dynamic Calculation: Service price or general rate multiplied by duration
+  const baseRate = selectedService ? selectedService.price : extractNumericRate();
+  const calculatedTotal = baseRate > 0 ? baseRate * (selectedService ? 1 : duration) : 0;
+  
+  // Calculate 50% deposit
+  const depositAmount = calculatedTotal > 0 ? calculatedTotal * 0.5 : 0;
 
   const handleSubmitBooking = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,6 +108,7 @@ const BookingModal: React.FC<BookingModalProps> = ({
           start_time: startTime,
           duration_hours: duration,
           total_price: calculatedTotal,
+          deposit_amount: depositAmount,
           location,
           notes,
           status: 'pending',
@@ -161,10 +187,10 @@ const BookingModal: React.FC<BookingModalProps> = ({
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Duration (Hours)</label>
+              <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Duration (Hours / Qty)</label>
               <input
                 type="number"
-                min="0.5"
+                min="1"
                 step="0.5"
                 required
                 value={duration}
@@ -172,12 +198,19 @@ const BookingModal: React.FC<BookingModalProps> = ({
                 className="w-full bg-paper-100 border border-line p-2 text-xs text-ink focus:outline-none focus:border-ink"
               />
             </div>
+
             <div>
               <label className="block text-[10px] uppercase tracking-wide-sm font-semibold mb-1 text-ink">Estimated Total</label>
               <div className="p-2 border border-line bg-paper-200 text-xs font-bold text-ink">
                 R{calculatedTotal.toFixed(2)}
               </div>
             </div>
+          </div>
+
+          {/* Deposit Breakdown */}
+          <div className="p-3 border border-line bg-paper-100 flex items-center justify-between text-xs">
+            <span className="font-semibold text-ink-600">Required Deposit (50%):</span>
+            <span className="font-bold text-ink">R{depositAmount.toFixed(2)}</span>
           </div>
 
           <div>
@@ -338,14 +371,12 @@ export default function ArtistProfilePage() {
 
       setArtist(mergedArtist);
 
-      if (mergedArtist && (mergedArtist.pricing_type === 'per_service' || mergedArtist.categories?.includes('Beauty Professional'))) {
-        const { data: serviceData } = await supabase
-          .from('talent_services')
-          .select('*')
-          .eq('profile_id', mergedArtist.user_id || mergedArtist.id);
+      const { data: serviceData } = await supabase
+        .from('talent_services')
+        .select('*')
+        .eq('profile_id', mergedArtist.user_id || mergedArtist.id);
 
-        setServices(serviceData || []);
-      }
+      setServices(serviceData || []);
     } catch (err: any) {
       console.error('Error fetching artist:', err.message);
       setError('Could not load artist profile.');
@@ -413,16 +444,13 @@ export default function ArtistProfilePage() {
     }
   };
 
-  // Completely flexible pricing display: renders whatever custom typed text or rate + unit the user entered
   const renderPricingBadge = () => {
     if (!artist) return 'Rate on Request';
 
-    // 1. If user typed a custom description (e.g. "R150 for shoulder tattoo" or "R100 per day"), show it directly
     if (artist.custom_rate_display && artist.custom_rate_display.trim() !== '') {
       return artist.custom_rate_display.trim();
     }
 
-    // 2. Fallback to standard numeric rate + unit
     const rawRate = artist.hourly_rate ?? artist.base_rate ?? artist.rate ?? artist.price;
     const numericRate = parseFloat(String(rawRate));
 
@@ -431,8 +459,7 @@ export default function ArtistProfilePage() {
       return `R${numericRate} / ${unit}`;
     }
 
-    // 3. Service menu fallback
-    if ((artist.pricing_type === 'per_service' || artist.categories?.includes('Beauty Professional')) && services.length > 0) {
+    if (services.length > 0) {
       return 'See Services Menu';
     }
 
@@ -514,7 +541,7 @@ export default function ArtistProfilePage() {
 
               <p className="text-xs text-ink-500 mt-2 flex items-center gap-1.5">
                 <MapPin className="w-4 h-4" />
-                {artist.location_city ? `${artist.location_city}, ${artist.location_province || 'ZA'}` : 'Location not specified'}
+                {artist.location_city ? `${artist.location_city}, ${artist.location_province || 'ZA'}` : artist.location || 'Location not specified'}
               </p>
 
               {artist.categories && artist.categories.length > 0 && (
@@ -535,7 +562,7 @@ export default function ArtistProfilePage() {
               </p>
             </div>
 
-            {(artist.pricing_type === 'per_service' || artist.categories?.includes('Beauty Professional')) && services.length > 0 && (
+            {services.length > 0 && (
               <div className="border-t border-line pt-6">
                 <h3 className="font-display text-lg font-bold text-ink mb-4">Services & Rates Menu</h3>
                 <div className="divide-y divide-line border border-line bg-paper-100">
@@ -572,71 +599,6 @@ export default function ArtistProfilePage() {
                       />
                     </button>
                   ))}
-                </div>
-              </div>
-            )}
-
-            {artist.demo_url && (
-              <div className="border-t border-line pt-6">
-                <h3 className="font-display text-lg font-bold text-ink mb-3">Demo Reel / Track</h3>
-                <a
-                  href={artist.demo_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide-sm text-ink underline hover:text-ink-600"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Listen / Watch Demo Reel
-                </a>
-              </div>
-            )}
-
-            {(instagram || spotify || soundcloud || youtube) && (
-              <div className="space-y-4 pt-6 border-t border-line">
-                <h3 className="text-xs uppercase tracking-wide-sm font-semibold text-ink-500">
-                  Social & Streaming Media
-                </h3>
-                <div className="flex flex-wrap gap-4">
-                  {spotify && (
-                    <a
-                      href={spotify.startsWith('http') ? spotify : `https://${spotify}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
-                    >
-                      Spotify
-                    </a>
-                  )}
-                  {instagram && (
-                    <a
-                      href={instagram.startsWith('http') ? instagram : `https://instagram.com/${instagram.replace('@', '')}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
-                    >
-                      Instagram
-                    </a>
-                  )}
-                  {soundcloud && (
-                    <a
-                      href={soundcloud.startsWith('http') ? soundcloud : `https://${soundcloud}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
-                    >
-                      SoundCloud
-                    </a>
-                  )}
-                  {youtube && (
-                    <a
-                      href={youtube.startsWith('http') ? youtube : `https://${youtube}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-4 py-2 border border-line hover:border-ink text-xs uppercase tracking-wide-sm font-medium transition-colors flex items-center gap-2"
-                    >
-                      YouTube
-                    </a>
-                  )}
                 </div>
               </div>
             )}
@@ -770,22 +732,6 @@ export default function ArtistProfilePage() {
                 </form>
               </div>
             )}
-
-            {(artist.website_url || artist.instagram_url) && (
-              <div className="border border-line bg-paper p-6 space-y-3">
-                <h4 className="text-xs uppercase tracking-wide-sm font-bold text-ink mb-2">Links & Socials</h4>
-                {artist.website_url && (
-                  <a href={artist.website_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-ink-600 hover:text-ink">
-                    <Globe className="w-4 h-4 text-ink-400" /> Website
-                  </a>
-                )}
-                {artist.instagram_url && (
-                  <a href={artist.instagram_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-xs text-ink-600 hover:text-ink">
-                    <Instagram className="w-4 h-4 text-ink-400" /> Instagram
-                  </a>
-                )}
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -796,6 +742,8 @@ export default function ArtistProfilePage() {
         onClose={() => setIsBookingModalOpen(false)}
         artistId={artist.user_id || artist.id}
         artistName={artist.stage_name || 'Artist'}
+        artistRate={artist.hourly_rate}
+        customRateDisplay={artist.custom_rate_display}
         services={services}
       />
 
