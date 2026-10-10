@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Loader2, Save, ArrowLeft, CheckCircle2, AlertCircle, Upload, X, Image as ImageIcon } from 'lucide-react';
+import { Loader2, Save, ArrowLeft, CheckCircle2, AlertCircle, Upload, X } from 'lucide-react';
 
 // Primary categories available on HostMeUp
 const CATEGORIES = [
@@ -48,9 +48,7 @@ export default function ArtistProfileEdit() {
 
   // Form State
   const [selectedCategory, setSelectedCategory] = useState<string>('PHOTOGRAPHER');
-  const [pricingStructure, setPricingStructure] = useState<'per_hour' | 'per_event'>('per_hour');
-  const [hourlyRate, setHourlyRate] = useState<string>('350');
-  const [rateUnit, setRateUnit] = useState<string>('hr');
+  const [customRateDisplay, setCustomRateDisplay] = useState<string>('');
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [location, setLocation] = useState<string>('');
   const [bio, setBio] = useState<string>('');
@@ -76,9 +74,7 @@ export default function ArtistProfileEdit() {
 
         if (data) {
           if (data.category) setSelectedCategory(data.category.toUpperCase());
-          if (data.pricing_type) setPricingStructure(data.pricing_type);
-          if (data.hourly_rate) setHourlyRate(String(data.hourly_rate));
-          if (data.rate_unit) setRateUnit(data.rate_unit);
+          if (data.custom_rate_display) setCustomRateDisplay(data.custom_rate_display);
           if (data.genres && Array.isArray(data.genres)) setSelectedGenres(data.genres);
           if (data.location) setLocation(data.location);
           if (data.bio) setBio(data.bio);
@@ -175,12 +171,10 @@ export default function ArtistProfileEdit() {
       if (!user) throw new Error('Not authenticated');
 
       const payload = {
-        id: user.id, // Explicitly match foreign key constraint for host_profiles_id_fkey
+        id: user.id,
         user_id: user.id,
         category: selectedCategory,
-        pricing_type: pricingStructure,
-        hourly_rate: parseFloat(hourlyRate) || 0,
-        rate_unit: rateUnit,
+        custom_rate_display: customRateDisplay,
         genres: selectedGenres,
         location: location,
         bio: bio,
@@ -353,75 +347,25 @@ export default function ArtistProfileEdit() {
             </label>
           </div>
 
-          {/* Pricing & Rates */}
+          {/* Pricing & Rate Description */}
           <div className="space-y-4">
             <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
-              Pricing & Rates
+              Pricing & Rate Description
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-              <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
-                  Pricing Structure
-                </label>
-                <div className="flex items-center gap-6 pt-2">
-                  <label className="inline-flex items-center gap-2 text-xs font-medium text-ink cursor-pointer">
-                    <input
-                      type="radio"
-                      name="pricing_structure"
-                      value="per_hour"
-                      checked={pricingStructure === 'per_hour'}
-                      onChange={() => setPricingStructure('per_hour')}
-                      className="accent-ink"
-                    />
-                    PER HOUR
-                  </label>
-                  <label className="inline-flex items-center gap-2 text-xs font-medium text-ink cursor-pointer">
-                    <input
-                      type="radio"
-                      name="pricing_structure"
-                      value="per_event"
-                      checked={pricingStructure === 'per_event'}
-                      onChange={() => setPricingStructure('per_event')}
-                      className="accent-ink"
-                    />
-                    PER GIG / EVENT
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
-                  Rate (ZAR)
-                </label>
-                <input
-                  type="number"
-                  value={hourlyRate}
-                  onChange={(e) => setHourlyRate(e.target.value)}
-                  className="w-full bg-paper border border-line px-4 py-2 text-xs font-medium text-ink focus:outline-none focus:border-ink"
-                  placeholder="350"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
-                  Rate Unit
-                </label>
-                <select
-                  value={rateUnit}
-                  onChange={(e) => setRateUnit(e.target.value)}
-                  className="w-full bg-paper border border-line px-4 py-2 text-xs font-medium text-ink focus:outline-none focus:border-ink cursor-pointer"
-                >
-                  <option value="hr">per hour (/ hr)</option>
-                  <option value="beat">per beat (/ beat)</option>
-                  <option value="day">per day (/ day)</option>
-                  <option value="look">per look (/ look)</option>
-                  <option value="session">per session (/ session)</option>
-                  <option value="event">per event (/ event)</option>
-                  <option value="item">per item (/ item)</option>
-                  <option value="piece">per piece (/ piece)</option>
-                </select>
-              </div>
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
+                Custom Pricing / Rate Display
+              </label>
+              <input
+                type="text"
+                value={customRateDisplay}
+                onChange={(e) => setCustomRateDisplay(e.target.value)}
+                className="w-full bg-paper border border-line px-4 py-2.5 text-xs font-medium text-ink focus:outline-none focus:border-ink"
+                placeholder="e.g. R150 for shoulder tattoo, R400 for braids, R100 per day"
+              />
+              <p className="text-[10px] text-ink-400 mt-1">
+                Type whatever pricing description you want clients to see on your profile.
+              </p>
             </div>
           </div>
 
