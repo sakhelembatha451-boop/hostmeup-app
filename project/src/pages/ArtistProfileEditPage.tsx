@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Loader2, Save, ArrowLeft, CheckCircle2, AlertCircle, Upload, X } from 'lucide-react';
+import { Loader2, Save, ArrowLeft, CheckCircle2, AlertCircle, Upload, X, Plus, Trash2, Image as ImageIcon } from 'lucide-react';
 
 // Primary categories available on HostMeUp
 const CATEGORIES = [
@@ -39,20 +39,38 @@ const CATEGORY_SPECIALTIES: Record<string, string[]> = {
   'ASSET HIRE': ['Sound System', 'Lighting & Rigging', 'DJ Gear', 'Camera Gear', 'Stage Props', 'Generator']
 };
 
+interface ServiceItem {
+  id?: string;
+  service_name: string;
+  price: number;
+  duration_minutes?: number;
+}
+
 export default function ArtistProfileEdit() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingCover, setUploadingCover] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   // Form State
+  const [stageName, setStageName] = useState<string>('');
+  const [avatarUrl, setAvatarUrl] = useState<string>('');
+  const [coverUrl, setCoverUrl] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('PHOTOGRAPHER');
   const [customRateDisplay, setCustomRateDisplay] = useState<string>('');
   const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
   const [location, setLocation] = useState<string>('');
   const [bio, setBio] = useState<string>('');
   const [portfolioUrls, setPortfolioUrls] = useState<string[]>([]);
+  const [services, setServices] = useState<ServiceItem[]>([]);
+
+  // New Service Item Input State
+  const [newServiceName, setNewServiceName] = useState('');
+  const [newServicePrice, setNewServicePrice] = useState('');
+  const [newServiceDuration, setNewServiceDuration] = useState('');
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -73,6 +91,9 @@ export default function ArtistProfileEdit() {
         if (error) throw error;
 
         if (data) {
+          if (data.stage_name) setStageName(data.stage_name);
+          if (data.avatar_url) setAvatarUrl(data.avatar_url);
+          if (data.cover_url) setCoverUrl(data.cover_url);
           if (data.category) setSelectedCategory(data.category.toUpperCase());
           if (data.custom_rate_display) setCustomRateDisplay(data.custom_rate_display);
           if (data.genres && Array.isArray(data.genres)) setSelectedGenres(data.genres);
@@ -81,6 +102,16 @@ export default function ArtistProfileEdit() {
           if (data.portfolio_urls && Array.isArray(data.portfolio_urls)) {
             setPortfolioUrls(data.portfolio_urls);
           }
+        }
+
+        // Fetch existing service menu items
+        const { data: serviceData } = await supabase
+          .from('talent_services')
+          .select('*')
+          .eq('profile_id', user.id);
+
+        if (serviceData) {
+          setServices(serviceData);
         }
       } catch (err: any) {
         console.error('Error fetching profile:', err);
@@ -109,6 +140,82 @@ export default function ArtistProfileEdit() {
     }
   };
 
+  // Upload Avatar Image
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingAvatar(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${user.id}/avatar_${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage.from('media').upload(filePath, file, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage.from('media').getPublicUrl(filePath);
+      if (publicUrlData?.publicUrl) {
+        setAvatarUrl(publicUrlData.publicUrl);
+      }
+    } catch (err: any) {
+      alert('Failed to upload avatar: ' + err.message);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  // Upload Cover Image
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingCover(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const fileExt = file.name.split('.').pop();
+      const filePath = `${user.id}/cover_${Date.now()}.${fileExt}`;
+
+      const { error: uploadError } = await supabase.storage.from('media').upload(filePath, file, { upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data: publicUrlData } = supabase.storage.from('media').getPublicUrl(filePath);
+      if (publicUrlData?.publicUrl) {
+        setCoverUrl(publicUrlData.publicUrl);
+      }
+    } catch (err: any) {
+      alert('Failed to upload cover photo: ' + err.message);
+    } finally {
+      setUploadingCover(false);
+    }
+  };
+
+  // Add Item to Services Menu State
+  const handleAddService = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newServiceName.trim() || !newServicePrice) return;
+
+    const newItem: ServiceItem = {
+      service_name: newServiceName.trim(),
+      price: parseFloat(newServicePrice) || 0,
+      duration_minutes: newServiceDuration ? parseInt(newServiceDuration) : undefined,
+    };
+
+    setServices([...services, newItem]);
+    setNewServiceName('');
+    setNewServicePrice('');
+    setNewServiceDuration('');
+  };
+
+  // Remove Item from Services Menu State
+  const handleRemoveService = (index: number) => {
+    setServices(services.filter((_, i) => i !== index));
+  };
+
   // Handle Portfolio Image Upload using public 'media' bucket
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -128,14 +235,12 @@ export default function ArtistProfileEdit() {
         const fileExt = file.name.split('.').pop();
         const filePath = `${user.id}/portfolio_${Date.now()}_${i}.${fileExt}`;
 
-        // Upload to the public 'media' bucket
         const { error: uploadError } = await supabase.storage
           .from('media')
           .upload(filePath, file, { upsert: true });
 
         if (uploadError) throw uploadError;
 
-        // Fetch the public URL from the 'media' bucket
         const { data: publicUrlData } = supabase.storage
           .from('media')
           .getPublicUrl(filePath);
@@ -160,7 +265,7 @@ export default function ArtistProfileEdit() {
     setPortfolioUrls(portfolioUrls.filter((url) => url !== urlToRemove));
   };
 
-  // Save changes to Supabase updating both host_profiles and artist_profiles
+  // Save changes to Supabase updating host_profiles, artist_profiles, and talent_services
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -173,6 +278,9 @@ export default function ArtistProfileEdit() {
       const payload = {
         id: user.id,
         user_id: user.id,
+        stage_name: stageName,
+        avatar_url: avatarUrl,
+        cover_url: coverUrl,
         category: selectedCategory,
         custom_rate_display: customRateDisplay,
         genres: selectedGenres,
@@ -189,10 +297,13 @@ export default function ArtistProfileEdit() {
 
       if (hostError) throw hostError;
 
-      // 2. Sync custom_rate_display directly into artist_profiles
+      // 2. Sync directly into artist_profiles
       const { error: artistError } = await supabase
         .from('artist_profiles')
         .update({
+          stage_name: stageName,
+          avatar_url: avatarUrl,
+          cover_url: coverUrl,
           custom_rate_display: customRateDisplay,
           bio: bio,
           location: location,
@@ -205,7 +316,25 @@ export default function ArtistProfileEdit() {
         console.warn('Could not update artist_profiles directly:', artistError.message);
       }
 
-      setMessage({ type: 'success', text: 'Profile updated successfully!' });
+      // 3. Save Services & Rates Menu (Delete old, insert current)
+      await supabase.from('talent_services').delete().eq('profile_id', user.id);
+
+      if (services.length > 0) {
+        const servicesPayload = services.map((s) => ({
+          profile_id: user.id,
+          service_name: s.service_name,
+          price: s.price,
+          duration_minutes: s.duration_minutes || null,
+        }));
+
+        const { error: serviceInsertError } = await supabase
+          .from('talent_services')
+          .insert(servicesPayload);
+
+        if (serviceInsertError) throw serviceInsertError;
+      }
+
+      setMessage({ type: 'success', text: 'Profile and services menu updated successfully!' });
     } catch (err: any) {
       console.error('Error updating profile:', err);
       setMessage({ type: 'error', text: err.message || 'Failed to save changes.' });
@@ -264,6 +393,68 @@ export default function ArtistProfileEdit() {
 
         <form onSubmit={handleSubmit} className="space-y-10">
           
+          {/* Identity & Images Section */}
+          <div className="space-y-6">
+            <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
+              Profile Identity & Photos
+            </h2>
+
+            <div>
+              <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
+                Stage / Display Name
+              </label>
+              <input
+                type="text"
+                value={stageName}
+                onChange={(e) => setStageName(e.target.value)}
+                className="w-full bg-paper border border-line px-4 py-2.5 text-xs font-medium text-ink focus:outline-none focus:border-ink"
+                placeholder="e.g. Zayn Toryish"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Avatar Upload */}
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
+                  Profile Avatar
+                </label>
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-full bg-paper-200 border border-line overflow-hidden flex items-center justify-center">
+                    {avatarUrl ? (
+                      <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-ink-400" />
+                    )}
+                  </div>
+                  <label className="btn-secondary px-4 py-2 text-xs uppercase tracking-wide-sm cursor-pointer border border-line bg-paper hover:border-ink">
+                    {uploadingAvatar ? 'Uploading...' : 'Upload Avatar'}
+                    <input type="file" accept="image/*" onChange={handleAvatarUpload} disabled={uploadingAvatar} className="hidden" />
+                  </label>
+                </div>
+              </div>
+
+              {/* Cover Photo Upload */}
+              <div>
+                <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
+                  Cover Photo
+                </label>
+                <div className="flex items-center gap-4">
+                  <div className="w-24 h-16 bg-paper-200 border border-line overflow-hidden flex items-center justify-center">
+                    {coverUrl ? (
+                      <img src={coverUrl} alt="Cover" className="w-full h-full object-cover" />
+                    ) : (
+                      <ImageIcon className="w-6 h-6 text-ink-400" />
+                    )}
+                  </div>
+                  <label className="btn-secondary px-4 py-2 text-xs uppercase tracking-wide-sm cursor-pointer border border-line bg-paper hover:border-ink">
+                    {uploadingCover ? 'Uploading...' : 'Upload Cover'}
+                    <input type="file" accept="image/*" onChange={handleCoverUpload} disabled={uploadingCover} className="hidden" />
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Categories Section */}
           <div className="space-y-4">
             <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
@@ -320,7 +511,6 @@ export default function ArtistProfileEdit() {
               </span>
             </div>
 
-            {/* Existing Portfolio Grid */}
             {portfolioUrls.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 mb-4">
                 {portfolioUrls.map((url, idx) => (
@@ -338,7 +528,6 @@ export default function ArtistProfileEdit() {
               </div>
             )}
 
-            {/* Upload Button Box */}
             <label className="border-2 border-dashed border-line hover:border-ink/40 transition-all p-8 flex flex-col items-center justify-center gap-2 cursor-pointer bg-paper">
               {uploadingImage ? (
                 <Loader2 className="w-6 h-6 animate-spin text-ink" />
@@ -371,18 +560,80 @@ export default function ArtistProfileEdit() {
             </h2>
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
-                Custom Pricing / Rate Display
+                Custom General Rate Display (Tagline)
               </label>
               <input
                 type="text"
                 value={customRateDisplay}
                 onChange={(e) => setCustomRateDisplay(e.target.value)}
                 className="w-full bg-paper border border-line px-4 py-2.5 text-xs font-medium text-ink focus:outline-none focus:border-ink"
-                placeholder="e.g. R150 for shoulder tattoo, R400 for braids, R100 per day"
+                placeholder="e.g. Starting from R150, Rates Vary by Item"
               />
-              <p className="text-[10px] text-ink-400 mt-1">
-                Type whatever pricing description you want clients to see on your profile.
-              </p>
+            </div>
+          </div>
+
+          {/* Structured Services & Rates Menu Creator */}
+          <div className="space-y-4">
+            <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
+              Services & Rates Menu (Add Item by Item)
+            </h2>
+            <p className="text-[11px] text-ink-500">
+              Add individual services or assets with their specific prices (e.g., Braids — R400, BMW X5 — R100/day, Small Tattoo — R200).
+            </p>
+
+            {services.length > 0 && (
+              <div className="divide-y divide-line border border-line bg-paper-100 mb-4">
+                {services.map((service, index) => (
+                  <div key={index} className="p-3 flex items-center justify-between text-xs">
+                    <div>
+                      <span className="font-semibold text-ink">{service.service_name}</span>
+                      {service.duration_minutes && (
+                        <span className="text-ink-400 ml-2">({service.duration_minutes} mins)</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="font-bold text-ink">R{service.price}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveService(index)}
+                        className="text-red-500 hover:text-red-700 p-1"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 border border-line bg-paper-200">
+              <div className="sm:col-span-6">
+                <input
+                  type="text"
+                  placeholder="Service / Asset Name (e.g. Braids / BMW X5)"
+                  value={newServiceName}
+                  onChange={(e) => setNewServiceName(e.target.value)}
+                  className="w-full bg-paper border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <input
+                  type="number"
+                  placeholder="Price (ZAR)"
+                  value={newServicePrice}
+                  onChange={(e) => setNewServicePrice(e.target.value)}
+                  className="w-full bg-paper border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <button
+                  type="button"
+                  onClick={handleAddService}
+                  className="w-full py-2 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm hover:bg-ink-800 transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <Plus className="w-4 h-4" /> Add Item
+                </button>
+              </div>
             </div>
           </div>
 
