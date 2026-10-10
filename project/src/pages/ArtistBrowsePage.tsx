@@ -19,12 +19,10 @@ export default function ArtistsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<Category | 'ALL'>('ALL');
   const [locationSearch, setLocationSearch] = useState('');
-  const [minRate, setMinRate] = useState('');
-  const [maxRate, setMaxRate] = useState('');
 
   useEffect(() => {
     fetchArtists();
-  }, [selectedCategory, locationSearch, minRate, maxRate]);
+  }, [selectedCategory, locationSearch]);
 
   const fetchArtists = async () => {
     try {
@@ -40,16 +38,6 @@ export default function ArtistsPage() {
         query = query.or(`location_city.ilike.%${search}%,location_province.ilike.%${search}%`);
       }
 
-      const minVal = parseFloat(minRate);
-      if (!isNaN(minVal) && minVal > 0) {
-        query = query.gte('hourly_rate', minVal);
-      }
-
-      const maxVal = parseFloat(maxRate);
-      if (!isNaN(maxVal) && maxVal > 0) {
-        query = query.lte('hourly_rate', maxVal);
-      }
-
       const { data, error } = await query;
       if (error) throw error;
 
@@ -61,14 +49,12 @@ export default function ArtistsPage() {
     }
   };
 
-  // Helper function to format dynamic rates across different user categories
-  const formatRate = (rateValue: any, rateUnit: string | null) => {
-    const numericRate = parseFloat(rateValue);
-    if (isNaN(numericRate) || numericRate <= 0) {
-      return 'Rate on Request';
+  // Helper function to format the custom typed rate display
+  const formatRate = (artist: any) => {
+    if (artist.custom_rate_display && artist.custom_rate_display.trim() !== '') {
+      return artist.custom_rate_display.trim();
     }
-    const unit = rateUnit ? rateUnit.trim() : 'hr';
-    return `R${numericRate} / ${unit}`;
+    return 'Rate on Request';
   };
 
   return (
@@ -93,7 +79,7 @@ export default function ArtistsPage() {
         </div>
 
         {/* Filters */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10 bg-paper-100 p-4 border border-line">
+        <div className="grid grid-cols-1 gap-4 mb-10 bg-paper-100 p-4 border border-line">
           <div>
             <label className="block text-[10px] uppercase tracking-wide-sm text-ink-400 mb-1">Location</label>
             <div className="relative">
@@ -106,28 +92,6 @@ export default function ArtistsPage() {
                 className="input-field pl-9"
               />
             </div>
-          </div>
-
-          <div>
-            <label className="block text-[10px] uppercase tracking-wide-sm text-ink-400 mb-1">Min Rate (ZAR)</label>
-            <input
-              type="number"
-              placeholder="0"
-              value={minRate}
-              onChange={(e) => setMinRate(e.target.value)}
-              className="input-field"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] uppercase tracking-wide-sm text-ink-400 mb-1">Max Rate (ZAR)</label>
-            <input
-              type="number"
-              placeholder="Any"
-              value={maxRate}
-              onChange={(e) => setMaxRate(e.target.value)}
-              className="input-field"
-            />
           </div>
         </div>
 
@@ -145,10 +109,7 @@ export default function ArtistsPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {artists.map((artist) => {
-              const rateDisplay = formatRate(
-                artist.hourly_rate ?? artist.rate,
-                artist.rate_unit ?? artist.pricing_unit
-              );
+              const rateDisplay = formatRate(artist);
 
               return (
                 <Link
@@ -169,7 +130,7 @@ export default function ArtistsPage() {
                       </div>
                     )}
                     
-                    {/* Dynamic Rate Badge */}
+                    {/* Custom Rate Badge */}
                     <div className="absolute top-3 right-3 bg-ink text-paper text-xs px-2.5 py-1 font-semibold">
                       {rateDisplay}
                     </div>
