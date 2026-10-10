@@ -15,8 +15,7 @@ import {
   X, 
   Shield, 
   Save,
-  MessageSquare,
-  Calendar
+  MessageSquare
 } from 'lucide-react';
 
 interface ServiceItem {
@@ -239,13 +238,9 @@ export default function ArtistProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   
-  // State for Booking Modal
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
-
-  // State for image lightbox modal
   const [activeImage, setActiveImage] = useState<string | null>(null);
 
-  // Emergency Contact State
   const [emergencyName, setEmergencyName] = useState('');
   const [emergencyPhone, setEmergencyPhone] = useState('');
   const [emergencyRelationship, setEmergencyRelationship] = useState('');
@@ -322,7 +317,6 @@ export default function ArtistProfilePage() {
 
       let mergedArtist = { ...data };
 
-      // Secondary check against host_profiles table to ensure rates and rate units are synced
       const targetUserId = data.user_id || data.id;
       if (targetUserId) {
         const { data: hostData } = await supabase
@@ -418,15 +412,14 @@ export default function ArtistProfilePage() {
     }
   };
 
-  // Dynamic Rate Rendering across Creator Categories
   const renderPricingBadge = () => {
     if (!artist) return 'Rate on Request';
 
     const rawRate = artist.hourly_rate ?? artist.base_rate ?? artist.rate ?? artist.price;
-    const numericRate = parseFloat(rawRate);
+    const numericRate = parseFloat(String(rawRate));
 
     if (!isNaN(numericRate) && numericRate > 0) {
-      const unit = (artist.rate_unit || artist.pricing_unit || 'hr').trim();
+      const unit = String(artist.rate_unit || artist.pricing_unit || 'hr').trim();
       return `R${numericRate} / ${unit}`;
     }
 
@@ -681,17 +674,14 @@ export default function ArtistProfilePage() {
                 </button>
               ) : (
                 <div className="space-y-3">
-                  {/* Primary Action: Request Booking */}
                   <button
                     type="button"
                     onClick={() => setIsBookingModalOpen(true)}
                     className="w-full text-center flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
                   >
-                    <Calendar className="w-4 h-4" />
                     Request Booking
                   </button>
 
-                  {/* Direct Messaging Action for Hosts / Users */}
                   <Link
                     to={`/inbox/${artist.user_id || artist.id}`}
                     className="w-full text-center flex items-center justify-center gap-2 py-2.5 border border-ink text-ink text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink hover:text-paper transition-colors"
@@ -801,3 +791,27 @@ export default function ArtistProfilePage() {
       />
 
       {/* Fullscreen Lightbox Modal */}
+      {activeImage && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+          onClick={() => setActiveImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => setActiveImage(null)}
+              className="absolute top-3 right-3 bg-ink text-paper p-2 hover:bg-ink-800 transition-colors z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <img
+              src={activeImage}
+              alt="Expanded view"
+              className="w-full h-full object-contain max-h-[85vh]"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
