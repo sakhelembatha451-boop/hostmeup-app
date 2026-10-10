@@ -103,6 +103,7 @@ const BookingModal: React.FC<BookingModalProps> = ({
         {
           client_id: user.id,
           artist_id: artistId,
+          host_id: artistId, // Ensures both columns match for host dashboard queries
           service_id: selectedServiceId || null,
           event_date: eventDate,
           start_time: startTime,
@@ -500,11 +501,6 @@ export default function ArtistProfilePage() {
     ? artist.media_urls
     : [];
 
-  const instagram = artist.social_links?.instagram || artist.instagram || artist.instagram_url;
-  const spotify = artist.social_links?.spotify || artist.spotify || artist.spotify_url;
-  const soundcloud = artist.social_links?.soundcloud || artist.soundcloud || artist.soundcloud_url;
-  const youtube = artist.social_links?.youtube || artist.youtube || artist.youtube_url;
-
   return (
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
       <div className="max-w-6xl mx-auto">
@@ -736,7 +732,7 @@ export default function ArtistProfilePage() {
         </div>
       </div>
 
-      {/* Render Booking Modal */}
+      {/* Render Booking Modal with correct user_id targeting */}
       <BookingModal
         isOpen={isBookingModalOpen}
         onClose={() => setIsBookingModalOpen(false)}
