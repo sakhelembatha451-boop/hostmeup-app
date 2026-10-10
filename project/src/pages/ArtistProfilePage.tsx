@@ -321,7 +321,7 @@ export default function ArtistProfilePage() {
       if (targetUserId) {
         const { data: hostData } = await supabase
           .from('host_profiles')
-          .select('hourly_rate, rate_unit, pricing_type')
+          .select('hourly_rate, rate_unit, custom_rate_display, pricing_type')
           .or(`user_id.eq.${targetUserId},id.eq.${targetUserId}`)
           .maybeSingle();
 
@@ -330,6 +330,7 @@ export default function ArtistProfilePage() {
             ...mergedArtist,
             hourly_rate: hostData.hourly_rate ?? mergedArtist.hourly_rate,
             rate_unit: hostData.rate_unit || mergedArtist.rate_unit,
+            custom_rate_display: hostData.custom_rate_display || mergedArtist.custom_rate_display,
             pricing_type: hostData.pricing_type || mergedArtist.pricing_type,
           };
         }
@@ -412,17 +413,25 @@ export default function ArtistProfilePage() {
     }
   };
 
+  // Completely flexible pricing display: renders whatever custom typed text or rate + unit the user entered
   const renderPricingBadge = () => {
     if (!artist) return 'Rate on Request';
 
+    // 1. If user typed a custom description (e.g. "R150 for shoulder tattoo" or "R100 per day"), show it directly
+    if (artist.custom_rate_display && artist.custom_rate_display.trim() !== '') {
+      return artist.custom_rate_display.trim();
+    }
+
+    // 2. Fallback to standard numeric rate + unit
     const rawRate = artist.hourly_rate ?? artist.base_rate ?? artist.rate ?? artist.price;
     const numericRate = parseFloat(String(rawRate));
 
     if (!isNaN(numericRate) && numericRate > 0) {
-      const unit = String(artist.rate_unit || artist.pricing_unit || 'hr').trim();
+      const unit = String(artist.rate_unit || 'hr').trim();
       return `R${numericRate} / ${unit}`;
     }
 
+    // 3. Service menu fallback
     if ((artist.pricing_type === 'per_service' || artist.categories?.includes('Beauty Professional')) && services.length > 0) {
       return 'See Services Menu';
     }
