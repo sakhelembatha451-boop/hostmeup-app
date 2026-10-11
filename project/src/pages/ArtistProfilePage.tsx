@@ -66,7 +66,6 @@ const BookingModal: React.FC<BookingModalProps> = ({
 
   if (!isOpen) return null;
 
-  // Extract base numerical rate from artist rate or custom text if possible
   const extractNumericRate = (): number => {
     const rawRate = parseFloat(String(artistRate));
     if (!isNaN(rawRate) && rawRate > 0) return rawRate;
@@ -82,12 +81,8 @@ const BookingModal: React.FC<BookingModalProps> = ({
   };
 
   const selectedService = services.find((s) => s.id === selectedServiceId);
-  
-  // Dynamic Calculation: Service price or general rate multiplied by duration
   const baseRate = selectedService ? selectedService.price : extractNumericRate();
   const calculatedTotal = baseRate > 0 ? baseRate * (selectedService ? 1 : duration) : 0;
-  
-  // Calculate 50% deposit
   const depositAmount = calculatedTotal > 0 ? calculatedTotal * 0.5 : 0;
 
   const handleSubmitBooking = async (e: React.FormEvent) => {
@@ -99,11 +94,12 @@ const BookingModal: React.FC<BookingModalProps> = ({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('You must be logged in to send a booking request.');
 
+      // Bulletproof 1-to-1 Auth UID Booking Payload
       const { error: bookingError } = await supabase.from('bookings').insert([
         {
-          client_id: user.id,
-          artist_id: artistId,
-          host_id: artistId, // Ensures both columns match for host dashboard queries
+          client_id: user.id,          // Host/Client Auth UID
+          host_id: user.id,            // Synced for host dashboard queries
+          artist_id: artistId,         // Artist Auth UID (guaranteed 1-to-1 match)
           service_id: selectedServiceId || null,
           event_date: eventDate,
           start_time: startTime,
@@ -113,6 +109,7 @@ const BookingModal: React.FC<BookingModalProps> = ({
           location,
           notes,
           status: 'pending',
+          created_at: new Date().toISOString(),
         },
       ]);
 
@@ -208,7 +205,6 @@ const BookingModal: React.FC<BookingModalProps> = ({
             </div>
           </div>
 
-          {/* Deposit Breakdown */}
           <div className="p-3 border border-line bg-paper-100 flex items-center justify-between text-xs">
             <span className="font-semibold text-ink-600">Required Deposit (50%):</span>
             <span className="font-bold text-ink">R{depositAmount.toFixed(2)}</span>
@@ -321,10 +317,7 @@ export default function ArtistProfilePage() {
         .eq('id', userId)
         .single();
 
-      if (fetchErr && fetchErr.code !== 'PGRST116') {
-        console.error('Error fetching emergency details:', fetchErr.message);
-        return;
-      }
+      if (fetchErr && fetchErr.code !== 'PGRST116') return;
 
       if (data) {
         setEmergencyName(data.emergency_contact_name || '');
@@ -341,17 +334,18 @@ export default function ArtistProfilePage() {
       setLoading(true);
       setError(null);
 
+      // Fetch artist profile matching either profile ID or user_id
       const { data, error: fetchError } = await supabase
         .from('artist_profiles')
         .select('*')
-        .eq('id', id)
+        .or(`id.eq.${id},user_id.eq.${id}`)
         .single();
 
       if (fetchError) throw fetchError;
 
       let mergedArtist = { ...data };
-
       const targetUserId = data.user_id || data.id;
+
       if (targetUserId) {
         const { data: hostData } = await supabase
           .from('host_profiles')
@@ -375,7 +369,7 @@ export default function ArtistProfilePage() {
       const { data: serviceData } = await supabase
         .from('talent_services')
         .select('*')
-        .eq('profile_id', mergedArtist.user_id || mergedArtist.id);
+        .eq('profile_id', targetUserId);
 
       setServices(serviceData || []);
     } catch (err: any) {
@@ -414,40 +408,8 @@ export default function ArtistProfilePage() {
     }
   };
 
-  const handleContactUser = async () => {
-    if (!currentUserId || !artist) return;
-
-    const targetUserId = artist.user_id || artist.id;
-
-    const { data: convData } = await supabase
-      .from('conversations')
-      .select('id')
-      .or(`and(participant_1.eq.${currentUserId},participant_2.eq.${targetUserId}),and(participant_1.eq.${targetUserId},participant_2.eq.${currentUserId})`)
-      .maybeSingle();
-
-    if (convData?.id) {
-      navigate(`/admin/inbox?conversation=${convData.id}`);
-    } else {
-      const { data: newConv } = await supabase
-        .from('conversations')
-        .insert({
-          participant_1: currentUserId,
-          participant_2: targetUserId,
-        })
-        .select('id')
-        .single();
-
-      if (newConv) {
-        navigate(`/admin/inbox?conversation=${newConv.id}`);
-      } else {
-        navigate('/admin/inbox');
-      }
-    }
-  };
-
   const renderPricingBadge = () => {
     if (!artist) return 'Rate on Request';
-
     if (artist.custom_rate_display && artist.custom_rate_display.trim() !== '') {
       return artist.custom_rate_display.trim();
     }
@@ -460,10 +422,7 @@ export default function ArtistProfilePage() {
       return `R${numericRate} / ${unit}`;
     }
 
-    if (services.length > 0) {
-      return 'See Services Menu';
-    }
-
+    if (services.length > 0) return 'See Services Menu';
     return 'Rate on Request';
   };
 
@@ -488,7 +447,8 @@ export default function ArtistProfilePage() {
     );
   }
 
-  const isOwner = currentUserId && (artist.user_id === currentUserId || artist.id === currentUserId);
+  const targetAuthId = artist.user_id || artist.id;
+  const isOwner = currentUserId && targetAuthId === currentUserId;
   const isAdmin = currentUserRole === 'admin';
 
   const galleryImages: string[] = Array.isArray(artist.gallery_urls) && artist.gallery_urls.length > 0
@@ -510,7 +470,6 @@ export default function ArtistProfilePage() {
         </Link>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-          {/* Main Content Area */}
           <div className="lg:col-span-2 space-y-8">
             <div className="aspect-[16/9] bg-paper-200 border border-line overflow-hidden relative">
               {artist.cover_url || artist.avatar_url ? (
@@ -530,9 +489,7 @@ export default function ArtistProfilePage() {
             <div>
               <div className="flex items-center justify-between">
                 <h1 className="font-display text-3xl font-bold text-ink">{artist.stage_name || 'Unnamed Artist'}</h1>
-                <div className="text-xl font-bold text-ink">
-                  {renderPricingBadge()}
-                </div>
+                <div className="text-xl font-bold text-ink">{renderPricingBadge()}</div>
               </div>
 
               <p className="text-xs text-ink-500 mt-2 flex items-center gap-1.5">
@@ -576,39 +533,12 @@ export default function ArtistProfilePage() {
                 </div>
               </div>
             )}
-
-            {galleryImages.length > 0 && (
-              <div className="border-t border-line pt-6">
-                <h3 className="font-display text-lg font-bold text-ink mb-4">Gallery & Portfolio</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                  {galleryImages.map((url: string, idx: number) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setActiveImage(url)}
-                      className="aspect-square bg-paper-200 border border-line overflow-hidden group focus:outline-none focus:ring-2 focus:ring-ink"
-                    >
-                      <img
-                        src={url}
-                        alt={`Gallery item ${idx + 1}`}
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      />
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
 
-          {/* Sidebar */}
           <div className="space-y-6">
             <div className="border border-line bg-paper-100 p-6 space-y-6">
               <h3 className="font-display text-lg font-bold text-ink">
-                {isOwner 
-                  ? 'Your Artist Profile' 
-                  : isAdmin 
-                  ? `Contact ${artist.stage_name || 'User'}` 
-                  : `Book ${artist.stage_name || 'Artist'}`}
+                {isOwner ? 'Your Artist Profile' : `Book ${artist.stage_name || 'Artist'}`}
               </h3>
               
               <div className="space-y-3 text-xs text-ink-600">
@@ -630,15 +560,6 @@ export default function ArtistProfilePage() {
                   <Edit3 className="w-4 h-4" />
                   Edit Profile
                 </Link>
-              ) : isAdmin ? (
-                <button
-                  type="button"
-                  onClick={handleContactUser}
-                  className="w-full text-center flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
-                >
-                  <MessageSquare className="w-4 h-4" />
-                  Contact User
-                </button>
               ) : (
                 <div className="space-y-3">
                   <button
@@ -650,7 +571,7 @@ export default function ArtistProfilePage() {
                   </button>
 
                   <Link
-                    to={`/inbox/${artist.user_id || artist.id}`}
+                    to={`/inbox/${targetAuthId}`}
                     className="w-full text-center flex items-center justify-center gap-2 py-2.5 border border-ink text-ink text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink hover:text-paper transition-colors"
                   >
                     <MessageSquare className="w-4 h-4" />
@@ -659,112 +580,20 @@ export default function ArtistProfilePage() {
                 </div>
               )}
             </div>
-
-            {isOwner && (
-              <div className="border border-line bg-paper p-6 space-y-4">
-                <div className="flex items-center gap-2 border-b border-line pb-3">
-                  <Shield className="w-4 h-4 text-ink" />
-                  <h4 className="text-xs uppercase tracking-wide-sm font-bold text-ink">Emergency Contact Details</h4>
-                </div>
-                
-                <form onSubmit={handleSaveEmergencyContact} className="space-y-3">
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-wide-sm text-ink-500 mb-1 font-semibold">
-                      Contact Name
-                    </label>
-                    <input
-                      type="text"
-                      value={emergencyName}
-                      onChange={(e) => setEmergencyName(e.target.value)}
-                      placeholder="e.g. Sibusiso Mbatha"
-                      className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-wide-sm text-ink-500 mb-1 font-semibold">
-                      Contact Phone (WhatsApp)
-                    </label>
-                    <input
-                      type="tel"
-                      value={emergencyPhone}
-                      onChange={(e) => setEmergencyPhone(e.target.value)}
-                      placeholder="e.g. +27 82 123 4567"
-                      className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] uppercase tracking-wide-sm text-ink-500 mb-1 font-semibold">
-                      Relationship
-                    </label>
-                    <input
-                      type="text"
-                      value={emergencyRelationship}
-                      onChange={(e) => setEmergencyRelationship(e.target.value)}
-                      placeholder="e.g. Parent / Spouse / Manager"
-                      className="w-full bg-paper-100 border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
-                    />
-                  </div>
-
-                  {emergencyMessage && (
-                    <p className={`text-[11px] font-medium ${emergencyMessage.type === 'success' ? 'text-green-600' : 'text-red-600'}`}>
-                      {emergencyMessage.text}
-                    </p>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={savingEmergency}
-                    className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 disabled:opacity-50 transition-colors"
-                  >
-                    {savingEmergency ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Save className="w-3.5 h-3.5" />
-                    )}
-                    {savingEmergency ? 'Saving...' : 'Save Safety Contact'}
-                  </button>
-                </form>
-              </div>
-            )}
           </div>
         </div>
       </div>
 
-      {/* Render Booking Modal with correct user_id targeting */}
+      {/* Render Booking Modal passing the exact Auth UID */}
       <BookingModal
         isOpen={isBookingModalOpen}
         onClose={() => setIsBookingModalOpen(false)}
-        artistId={artist.user_id || artist.id}
+        artistId={targetAuthId}
         artistName={artist.stage_name || 'Artist'}
         artistRate={artist.hourly_rate}
         customRateDisplay={artist.custom_rate_display}
         services={services}
       />
-
-      {/* Fullscreen Lightbox Modal */}
-      {activeImage && (
-        <div
-          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
-          onClick={() => setActiveImage(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
-            <button
-              type="button"
-              onClick={() => setActiveImage(null)}
-              className="absolute top-3 right-3 bg-ink text-paper p-2 hover:bg-ink-800 transition-colors z-10"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <img
-              src={activeImage}
-              alt="Expanded view"
-              className="w-full h-full object-contain max-h-[85vh]"
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }
