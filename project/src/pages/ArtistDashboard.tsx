@@ -273,12 +273,15 @@ export default function ArtistDashboard() {
         .update(payload)
         .eq('id', id);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase update status error:', error);
+        throw error;
+      }
 
       await loadDashboardData(false);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error updating status:', err);
-      alert('Could not update status. Please try again.');
+      alert(`Could not update status: ${err?.message || 'Please try again.'}`);
     } finally {
       setUpdatingId(null);
     }
@@ -296,7 +299,7 @@ export default function ArtistDashboard() {
   const totalEarnings = bookings
     .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed' || b.status === 'fully_paid')
     .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
-  
+   
   const depositedAmount = bookings
     .filter((b) => b.deposit_paid)
     .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
