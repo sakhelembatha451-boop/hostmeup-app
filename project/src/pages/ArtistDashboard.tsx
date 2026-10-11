@@ -264,7 +264,6 @@ export default function ArtistDashboard() {
     try {
       const payload = { 
         status: newStatus, 
-        updated_at: new Date().toISOString(),
         ...extraFields 
       };
 
@@ -299,7 +298,7 @@ export default function ArtistDashboard() {
   const totalEarnings = bookings
     .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed' || b.status === 'fully_paid')
     .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
-   
+  
   const depositedAmount = bookings
     .filter((b) => b.deposit_paid)
     .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
