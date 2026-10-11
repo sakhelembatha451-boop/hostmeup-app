@@ -70,7 +70,7 @@ export default function HostDashboard() {
       const { data, error } = await supabase
         .from('bookings')
         .select('*')
-        .eq('host_id', profile.id)
+        .or(`host_id.eq.${profile.id},client_id.eq.${profile.id}`)
         .order('created_at', { ascending: false });
 
       if (!error && data) {
