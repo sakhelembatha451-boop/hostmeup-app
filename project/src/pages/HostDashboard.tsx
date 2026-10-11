@@ -24,6 +24,7 @@ import HostStatusBadge from '@/components/HostStatusBadge';
 declare global {
   interface Window {
     YocoSDK?: any;
+    Yoco?: any;
   }
 }
 
@@ -41,6 +42,30 @@ function formatCurrency(n: number | null | undefined) {
   if (n == null) return '—';
   return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
 }
+
+// Helper to ensure Yoco SDK is fully loaded with retries
+const getOrLoadYocoSDK = (): Promise<any> => {
+  return new Promise((resolve) => {
+    const YocoConstructor = window.YocoSDK || window.Yoco;
+    if (YocoConstructor) {
+      resolve(YocoConstructor);
+      return;
+    }
+
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts++;
+      const Constructor = window.YocoSDK || window.Yoco;
+      if (Constructor) {
+        clearInterval(interval);
+        resolve(Constructor);
+      } else if (attempts > 20) { // Timeout after ~2 seconds
+        clearInterval(interval);
+        resolve(null);
+      }
+    }, 100);
+  });
+};
 
 export default function HostDashboard() {
   const { profile } = useAuth();
@@ -184,49 +209,53 @@ export default function HostDashboard() {
       : ((booking.total_price || 0) - (booking.deposit_amount || 0));
 
     const amountInCents = Math.round(amountToPay * 100);
-    const publicKey = import.meta.env.VITE_YOCO_PUBLIC_KEY || 'yoco_live_133eb8f8c59f80eb_1fae54824aa3d9f863f1d7ad2d4a7913';
+    const publicKey = import.meta.env.VITE_YOCO_PUBLIC_KEY || 'pk_test_ed3bd54dedRHA8E1a3b8';
 
-    if (typeof window !== 'undefined' && window.YocoSDK) {
-      try {
-        const yoco = new window.YocoSDK({ publicKey });
+    const YocoConstructor = await getOrLoadYocoSDK();
 
-        yoco.showPopup({
-          amountInCents,
-          currency: 'ZAR',
-          name: 'HostMeUp',
-          description: `${type === 'deposit' ? 'Deposit' : 'Remaining Balance'} Payment for ${booking.event_name || 'Event'}`,
-          callback: async (result: any) => {
-            if (result.error) {
-              alert(`Payment failed: ${result.error.message}`);
-              setProcessingPaymentId(null);
-            } else {
-              const updatePayload = type === 'deposit' 
-                ? { deposit_paid: true, status: 'confirmed' }
-                : { balance_paid: true };
-
-              const { error } = await supabase
-                .from('bookings')
-                .update(updatePayload)
-                .eq('id', booking.id);
-
-              if (error) {
-                alert(`Error saving payment status: ${error.message}`);
-              } else {
-                alert('Payment processed successfully with Yoco!');
-                await loadData();
-              }
-              setProcessingPaymentId(null);
-            }
-          }
-        });
-        return;
-      } catch (err: any) {
-        console.error('Yoco SDK popup error:', err);
-      }
+    if (!YocoConstructor) {
+      alert('Yoco payment SDK is still loading or unavailable. Please check your internet connection or ad blocker and try again.');
+      setProcessingPaymentId(null);
+      return;
     }
 
-    alert('Yoco payment SDK is still loading. Please refresh and try again.');
-    setProcessingPaymentId(null);
+    try {
+      const yoco = new YocoConstructor({ publicKey });
+
+      yoco.showPopup({
+        amountInCents,
+        currency: 'ZAR',
+        name: 'HostMeUp',
+        description: `${type === 'deposit' ? 'Deposit' : 'Remaining Balance'} Payment for ${booking.event_name || 'Event'}`,
+        callback: async (result: any) => {
+          if (result.error) {
+            alert(`Payment failed: ${result.error.message}`);
+            setProcessingPaymentId(null);
+          } else {
+            const updatePayload = type === 'deposit' 
+              ? { deposit_paid: true, status: 'confirmed' }
+              : { balance_paid: true };
+
+            const { error } = await supabase
+              .from('bookings')
+              .update(updatePayload)
+              .eq('id', booking.id);
+
+            if (error) {
+              alert(`Error saving payment status: ${error.message}`);
+            } else {
+              alert('Payment processed successfully with Yoco!');
+              await loadData();
+            }
+            setProcessingPaymentId(null);
+          }
+        }
+      });
+    } catch (err: any) {
+      console.error('Yoco SDK popup error:', err);
+      alert('Could not initialize Yoco payment popup. Please try again.');
+      setProcessingPaymentId(null);
+    }
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b?.status === filter);
