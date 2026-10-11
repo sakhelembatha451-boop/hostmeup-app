@@ -48,7 +48,6 @@ export default function HostDashboard() {
 
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [processingPaymentId, setProcessingPaymentId] = useState<string | null>(null);
 
   const [hostVerification, setHostVerification] = useState<{
     is_identity_verified: boolean;
@@ -208,7 +207,7 @@ export default function HostDashboard() {
       `Click OK to open the Yoco payment page.`
     );
 
-    // Open Yoco Payment Page in a new tab WITHOUT updating the database automatically
+    // Open Yoco Payment Page in a new tab
     window.open(YOCO_PAYMENT_PAGE_URL, '_blank', 'noopener,noreferrer');
   };
 
@@ -328,7 +327,6 @@ export default function HostDashboard() {
             {filtered.map((booking) => {
               if (!booking) return null;
               const isSelected = selectedBookingIds.includes(booking.id);
-              const isAccepted = booking.status?.toLowerCase() === 'accepted';
               const isDepositPaid = booking.deposit_paid || booking.status?.toLowerCase() === 'confirmed';
               const isBalancePaid = booking.balance_paid;
               const remainingBalance = (booking.total_price || 0) - (booking.deposit_amount || 0);
@@ -409,8 +407,9 @@ export default function HostDashboard() {
                             Cancel Request
                           </button>
                         ) : (
-                          <div className="flex items-center gap-2">
-                            {(isAccepted || booking.status === 'pending') && !isDepositPaid && (
+                          <div className="flex items-center gap-3">
+                            {/* Option 1: Deposit Not Paid Yet */}
+                            {!isDepositPaid && (
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
@@ -423,14 +422,15 @@ export default function HostDashboard() {
                                 <button
                                   type="button"
                                   onClick={() => markBookingAsPaid(booking, 'deposit')}
-                                  className="px-2 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-medium rounded transition-colors"
+                                  className="px-2.5 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-medium rounded transition-colors"
                                   title="Click after completing Yoco payment to confirm"
                                 >
-                                  Confirm Paid
+                                  Confirm Deposit Paid
                                 </button>
                               </div>
                             )}
 
+                            {/* Option 2: Deposit Paid, Balance Outstanding */}
                             {isDepositPaid && !isBalancePaid && (
                               <div className="flex items-center gap-2">
                                 <button
@@ -444,12 +444,19 @@ export default function HostDashboard() {
                                 <button
                                   type="button"
                                   onClick={() => markBookingAsPaid(booking, 'remaining')}
-                                  className="px-2 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-medium rounded transition-colors"
+                                  className="px-2.5 py-1.5 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-medium rounded transition-colors"
                                   title="Click after completing Yoco payment to confirm"
                                 >
-                                  Confirm Paid
+                                  Confirm Balance Paid
                                 </button>
                               </div>
+                            )}
+
+                            {/* Option 3: Both Deposit & Balance Paid */}
+                            {isDepositPaid && isBalancePaid && (
+                              <span className="text-xs font-semibold uppercase tracking-wide-sm text-emerald-700 bg-emerald-50 px-3 py-1 rounded border border-emerald-200 flex items-center gap-1">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Fully Paid
+                              </span>
                             )}
                           </div>
                         )}
