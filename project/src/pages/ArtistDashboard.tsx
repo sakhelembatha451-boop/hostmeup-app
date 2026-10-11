@@ -70,8 +70,6 @@ export default function ArtistDashboard() {
   const [submittingReport, setSubmittingReport] = useState<boolean>(false);
 
   const loadDashboardData = useCallback(async (isInitialLoad = false) => {
-    console.log('Current profile ID from Auth:', profile?.id);
-
     if (!profile?.id) {
       setLoading(false);
       return;
@@ -82,14 +80,6 @@ export default function ArtistDashboard() {
     }
 
     try {
-      // Diagnostic check: Fetch all bookings directly without filters to inspect data/RLS
-      const { data: allBookingsTest, error: testErr } = await supabase
-        .from('bookings')
-        .select('*');
-
-      console.log('All bookings visible to current session:', allBookingsTest);
-      console.log('Test query error if blocked by RLS:', testErr);
-
       const authUserId = profile.id;
 
       // 1. Fetch artist profile associated with current user
@@ -99,31 +89,22 @@ export default function ArtistDashboard() {
         .eq('user_id', authUserId)
         .maybeSingle();
 
-      // 2. Collect all valid IDs representing this artist (Auth UID + artist_profiles ID)
+      // 2. Collect all valid IDs (Auth UID + artist_profile ID)
       const targetArtistIds = Array.from(
         new Set([authUserId, artistProfile?.id].filter(Boolean))
       );
 
-      // 3. Query bookings matching any of the valid artist identifiers
-      let { data: rawBookings, error: bookingsErr } = await supabase
+      // 3. Query bookings matching any valid artist identifier or client ID
+      const { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
         .select('*')
-        .in('artist_id', targetArtistIds)
-        .or('is_deleted.eq.false,is_deleted.is.null')
+        .or(`artist_id.in.(${targetArtistIds.join(',')}),client_id.eq.${authUserId}`)
         .order('created_at', { ascending: false });
 
-      // Fallback query if needed
-      if (bookingsErr || !rawBookings || rawBookings.length === 0) {
-        const fallback = await supabase
-          .from('bookings')
-          .select('*')
-          .or(`artist_id.eq.${authUserId},client_id.eq.${authUserId}`)
-          .or('is_deleted.eq.false,is_deleted.is.null')
-          .order('created_at', { ascending: false });
-
-        if (fallback.data && fallback.data.length > 0) {
-          rawBookings = fallback.data;
-        }
+      if (bookingsErr) {
+        console.error('Error fetching bookings:', bookingsErr);
+        setBookings([]);
+        return;
       }
 
       if (!rawBookings || rawBookings.length === 0) {
@@ -131,10 +112,18 @@ export default function ArtistDashboard() {
         return;
       }
 
+      // Filter out deleted items in memory safely
+      const activeBookings = rawBookings.filter((b) => !b.is_deleted);
+
+      if (activeBookings.length === 0) {
+        setBookings([]);
+        return;
+      }
+
       // 4. Populate Host information for cards
-      let processedBookings = rawBookings;
+      let processedBookings = activeBookings;
       const hostIds = Array.from(
-        new Set(rawBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
+        new Set(activeBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
       );
 
       if (hostIds.length > 0) {
@@ -145,7 +134,7 @@ export default function ArtistDashboard() {
 
         const profileMap = new Map((profileRecords || []).map((p) => [p.id, p]));
 
-        processedBookings = rawBookings.map((b) => {
+        processedBookings = activeBookings.map((b) => {
           const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
 
           return {
@@ -217,7 +206,7 @@ export default function ArtistDashboard() {
     setIsDeleting(true);
     try {
       setBookings((prev) => prev.filter((b) => !idsToDelete.includes(b.id)));
-      setSelectedBookingIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
+      setSelectedBookingIds((prev) => prev.filter((id) => !id === id));
 
       if (selectedBooking && idsToDelete.includes(selectedBooking.id)) {
         setSelectedBooking(null);
@@ -531,4 +520,26 @@ export default function ArtistDashboard() {
         {/* Modal: Details */}
         {selectedBooking && (
           <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
-            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h
+            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex items-center gap-3 mb-2">
+                {renderCustomStatusBadge(selectedBooking)}
+                <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
+              </div>
+
+              <h2 className="font-display text-2xl font-bold text-ink mb-1">{selectedBooking.event_name || 'Event Details'}</h2>
+
+              <div className="pt-4 flex justify-end">
+                <button onClick={() => setSelectedBooking(null)} className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">Close</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
