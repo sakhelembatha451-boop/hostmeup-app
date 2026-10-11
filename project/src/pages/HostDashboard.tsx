@@ -171,31 +171,7 @@ export default function HostDashboard() {
     loadData();
   };
 
-  const handlePayment = async (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setProcessingPaymentId(booking.id);
-
-    // Calculate exact amount
-    const amountToPay = type === 'deposit' 
-      ? (booking.deposit_amount || 0) 
-      : ((booking.total_price || 0) - (booking.deposit_amount || 0));
-
-    const formattedAmount = formatCurrency(amountToPay);
-    const labelType = type === 'deposit' ? 'deposit' : 'remaining balance';
-
-    // Clear instruction prompt informing the host of the exact amount
-    alert(
-      `Please note your payment details:\n\n` +
-      `Amount to enter on Yoco: ${formattedAmount}\n` +
-      `Reference: Booking #${booking.id.slice(0, 8)}\n\n` +
-      `Click OK to open the Yoco payment page.`
-    );
-
-    // 1. Immediately open Yoco Payment Page in a new tab
-    window.open(YOCO_PAYMENT_PAGE_URL, '_blank', 'noopener,noreferrer');
-
-    // 2. Update booking payment status in database
+  const markBookingAsPaid = async (booking: BookingWithArtist, type: 'deposit' | 'remaining') => {
     try {
       const updatePayload = type === 'deposit' 
         ? { deposit_paid: true, status: 'confirmed' }
@@ -207,13 +183,33 @@ export default function HostDashboard() {
         .eq('id', booking.id);
 
       if (error) throw error;
+      alert(`Payment status for ${type === 'deposit' ? 'Deposit' : 'Remaining Balance'} confirmed!`);
       await loadData();
     } catch (err: any) {
       console.error('Error updating booking status:', err);
       alert(`Error updating booking status: ${err?.message || 'Database error'}`);
-    } finally {
-      setProcessingPaymentId(null);
     }
+  };
+
+  const handlePayment = (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+
+    const amountToPay = type === 'deposit' 
+      ? (booking.deposit_amount || 0) 
+      : ((booking.total_price || 0) - (booking.deposit_amount || 0));
+
+    const formattedAmount = formatCurrency(amountToPay);
+
+    alert(
+      `Please note your payment details:\n\n` +
+      `Amount to enter on Yoco: ${formattedAmount}\n` +
+      `Reference: Booking #${booking.id.slice(0, 8)}\n\n` +
+      `Click OK to open the Yoco payment page.`
+    );
+
+    // Open Yoco Payment Page in a new tab WITHOUT updating the database automatically
+    window.open(YOCO_PAYMENT_PAGE_URL, '_blank', 'noopener,noreferrer');
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b?.status === filter);
@@ -415,35 +411,45 @@ export default function HostDashboard() {
                         ) : (
                           <div className="flex items-center gap-2">
                             {(isAccepted || booking.status === 'pending') && !isDepositPaid && (
-                              <button
-                                type="button"
-                                onClick={(e) => handlePayment(booking, 'deposit', e)}
-                                disabled={processingPaymentId === booking.id}
-                                className="px-3 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/80 flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                              >
-                                {processingPaymentId === booking.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => handlePayment(booking, 'deposit', e)}
+                                  className="px-3 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/80 flex items-center gap-1.5 transition-colors"
+                                >
                                   <ExternalLink className="w-3.5 h-3.5" />
-                                )}
-                                <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
-                              </button>
+                                  <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => markBookingAsPaid(booking, 'deposit')}
+                                  className="px-2 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-medium rounded transition-colors"
+                                  title="Click after completing Yoco payment to confirm"
+                                >
+                                  Confirm Paid
+                                </button>
+                              </div>
                             )}
 
                             {isDepositPaid && !isBalancePaid && (
-                              <button
-                                type="button"
-                                onClick={(e) => handlePayment(booking, 'remaining', e)}
-                                disabled={processingPaymentId === booking.id}
-                                className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-emerald-800 flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                              >
-                                {processingPaymentId === booking.id ? (
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                ) : (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(e) => handlePayment(booking, 'remaining', e)}
+                                  className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-emerald-800 flex items-center gap-1.5 transition-colors"
+                                >
                                   <ExternalLink className="w-3.5 h-3.5" />
-                                )}
-                                <span>Pay Remaining ({formatCurrency(remainingBalance > 0 ? remainingBalance : booking.total_price)})</span>
-                              </button>
+                                  <span>Pay Remaining ({formatCurrency(remainingBalance > 0 ? remainingBalance : booking.total_price)})</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => markBookingAsPaid(booking, 'remaining')}
+                                  className="px-2 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-medium rounded transition-colors"
+                                  title="Click after completing Yoco payment to confirm"
+                                >
+                                  Confirm Paid
+                                </button>
+                              </div>
                             )}
                           </div>
                         )}
