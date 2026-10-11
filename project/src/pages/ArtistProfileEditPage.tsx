@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { Loader2, Save, ArrowLeft, CheckCircle2, AlertCircle, Upload, X, Plus, Trash2, Image as ImageIcon } from 'lucide-react';
 
-// Primary categories available on HostMeUp
 const CATEGORIES = [
   'SINGER',
   'PRODUCER',
@@ -15,7 +14,6 @@ const CATEGORIES = [
   'ASSET HIRE',
 ];
 
-// Mapped genres and specialties based on selected category
 const CATEGORY_SPECIALTIES: Record<string, string[]> = {
   SINGER: ['Amapiano', 'Deep House', 'Afro House', 'Gqom', 'Hip Hop', 'R&B', 'Afrobeats', 'Pop', 'Jazz', 'Gospel', 'Commercial'],
   PRODUCER: ['Amapiano', 'Deep House', 'Afro House', 'Gqom', 'Hip Hop', 'R&B', 'Afrobeats', 'Trap', 'Pop', 'Dancehall'],
@@ -55,7 +53,6 @@ export default function ArtistProfileEdit() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Form State
   const [stageName, setStageName] = useState<string>('');
   const [avatarUrl, setAvatarUrl] = useState<string>('');
   const [coverUrl, setCoverUrl] = useState<string>('');
@@ -67,7 +64,6 @@ export default function ArtistProfileEdit() {
   const [portfolioUrls, setPortfolioUrls] = useState<string[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
 
-  // New Service Item Input State
   const [newServiceName, setNewServiceName] = useState('');
   const [newServicePrice, setNewServicePrice] = useState('');
   const [newServiceDuration, setNewServiceDuration] = useState('');
@@ -104,7 +100,6 @@ export default function ArtistProfileEdit() {
           }
         }
 
-        // Fetch existing service menu items
         const { data: serviceData } = await supabase
           .from('talent_services')
           .select('*')
@@ -123,7 +118,6 @@ export default function ArtistProfileEdit() {
     fetchProfile();
   }, [navigate]);
 
-  // Handle Category Select
   const handleCategorySelect = (category: string) => {
     if (category !== selectedCategory) {
       setSelectedCategory(category);
@@ -131,7 +125,6 @@ export default function ArtistProfileEdit() {
     }
   };
 
-  // Toggle Genre / Specialty Pills
   const toggleGenre = (genre: string) => {
     if (selectedGenres.includes(genre)) {
       setSelectedGenres(selectedGenres.filter((item) => item !== genre));
@@ -140,7 +133,6 @@ export default function ArtistProfileEdit() {
     }
   };
 
-  // Upload Avatar Image
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -167,7 +159,6 @@ export default function ArtistProfileEdit() {
     }
   };
 
-  // Upload Cover Image
   const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -194,7 +185,6 @@ export default function ArtistProfileEdit() {
     }
   };
 
-  // Add Item to Services Menu State
   const handleAddService = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newServiceName.trim() || !newServicePrice) return;
@@ -211,12 +201,10 @@ export default function ArtistProfileEdit() {
     setNewServiceDuration('');
   };
 
-  // Remove Item from Services Menu State
   const handleRemoveService = (index: number) => {
     setServices(services.filter((_, i) => i !== index));
   };
 
-  // Handle Portfolio Image Upload using public 'media' bucket
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -260,12 +248,11 @@ export default function ArtistProfileEdit() {
     }
   };
 
-  // Remove Portfolio Image
   const handleRemoveImage = (urlToRemove: string) => {
     setPortfolioUrls(portfolioUrls.filter((url) => url !== urlToRemove));
   };
 
-  // Save changes to Supabase updating host_profiles, artist_profiles, and talent_services
+  // 1-to-1 Auth UID Profile Save Handler
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -275,9 +262,9 @@ export default function ArtistProfileEdit() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('Not authenticated');
 
-      const payload = {
-        id: user.id,
-        user_id: user.id,
+      const profilePayload = {
+        id: user.id,          // Enforces 1-to-1 match with Auth UID
+        user_id: user.id,     // Keeps user_id synced
         stage_name: stageName,
         avatar_url: avatarUrl,
         cover_url: coverUrl,
@@ -290,17 +277,19 @@ export default function ArtistProfileEdit() {
         updated_at: new Date().toISOString(),
       };
 
-      // 1. Update host_profiles
+      // 1. Upsert host_profiles using Auth UID
       const { error: hostError } = await supabase
         .from('host_profiles')
-        .upsert(payload, { onConflict: 'id' });
+        .upsert(profilePayload, { onConflict: 'id' });
 
       if (hostError) throw hostError;
 
-      // 2. Sync directly into artist_profiles
+      // 2. Upsert artist_profiles using Auth UID (1-to-1 enforcement)
       const { error: artistError } = await supabase
         .from('artist_profiles')
-        .update({
+        .upsert({
+          id: user.id,         // Enforces 1-to-1 match with Auth UID
+          user_id: user.id,
           stage_name: stageName,
           avatar_url: avatarUrl,
           cover_url: coverUrl,
@@ -309,14 +298,12 @@ export default function ArtistProfileEdit() {
           location: location,
           categories: [selectedCategory],
           portfolio_urls: portfolioUrls,
-        })
-        .or(`id.eq.${user.id},user_id.eq.${user.id}`);
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'id' });
 
-      if (artistError && artistError.code !== 'PGRST116') {
-        console.warn('Could not update artist_profiles directly:', artistError.message);
-      }
+      if (artistError) throw artistError;
 
-      // 3. Save Services & Rates Menu (Delete old, insert current)
+      // 3. Save Services Menu
       await supabase.from('talent_services').delete().eq('profile_id', user.id);
 
       if (services.length > 0) {
@@ -357,7 +344,6 @@ export default function ArtistProfileEdit() {
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
       <div className="max-w-4xl mx-auto space-y-10">
         
-        {/* Navigation & Header */}
         <div className="flex items-center justify-between border-b border-line pb-6">
           <div>
             <button
@@ -377,7 +363,6 @@ export default function ArtistProfileEdit() {
           </button>
         </div>
 
-        {/* Feedback Alert */}
         {message && (
           <div
             className={`p-4 border flex items-center gap-3 text-xs font-medium ${
@@ -393,7 +378,6 @@ export default function ArtistProfileEdit() {
 
         <form onSubmit={handleSubmit} className="space-y-10">
           
-          {/* Identity & Images Section */}
           <div className="space-y-6">
             <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
               Profile Identity & Photos
@@ -413,7 +397,6 @@ export default function ArtistProfileEdit() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Avatar Upload */}
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
                   Profile Avatar
@@ -433,7 +416,6 @@ export default function ArtistProfileEdit() {
                 </div>
               </div>
 
-              {/* Cover Photo Upload */}
               <div>
                 <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
                   Cover Photo
@@ -455,7 +437,6 @@ export default function ArtistProfileEdit() {
             </div>
           </div>
 
-          {/* Categories Section */}
           <div className="space-y-4">
             <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
               Categories
@@ -481,7 +462,6 @@ export default function ArtistProfileEdit() {
             </div>
           </div>
 
-          {/* About / Bio Section */}
           <div className="space-y-4">
             <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
               About & Bio
@@ -500,7 +480,6 @@ export default function ArtistProfileEdit() {
             </div>
           </div>
 
-          {/* Portfolio & Gallery Section */}
           <div className="space-y-4">
             <div className="border-b border-line pb-2 flex items-center justify-between">
               <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink">
@@ -537,67 +516,26 @@ export default function ArtistProfileEdit() {
                   <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink">
                     Upload Portfolio Photos
                   </span>
-                  <span className="text-[10px] text-ink-400">
-                    PNG, JPG, or WEBP up to 10MB
-                  </span>
                 </>
               )}
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handleImageUpload}
-                disabled={uploadingImage}
-                className="hidden"
-              />
+              <input type="file" accept="image/*" multiple onChange={handleImageUpload} disabled={uploadingImage} className="hidden" />
             </label>
           </div>
 
-          {/* Pricing & Rate Description */}
           <div className="space-y-4">
             <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
-              Pricing & Rate Description
+              Services & Rates Menu
             </h2>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
-                Custom General Rate Display (Tagline)
-              </label>
-              <input
-                type="text"
-                value={customRateDisplay}
-                onChange={(e) => setCustomRateDisplay(e.target.value)}
-                className="w-full bg-paper border border-line px-4 py-2.5 text-xs font-medium text-ink focus:outline-none focus:border-ink"
-                placeholder="e.g. Starting from R150, Rates Vary by Item"
-              />
-            </div>
-          </div>
-
-          {/* Structured Services & Rates Menu Creator */}
-          <div className="space-y-4">
-            <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
-              Services & Rates Menu (Add Item by Item)
-            </h2>
-            <p className="text-[11px] text-ink-500">
-              Add individual services or assets with their specific prices (e.g., Braids — R400, BMW X5 — R100/day, Small Tattoo — R200).
-            </p>
-
             {services.length > 0 && (
               <div className="divide-y divide-line border border-line bg-paper-100 mb-4">
                 {services.map((service, index) => (
                   <div key={index} className="p-3 flex items-center justify-between text-xs">
                     <div>
                       <span className="font-semibold text-ink">{service.service_name}</span>
-                      {service.duration_minutes && (
-                        <span className="text-ink-400 ml-2">({service.duration_minutes} mins)</span>
-                      )}
                     </div>
                     <div className="flex items-center gap-4">
                       <span className="font-bold text-ink">R{service.price}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveService(index)}
-                        className="text-red-500 hover:text-red-700 p-1"
-                      >
+                      <button type="button" onClick={() => handleRemoveService(index)} className="text-red-500 hover:text-red-700 p-1">
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -610,7 +548,7 @@ export default function ArtistProfileEdit() {
               <div className="sm:col-span-6">
                 <input
                   type="text"
-                  placeholder="Service / Asset Name (e.g. Braids / BMW X5)"
+                  placeholder="Service / Asset Name"
                   value={newServiceName}
                   onChange={(e) => setNewServiceName(e.target.value)}
                   className="w-full bg-paper border border-line px-3 py-2 text-xs text-ink focus:outline-none focus:border-ink"
@@ -637,58 +575,6 @@ export default function ArtistProfileEdit() {
             </div>
           </div>
 
-          {/* Dynamic Genres & Specialties Section */}
-          <div className="space-y-4">
-            <div className="border-b border-line pb-2 flex items-center justify-between">
-              <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink">
-                Genres / Specialties
-              </h2>
-              <span className="text-[10px] text-ink-400 uppercase tracking-wide-sm">
-                Showing options for <strong className="text-ink">{selectedCategory}</strong>
-              </span>
-            </div>
-
-            <div className="flex flex-wrap gap-2 pt-2">
-              {currentSpecialties.map((item) => {
-                const isSelected = selectedGenres.includes(item);
-                return (
-                  <button
-                    key={item}
-                    type="button"
-                    onClick={() => toggleGenre(item)}
-                    className={`px-3 py-1.5 text-xs font-medium border transition-all ${
-                      isSelected
-                        ? 'bg-ink text-paper border-ink'
-                        : 'bg-paper text-ink-500 border-line hover:border-ink-400'
-                    }`}
-                  >
-                    {item}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Location & Coverage */}
-          <div className="space-y-4">
-            <h2 className="font-display text-sm font-bold uppercase tracking-wide-sm text-ink border-b border-line pb-2">
-              Location & Coverage
-            </h2>
-            <div>
-              <label className="block text-[10px] font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">
-                City / Region
-              </label>
-              <input
-                type="text"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-                className="w-full bg-paper border border-line px-4 py-2 text-xs font-medium text-ink focus:outline-none focus:border-ink"
-                placeholder="e.g. Cape Town, Western Cape"
-              />
-            </div>
-          </div>
-
-          {/* Footer Save Button */}
           <div className="pt-6 border-t border-line flex justify-end">
             <button
               type="submit"
