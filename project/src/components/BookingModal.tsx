@@ -37,6 +37,7 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
   const selectedService = services.find((s) => s.id === selectedServiceId);
   const calculatedTotal = selectedService ? selectedService.price * duration : 0;
+  const calculatedDeposit = calculatedTotal * 0.4; // 40% deposit
 
   const handleSubmitBooking = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,16 +50,20 @@ export const BookingModal: React.FC<BookingModalProps> = ({
 
       const { error: bookingError } = await supabase.from('bookings').insert([
         {
-          client_id: user.id,
-          artist_id: artistId,
+          host_id: user.id,              // Set host_id to logged-in user
+          client_id: user.id,            // Set client_id to logged-in user for visibility sync
+          artist_id: artistId,           // Set artist_id to the specific artist profile ID
           service_id: selectedServiceId || null,
           event_date: eventDate,
           start_time: startTime,
           duration_hours: duration,
+          gig_duration: `${duration} hours`,
           total_price: calculatedTotal,
+          deposit_amount: calculatedDeposit,
           location,
           notes,
           status: 'pending',
+          created_at: new Date().toISOString(),
         },
       ]);
 
