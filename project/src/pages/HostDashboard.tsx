@@ -15,7 +15,8 @@ import {
   X,
   KeyRound,
   CheckCircle2,
-  ExternalLink
+  ExternalLink,
+  Send
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
@@ -24,6 +25,7 @@ import HostStatusBadge from '@/components/HostStatusBadge';
 type BookingWithArtist = Booking & {
   balance_paid?: boolean;
   deposit_paid?: boolean;
+  payment_reference?: string;
   verification_pin?: string;
   verification_token?: string;
   is_arrival_verified?: boolean;
@@ -36,7 +38,6 @@ function formatCurrency(n: number | null | undefined) {
   return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
 }
 
-// Your Official Yoco Payment Page Link
 const YOCO_PAYMENT_PAGE_URL = 'https://pay.yoco.com/hostmeup';
 
 export default function HostDashboard() {
@@ -48,6 +49,8 @@ export default function HostDashboard() {
 
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [submittingRefId, setSubmittingRefId] = useState<string | null>(null);
+  const [refInput, setRefInput] = useState('');
 
   const [hostVerification, setHostVerification] = useState<{
     is_identity_verified: boolean;
@@ -170,30 +173,7 @@ export default function HostDashboard() {
     loadData();
   };
 
-  const markBookingAsPaid = async (booking: BookingWithArtist, type: 'deposit' | 'remaining') => {
-    try {
-      const updatePayload = type === 'deposit' 
-        ? { deposit_paid: true, status: 'confirmed' }
-        : { balance_paid: true };
-
-      const { error } = await supabase
-        .from('bookings')
-        .update(updatePayload)
-        .eq('id', booking.id);
-
-      if (error) throw error;
-      alert(`Payment status for ${type === 'deposit' ? 'Deposit' : 'Remaining Balance'} confirmed!`);
-      await loadData();
-    } catch (err: any) {
-      console.error('Error updating booking status:', err);
-      alert(`Error updating booking status: ${err?.message || 'Database error'}`);
-    }
-  };
-
-  const handlePayment = (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-
+  const handlePaymentRedirect = (booking: BookingWithArtist, type: 'deposit' | 'remaining') => {
     const amountToPay = type === 'deposit' 
       ? (booking.deposit_amount || 0) 
       : ((booking.total_price || 0) - (booking.deposit_amount || 0));
@@ -201,14 +181,39 @@ export default function HostDashboard() {
     const formattedAmount = formatCurrency(amountToPay);
 
     alert(
-      `Please note your payment details:\n\n` +
-      `Amount to enter on Yoco: ${formattedAmount}\n` +
-      `Reference: Booking #${booking.id.slice(0, 8)}\n\n` +
-      `Click OK to open the Yoco payment page.`
+      `Yoco Payment Instructions:\n\n` +
+      `1. Amount to pay: ${formattedAmount}\n` +
+      `2. Reference: Booking #${booking.id.slice(0, 8)}\n\n` +
+      `After paying on Yoco, copy your payment reference number and submit it below to verify your payment.`
     );
 
-    // Open Yoco Payment Page in a new tab
     window.open(YOCO_PAYMENT_PAGE_URL, '_blank', 'noopener,noreferrer');
+  };
+
+  const submitPaymentReference = async (bookingId: string) => {
+    if (!refInput.trim()) {
+      alert('Please enter your Yoco payment reference or transaction ID.');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ 
+          payment_reference: refInput.trim(),
+          status: 'pending_verification' // Keeps it pending until you verify in Yoco
+        })
+        .eq('id', bookingId);
+
+      if (error) throw error;
+
+      alert('Payment reference submitted successfully! Verification is pending admin review.');
+      setSubmittingRefId(null);
+      setRefInput('');
+      await loadData();
+    } catch (err: any) {
+      alert(`Error submitting reference: ${err?.message || 'Database error'}`);
+    }
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b?.status === filter);
@@ -398,7 +403,7 @@ export default function HostDashboard() {
                         <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location || '—'}</span></div>
                       </div>
 
-                      <div className="pt-3 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
+                      <div className="pt-3 border-t border-line space-y-3" onClick={(e) => e.stopPropagation()}>
                         {booking.status === 'pending' ? (
                           <button 
                             onClick={() => updateBookingStatus(booking.id, 'cancelled')}
@@ -407,56 +412,114 @@ export default function HostDashboard() {
                             Cancel Request
                           </button>
                         ) : (
-                          <div className="flex items-center gap-3">
-                            {/* Option 1: Deposit Not Paid Yet */}
+                          <div className="flex flex-col gap-3">
+                            {/* Option 1: Deposit Not Paid */}
                             {!isDepositPaid && (
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-3">
                                 <button
                                   type="button"
-                                  onClick={(e) => handlePayment(booking, 'deposit', e)}
+                                  onClick={(e) => handlePaymentRedirect(booking, 'deposit')}
                                   className="px-3 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/80 flex items-center gap-1.5 transition-colors"
                                 >
                                   <ExternalLink className="w-3.5 h-3.5" />
                                   <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => markBookingAsPaid(booking, 'deposit')}
-                                  className="px-2.5 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-medium rounded transition-colors"
-                                  title="Click after completing Yoco payment to confirm"
-                                >
-                                  Confirm Deposit Paid
-                                </button>
+
+                                {submittingRefId === booking.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Enter Yoco Ref / Tx ID"
+                                      value={refInput}
+                                      onChange={(e) => setRefInput(e.target.value)}
+                                      className="px-2 py-1 text-xs border border-line rounded bg-paper text-ink"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => submitPaymentReference(booking.id)}
+                                      className="px-2.5 py-1 bg-emerald-700 text-white text-xs font-medium rounded hover:bg-emerald-800 flex items-center gap-1"
+                                    >
+                                      <Send className="w-3 h-3" /> Submit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSubmittingRefId(null)}
+                                      className="text-xs text-ink-400 hover:text-ink underline"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSubmittingRefId(booking.id)}
+                                    className="px-2.5 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-medium rounded transition-colors"
+                                  >
+                                    I Paid — Submit Ref
+                                  </button>
+                                )}
                               </div>
                             )}
 
                             {/* Option 2: Deposit Paid, Balance Outstanding */}
                             {isDepositPaid && !isBalancePaid && (
-                              <div className="flex items-center gap-2">
+                              <div className="flex flex-wrap items-center gap-3">
                                 <button
                                   type="button"
-                                  onClick={(e) => handlePayment(booking, 'remaining', e)}
+                                  onClick={(e) => handlePaymentRedirect(booking, 'remaining')}
                                   className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-emerald-800 flex items-center gap-1.5 transition-colors"
                                 >
                                   <ExternalLink className="w-3.5 h-3.5" />
                                   <span>Pay Remaining ({formatCurrency(remainingBalance > 0 ? remainingBalance : booking.total_price)})</span>
                                 </button>
-                                <button
-                                  type="button"
-                                  onClick={() => markBookingAsPaid(booking, 'remaining')}
-                                  className="px-2.5 py-1.5 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-medium rounded transition-colors"
-                                  title="Click after completing Yoco payment to confirm"
-                                >
-                                  Confirm Balance Paid
-                                </button>
+
+                                {submittingRefId === booking.id ? (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      placeholder="Enter Yoco Ref / Tx ID"
+                                      value={refInput}
+                                      onChange={(e) => setRefInput(e.target.value)}
+                                      className="px-2 py-1 text-xs border border-line rounded bg-paper text-ink"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => submitPaymentReference(booking.id)}
+                                      className="px-2.5 py-1 bg-emerald-700 text-white text-xs font-medium rounded hover:bg-emerald-800 flex items-center gap-1"
+                                    >
+                                      <Send className="w-3 h-3" /> Submit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setSubmittingRefId(null)}
+                                      className="text-xs text-ink-400 hover:text-ink underline"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => setSubmittingRefId(booking.id)}
+                                    className="px-2.5 py-1.5 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-medium rounded transition-colors"
+                                  >
+                                    I Paid — Submit Ref
+                                  </button>
+                                )}
                               </div>
                             )}
 
-                            {/* Option 3: Both Deposit & Balance Paid */}
+                            {/* Option 3: Fully Paid */}
                             {isDepositPaid && isBalancePaid && (
-                              <span className="text-xs font-semibold uppercase tracking-wide-sm text-emerald-700 bg-emerald-50 px-3 py-1 rounded border border-emerald-200 flex items-center gap-1">
+                              <span className="text-xs font-semibold uppercase tracking-wide-sm text-emerald-700 bg-emerald-50 px-3 py-1 rounded border border-emerald-200 flex items-center gap-1 w-fit">
                                 <CheckCircle2 className="w-3.5 h-3.5" /> Fully Paid
                               </span>
+                            )}
+
+                            {booking.payment_reference && (
+                              <div className="text-xs text-ink-400 bg-paper p-2 border border-line rounded">
+                                Submitted Reference: <strong className="font-mono text-ink">{booking.payment_reference}</strong> (Awaiting verification)
+                              </div>
                             )}
                           </div>
                         )}
@@ -526,6 +589,12 @@ export default function HostDashboard() {
                     <span className="text-ink-500">Deposit Amount</span>
                     <span className="font-medium text-ink">{formatCurrency(selectedBooking.deposit_amount)}</span>
                   </div>
+                  {selectedBooking.payment_reference && (
+                    <div className="flex justify-between text-sm py-1 border-t border-line/50 mt-2 pt-2">
+                      <span className="text-ink-500">Payment Reference</span>
+                      <span className="font-mono font-semibold text-ink">{selectedBooking.payment_reference}</span>
+                    </div>
+                  )}
                 </div>
 
                 {selectedBooking.notes && (
