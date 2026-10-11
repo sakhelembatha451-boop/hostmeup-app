@@ -70,6 +70,8 @@ export default function ArtistDashboard() {
   const [submittingReport, setSubmittingReport] = useState<boolean>(false);
 
   const loadDashboardData = useCallback(async (isInitialLoad = false) => {
+    console.log('Current profile ID from Auth:', profile?.id);
+
     if (!profile?.id) {
       setLoading(false);
       return;
@@ -80,6 +82,14 @@ export default function ArtistDashboard() {
     }
 
     try {
+      // Diagnostic check: Fetch all bookings directly without filters to inspect data/RLS
+      const { data: allBookingsTest, error: testErr } = await supabase
+        .from('bookings')
+        .select('*');
+
+      console.log('All bookings visible to current session:', allBookingsTest);
+      console.log('Test query error if blocked by RLS:', testErr);
+
       const authUserId = profile.id;
 
       // 1. Fetch artist profile associated with current user
@@ -521,26 +531,4 @@ export default function ArtistDashboard() {
         {/* Modal: Details */}
         {selectedBooking && (
           <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
-            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
-                <X className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center gap-3 mb-2">
-                {renderCustomStatusBadge(selectedBooking)}
-                <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
-              </div>
-
-              <h2 className="font-display text-2xl font-bold text-ink mb-1">{selectedBooking.event_name || 'Event Details'}</h2>
-
-              <div className="pt-4 flex justify-end">
-                <button onClick={() => setSelectedBooking(null)} className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">Close</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-      </div>
-    </div>
-  );
-}
+            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h
