@@ -25,7 +25,6 @@ import HostStatusBadge from '@/components/HostStatusBadge';
 type BookingWithArtist = Booking & {
   balance_paid?: boolean;
   deposit_paid?: boolean;
-  payment_reference?: string;
   verification_pin?: string;
   verification_token?: string;
   is_arrival_verified?: boolean;
@@ -190,24 +189,27 @@ export default function HostDashboard() {
     window.open(YOCO_PAYMENT_PAGE_URL, '_blank', 'noopener,noreferrer');
   };
 
-  const submitPaymentReference = async (bookingId: string) => {
+  const submitPaymentReference = async (booking: BookingWithArtist) => {
     if (!refInput.trim()) {
       alert('Please enter your Yoco payment reference or transaction ID.');
       return;
     }
 
     try {
+      const updatedNotes = booking.notes 
+        ? `${booking.notes}\n[Yoco Ref: ${refInput.trim()}]`
+        : `[Yoco Ref: ${refInput.trim()}]`;
+
       const { error } = await supabase
         .from('bookings')
         .update({ 
-          payment_reference: refInput.trim(),
-          status: 'pending_verification' // Keeps it pending until you verify in Yoco
+          notes: updatedNotes
         })
-        .eq('id', bookingId);
+        .eq('id', booking.id);
 
       if (error) throw error;
 
-      alert('Payment reference submitted successfully! Verification is pending admin review.');
+      alert('Payment reference submitted successfully!');
       setSubmittingRefId(null);
       setRefInput('');
       await loadData();
@@ -436,7 +438,7 @@ export default function HostDashboard() {
                                     />
                                     <button
                                       type="button"
-                                      onClick={() => submitPaymentReference(booking.id)}
+                                      onClick={() => submitPaymentReference(booking)}
                                       className="px-2.5 py-1 bg-emerald-700 text-white text-xs font-medium rounded hover:bg-emerald-800 flex items-center gap-1"
                                     >
                                       <Send className="w-3 h-3" /> Submit
@@ -484,7 +486,7 @@ export default function HostDashboard() {
                                     />
                                     <button
                                       type="button"
-                                      onClick={() => submitPaymentReference(booking.id)}
+                                      onClick={() => submitPaymentReference(booking)}
                                       className="px-2.5 py-1 bg-emerald-700 text-white text-xs font-medium rounded hover:bg-emerald-800 flex items-center gap-1"
                                     >
                                       <Send className="w-3 h-3" /> Submit
@@ -514,12 +516,6 @@ export default function HostDashboard() {
                               <span className="text-xs font-semibold uppercase tracking-wide-sm text-emerald-700 bg-emerald-50 px-3 py-1 rounded border border-emerald-200 flex items-center gap-1 w-fit">
                                 <CheckCircle2 className="w-3.5 h-3.5" /> Fully Paid
                               </span>
-                            )}
-
-                            {booking.payment_reference && (
-                              <div className="text-xs text-ink-400 bg-paper p-2 border border-line rounded">
-                                Submitted Reference: <strong className="font-mono text-ink">{booking.payment_reference}</strong> (Awaiting verification)
-                              </div>
                             )}
                           </div>
                         )}
@@ -589,12 +585,6 @@ export default function HostDashboard() {
                     <span className="text-ink-500">Deposit Amount</span>
                     <span className="font-medium text-ink">{formatCurrency(selectedBooking.deposit_amount)}</span>
                   </div>
-                  {selectedBooking.payment_reference && (
-                    <div className="flex justify-between text-sm py-1 border-t border-line/50 mt-2 pt-2">
-                      <span className="text-ink-500">Payment Reference</span>
-                      <span className="font-mono font-semibold text-ink">{selectedBooking.payment_reference}</span>
-                    </div>
-                  )}
                 </div>
 
                 {selectedBooking.notes && (
