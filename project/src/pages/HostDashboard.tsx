@@ -60,47 +60,19 @@ export default function HostDashboard() {
 
     try {
       let rawBookings: any[] = [];
-      let fetchErr: any = null;
 
-      const res1 = await supabase
+      const { data, error } = await supabase
         .from('bookings')
-        .select(`*, artist:profiles!bookings_artist_id_fkey(id, full_name, avatar_url, location)`)
+        .select('*')
         .eq('host_id', profile.id)
-        .or('is_deleted.is.null,is_deleted.eq.false')
         .order('created_at', { ascending: false });
 
-      if (res1.error) {
-        const res1Retry = await supabase
-          .from('bookings')
-          .select('*')
-          .eq('host_id', profile.id)
-          .or('is_deleted.is.null,is_deleted.eq.false')
-          .order('created_at', { ascending: false });
-
-        if (!res1Retry.error) {
-          rawBookings = res1Retry.data || [];
-        } else {
-          fetchErr = res1Retry.error;
-        }
-      } else {
-        rawBookings = res1.data || [];
-      }
-
-      if (fetchErr && fetchErr.message?.includes("Could not find the table")) {
-        const res2 = await supabase
-          .from('booking')
-          .select('*')
-          .eq('host_id', profile.id)
-          .or('is_deleted.is.null,is_deleted.eq.false')
-          .order('created_at', { ascending: false });
-
-        if (res2.data) {
-          rawBookings = res2.data;
-        }
+      if (!error && data) {
+        rawBookings = data;
       }
 
       if (rawBookings.length > 0) {
-        const artistIds = Array.from(new Set(rawBookings.map((b) => b?.artist_id).filter(Boolean)));
+        const artistIds = Array.from(new Set(rawBookings.map((b) => b?.artist_id || b?.client_id).filter(Boolean)));
         
         if (artistIds.length > 0) {
           const { data: artistProfiles } = await supabase
@@ -112,7 +84,7 @@ export default function HostDashboard() {
 
           rawBookings = rawBookings.map((b) => ({
             ...b,
-            artist: b?.artist || profileMap.get(b?.artist_id) || null,
+            artist: profileMap.get(b?.artist_id) || profileMap.get(b?.client_id) || null,
           }));
         }
       }
@@ -154,16 +126,13 @@ export default function HostDashboard() {
 
     setIsDeleting(true);
     try {
-      let { error } = await supabase
+      const { error } = await supabase
         .from('bookings')
-        .update({ is_deleted: true })
+        .delete()
         .in('id', idsToDelete);
 
-      if (error && error.message?.includes("Could not find the table")) {
-        await supabase
-          .from('booking')
-          .update({ is_deleted: true })
-          .in('id', idsToDelete);
+      if (error) {
+        console.error('Error deleting bookings:', error);
       }
 
       setSelectedBookingIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
@@ -195,10 +164,7 @@ export default function HostDashboard() {
   };
 
   const updateBookingStatus = async (id: string, status: string) => {
-    let { error } = await supabase.from('bookings').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
-    if (error && error.message?.includes("Could not find the table")) {
-      await supabase.from('booking').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
-    }
+    await supabase.from('bookings').update({ status, updated_at: new Date().toISOString() }).eq('id', id);
     loadData();
   };
 
@@ -212,29 +178,19 @@ export default function HostDashboard() {
         ? { deposit_paid: true, status: 'confirmed' }
         : { balance_paid: true };
 
-      let { error } = await supabase
+      const { error } = await supabase
         .from('bookings')
         .update(updatePayload)
         .eq('id', booking.id);
 
-      if (error && error.message?.includes("Could not find the table")) {
-        const fallbackRes = await supabase
-          .from('booking')
-          .update(updatePayload)
-          .eq('id', booking.id);
-        error = fallbackRes.error;
-      }
-
       if (error) {
         alert(`Payment update error: ${error.message}`);
-        console.error('Supabase error:', error);
       } else {
         alert('Payment completed successfully!');
         await loadData();
       }
     } catch (err: any) {
       alert(`Unexpected error: ${err?.message || err}`);
-      console.error('Unexpected error:', err);
     } finally {
       setProcessingPaymentId(null);
     }
