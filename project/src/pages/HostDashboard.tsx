@@ -21,13 +21,6 @@ import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 
-declare global {
-  interface Window {
-    YocoSDK?: any;
-    Yoco?: any;
-  }
-}
-
 type BookingWithArtist = Booking & {
   balance_paid?: boolean;
   deposit_paid?: boolean;
@@ -42,30 +35,6 @@ function formatCurrency(n: number | null | undefined) {
   if (n == null) return '—';
   return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
 }
-
-// Helper to ensure Yoco SDK is fully loaded with retries
-const getOrLoadYocoSDK = (): Promise<any> => {
-  return new Promise((resolve) => {
-    const YocoConstructor = window.YocoSDK || window.Yoco;
-    if (YocoConstructor) {
-      resolve(YocoConstructor);
-      return;
-    }
-
-    let attempts = 0;
-    const interval = setInterval(() => {
-      attempts++;
-      const Constructor = window.YocoSDK || window.Yoco;
-      if (Constructor) {
-        clearInterval(interval);
-        resolve(Constructor);
-      } else if (attempts > 20) { // Timeout after ~2 seconds
-        clearInterval(interval);
-        resolve(null);
-      }
-    }, 100);
-  });
-};
 
 export default function HostDashboard() {
   const { profile } = useAuth();
@@ -199,11 +168,8 @@ export default function HostDashboard() {
     loadData();
   };
 
-  const handlePayment = async (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setProcessingPaymentId(booking.id);
-
+  // Direct Yoco Checkout Trigger
+  const triggerYocoCheckout = (booking: BookingWithArtist, type: 'deposit' | 'remaining', YocoClass: any) => {
     const amountToPay = type === 'deposit' 
       ? (booking.deposit_amount || 0) 
       : ((booking.total_price || 0) - (booking.deposit_amount || 0));
@@ -211,16 +177,8 @@ export default function HostDashboard() {
     const amountInCents = Math.round(amountToPay * 100);
     const publicKey = import.meta.env.VITE_YOCO_PUBLIC_KEY || 'pk_test_ed3bd54dedRHA8E1a3b8';
 
-    const YocoConstructor = await getOrLoadYocoSDK();
-
-    if (!YocoConstructor) {
-      alert('Yoco payment SDK is still loading or unavailable. Please check your internet connection or ad blocker and try again.');
-      setProcessingPaymentId(null);
-      return;
-    }
-
     try {
-      const yoco = new YocoConstructor({ publicKey });
+      const yoco = new YocoClass({ publicKey });
 
       yoco.showPopup({
         amountInCents,
@@ -252,10 +210,46 @@ export default function HostDashboard() {
         }
       });
     } catch (err: any) {
-      console.error('Yoco SDK popup error:', err);
-      alert('Could not initialize Yoco payment popup. Please try again.');
+      console.error('Yoco popup error:', err);
+      alert('Could not initialize Yoco popup. Please refresh and try again.');
       setProcessingPaymentId(null);
     }
+  };
+
+  const handlePayment = (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setProcessingPaymentId(booking.id);
+
+    // 1. Check if Yoco is already loaded globally
+    const GlobalYoco = (window as any).YocoSDK || (window as any).Yoco;
+
+    if (GlobalYoco) {
+      triggerYocoCheckout(booking, type, GlobalYoco);
+      return;
+    }
+
+    // 2. If not loaded yet, inject script directly into head and run immediately upon load
+    const script = document.createElement('script');
+    script.src = 'https://js.yoco.com/sdk/v1/yoco-sdk-web.js';
+    script.async = true;
+
+    script.onload = () => {
+      const LoadedYoco = (window as any).YocoSDK || (window as any).Yoco;
+      if (LoadedYoco) {
+        triggerYocoCheckout(booking, type, LoadedYoco);
+      } else {
+        alert('Yoco SDK loaded but constructor unavailable. Please refresh.');
+        setProcessingPaymentId(null);
+      }
+    };
+
+    script.onerror = () => {
+      alert('Could not load Yoco SDK. Please check your network connection.');
+      setProcessingPaymentId(null);
+    };
+
+    document.head.appendChild(script);
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b?.status === filter);
