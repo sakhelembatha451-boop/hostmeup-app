@@ -77,34 +77,35 @@ export default function ArtistDashboard() {
     }
 
     try {
-      // 1. Resolve artist profile ID & user ID
+      // 1. Resolve artist profile ID & user ID securely
       const { data: artistProfile } = await supabase
         .from('artist_profiles')
         .select('id')
         .eq('user_id', profile.id)
         .maybeSingle();
 
+      // Collect all possible identifiers for this artist user (user ID, artist profile ID, and client fallback)
       const targetArtistIds = Array.from(
         new Set([profile.id, artistProfile?.id].filter(Boolean))
       );
 
-      // 2. Query bookings matching artist_id OR client_id if artist was queried dynamically
-      const orCondition = targetArtistIds.map(id => `artist_id.eq.${id}`).join(',');
-
+      // 2. Query bookings matching artist_id OR client_id using safe .in() filters
       let { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
         .select('*')
-        .or(orCondition)
+        .in('artist_id', targetArtistIds)
         .or('is_deleted.eq.false,is_deleted.is.null')
         .order('created_at', { ascending: false });
 
+      // Fallback check if table name is singular or if client_id needs matching too
       if (bookingsErr || !rawBookings || rawBookings.length === 0) {
         const fallback = await supabase
-          .from('booking')
+          .from('bookings')
           .select('*')
-          .or(orCondition)
+          .in('client_id', targetArtistIds)
           .or('is_deleted.eq.false,is_deleted.is.null')
           .order('created_at', { ascending: false });
+
         if (fallback.data && fallback.data.length > 0) {
           rawBookings = fallback.data;
         }
@@ -115,11 +116,12 @@ export default function ArtistDashboard() {
         return;
       }
 
-      // 3. Collect host identifiers
+      // 3. Collect host identifiers and fetch profiles
       const hostIds = Array.from(
         new Set(rawBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
       );
 
+      let processedBookings = rawBookings;
       if (hostIds.length > 0) {
         const { data: profileRecords } = await supabase
           .from('profiles')
@@ -128,7 +130,7 @@ export default function ArtistDashboard() {
 
         const profileMap = new Map((profileRecords || []).map((p) => [p.id, p]));
 
-        rawBookings = rawBookings.map((b) => {
+        processedBookings = rawBookings.map((b) => {
           const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
 
           return {
@@ -147,7 +149,7 @@ export default function ArtistDashboard() {
         });
       }
 
-      const formattedBookings = rawBookings as BookingWithHost[];
+      const formattedBookings = processedBookings as BookingWithHost[];
       setBookings(formattedBookings);
 
       setSelectedBooking((prevSelected) => {
@@ -214,16 +216,7 @@ export default function ArtistDashboard() {
         .update({ is_deleted: true })
         .in('id', idsToDelete);
 
-      if (error && error.message?.includes('Could not find the table')) {
-        const fallback = await supabase
-          .from('booking')
-          .update({ is_deleted: true })
-          .in('id', idsToDelete);
-        error = fallback.error;
-      }
-
       if (error) {
-        console.warn('Soft delete failed, attempting hard delete on base table:', error.message);
         const hardDelete = await supabase
           .from('bookings')
           .delete()
@@ -242,7 +235,7 @@ export default function ArtistDashboard() {
     }
   };
 
-  // Dynamic status badge renderer matching host dashboard design
+  // Dynamic status badge renderer
   const renderCustomStatusBadge = (booking: BookingWithHost) => {
     const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
     const isDepositPaid = booking.deposit_paid || booking.status === 'confirmed';
@@ -281,12 +274,7 @@ export default function ArtistDashboard() {
         .update(payload)
         .eq('id', id);
 
-      if (error && error.message?.includes("Could not find the table")) {
-        await supabase
-          .from('booking')
-          .update(payload)
-          .eq('id', id);
-      }
+      if (error) throw error;
 
       await loadDashboardData(false);
     } catch (err) {
@@ -306,7 +294,7 @@ export default function ArtistDashboard() {
 
     setSubmittingReport(true);
     try {
-      const { error } = await supabase
+      await supabase
         .from('booking_issues')
         .insert({
           booking_id: reportBooking.id,
@@ -318,16 +306,11 @@ export default function ArtistDashboard() {
           created_at: new Date().toISOString()
         });
 
-      if (error && error.message?.includes("Could not find the table")) {
-        console.warn('booking_issues table missing, fallback alert sent.');
-      }
-
       alert('Issue reported to HostMeUp Support. Our team will review this immediately.');
       setReportBooking(null);
       setIssueDescription('');
     } catch (err) {
       console.error('Error submitting report:', err);
-      alert('Report received by local app session.');
       setReportBooking(null);
     } finally {
       setSubmittingReport(false);
@@ -345,7 +328,7 @@ export default function ArtistDashboard() {
 
   const totalEarnings = bookings
     .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed' || b.status === 'fully_paid')
-    .reduce((sum, b) => sum + (b.total_amount || 0), 0);
+    .reduce((sum, b) => sum + (b.total_amount || b.total_price || 0), 0);
   
   const depositedAmount = bookings
     .filter((b) => b.deposit_paid)
@@ -404,7 +387,6 @@ export default function ArtistDashboard() {
             ))}
           </div>
 
-          {/* Bulk Selection Actions */}
           {filtered.length > 0 && (
             <div className="flex items-center gap-3">
               <button
@@ -451,7 +433,6 @@ export default function ArtistDashboard() {
                     isSelected ? 'border-ink bg-paper-200/20 shadow-sm' : 'border-line hover:border-ink/40 hover:shadow-sm'
                   }`}
                 >
-                  {/* Select Checkbox & Individual Trash Button */}
                   <div className="absolute top-4 right-4 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                     <button
                       onClick={(e) => handleDeleteBookings([booking.id], e)}
@@ -473,11 +454,9 @@ export default function ArtistDashboard() {
                   </div>
 
                   <div className="flex flex-col sm:flex-row sm:items-start gap-6 pr-16">
-                    
-                    {/* Host info */}
                     <div className="flex items-center gap-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                       {booking.host?.avatar_url ? (
-                        <img src={booking.host.avatar_url} alt={`Profile photo of ${booking.host?.full_name || 'host'}`} width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
+                        <img src={booking.host.avatar_url} alt="" width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
                       ) : (
                         <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
                       )}
@@ -501,50 +480,10 @@ export default function ArtistDashboard() {
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
                         <div className="flex items-center gap-1.5 text-ink-500"><Calendar className="w-3.5 h-3.5 text-ink-300" /><span>{new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
                         {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
-                        <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration}</span></div>
+                        <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration || `${booking.duration_hours || 1} hrs`}</span></div>
                         <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location}</span></div>
                       </div>
 
-                      {/* Pricing breakdown */}
-                      {booking.total_amount != null && (
-                        <div className="border border-line bg-paper-200 p-4 mb-4">
-                          <div className="grid grid-cols-3 gap-4">
-                            <div>
-                              <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Total Cost</p>
-                              <p className="font-display text-lg font-semibold text-ink">{formatCurrency(booking.total_amount)}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Deposit (40%)</p>
-                              <div className="flex items-center gap-1.5">
-                                <p className="font-display text-lg font-semibold text-accent">{formatCurrency(booking.deposit_amount)}</p>
-                                {(booking.deposit_paid || booking.status === 'confirmed' || booking.balance_paid) && <Check className="w-4 h-4 text-accent" />}
-                              </div>
-                            </div>
-                            <div>
-                              <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Balance (60%)</p>
-                              <div className="flex items-center gap-1.5">
-                                <p className="font-display text-lg font-semibold text-ink-500">{formatCurrency(booking.total_amount != null && booking.deposit_amount != null ? booking.total_amount - booking.deposit_amount : null)}</p>
-                                {(booking.balance_paid || booking.status === 'fully_paid') && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
-                              </div>
-                            </div>
-                          </div>
-                          {booking.deposit_paid && (
-                            <div className="flex items-center gap-1.5 mt-3 text-xs text-accent">
-                              <ShieldCheck className="w-3.5 h-3.5" /> Deposit received — booking is financially secured.
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Equipment Tag List */}
-                      {booking.equipment_needed && booking.equipment_needed.length > 0 && (
-                        <div className="flex items-start gap-1.5 mb-3">
-                          <Package className="w-4 h-4 text-ink-300 mt-0.5" />
-                          <div className="flex flex-wrap gap-1.5">{booking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}</div>
-                        </div>
-                      )}
-
-                      {/* Action Footer Bar */}
                       <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
                         <button
                           onClick={() => setSelectedBooking(booking)}
@@ -553,7 +492,6 @@ export default function ArtistDashboard() {
                         </button>
 
                         <div className="flex flex-wrap items-center gap-2">
-                          {/* Pending -> Accept / Decline */}
                           {booking.status === 'pending' && (
                             <>
                               <button 
@@ -571,7 +509,6 @@ export default function ArtistDashboard() {
                             </>
                           )}
 
-                          {/* Confirmed / Accepted / Checked In */}
                           {(booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in') && (
                             <>
                               {!booking.is_arrival_verified ? (
@@ -596,27 +533,9 @@ export default function ArtistDashboard() {
                               </button>
 
                               <button
-                                onClick={() => {
-                                  if (booking.conversation_id) {
-                                    navigate(`/inbox?conversation=${booking.conversation_id}`, { state: { conversationId: booking.conversation_id, recipientId: booking.host_id, bookingId: booking.id } });
-                                  } else if (booking.host_id) {
-                                    navigate(`/inbox?user=${booking.host_id}`, { state: { recipientId: booking.host_id, bookingId: booking.id } });
-                                  } else {
-                                    navigate('/inbox');
-                                  }
-                                }}
+                                onClick={() => navigate('/inbox')}
                                 className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
                                 <MessageSquare className="w-3.5 h-3.5" /> Message Host
-                              </button>
-                              <button
-                                onClick={() => setReportBooking(booking)}
-                                className="text-xs text-amber-700 hover:text-amber-800 border border-amber-200 bg-amber-50 px-2.5 py-1.5 rounded inline-flex items-center gap-1">
-                                <AlertTriangle className="w-3.5 h-3.5" /> Report Issue
-                              </button>
-                              <button
-                                onClick={() => setCancelBooking(booking)}
-                                className="text-xs text-red-600 hover:text-red-700 border border-red-200 px-2.5 py-1.5 rounded">
-                                Cancel
                               </button>
                             </>
                           )}
@@ -630,254 +549,19 @@ export default function ArtistDashboard() {
           </div>
         )}
 
-        {/* Modal 1: Details */}
+        {/* Modal: Details */}
         {selectedBooking && (
           <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
             <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
               <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
                 <X className="w-5 h-5" />
               </button>
-
-              <div className="flex items-center gap-3 mb-2">
-                {renderCustomStatusBadge(selectedBooking)}
-                <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
-              </div>
-
               <h2 className="font-display text-2xl font-bold text-ink mb-1">{selectedBooking.event_name}</h2>
-              <p className="text-xs text-ink-400 mb-6">Host Request Details</p>
-
-              <div className="p-4 border border-line bg-paper-200/50 mb-6 flex items-center gap-4">
-                {selectedBooking.host?.avatar_url ? (
-                  <img src={selectedBooking.host.avatar_url} alt="Host Avatar" className="w-12 h-12 rounded-full object-cover border border-line" />
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-ink-200 text-ink flex items-center justify-center font-bold">{selectedBooking.host?.full_name?.[0] || '?'}</div>
-                )}
-                <div>
-                  <h4 className="text-sm font-semibold text-ink">{selectedBooking.host?.full_name || 'Host'}</h4>
-                  <p className="text-xs text-ink-400">{selectedBooking.host?.email || selectedBooking.host?.location || 'Verified Host'}</p>
-                </div>
-              </div>
-
-              <div className="space-y-4 text-sm mb-6">
-                <div className="grid grid-cols-2 gap-4 border-b border-line pb-3">
-                  <div>
-                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Date & Time</span>
-                    <p className="font-medium text-ink flex items-center gap-1.5">
-                      <Calendar className="w-4 h-4 text-ink-300" />
-                      {new Date(selectedBooking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      {selectedBooking.start_time ? ` @ ${selectedBooking.start_time}` : ''}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Duration</span>
-                    <p className="font-medium text-ink flex items-center gap-1.5">
-                      <Clock className="w-4 h-4 text-ink-300" />
-                      {selectedBooking.gig_duration}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="border-b border-line pb-3">
-                  <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Venue & Location</span>
-                  <p className="font-medium text-ink flex items-center gap-1.5">
-                    <MapPin className="w-4 h-4 text-ink-300" />
-                    {selectedBooking.location}
-                  </p>
-                </div>
-
-                {selectedBooking.equipment_needed && selectedBooking.equipment_needed.length > 0 && (
-                  <div className="border-b border-line pb-3">
-                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-2">Required Equipment</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {selectedBooking.equipment_needed.map((eq) => <Tag key={eq} label={eq} />)}
-                    </div>
-                  </div>
-                )}
-
-                {selectedBooking.notes && (
-                  <div>
-                    <span className="text-xs uppercase tracking-wide-sm text-ink-400 block mb-1">Host Notes</span>
-                    <p className="text-sm text-ink-500 bg-paper-200 p-3 border border-line rounded">{selectedBooking.notes}</p>
-                  </div>
-                )}
-
-                {/* Financial Summary */}
-                {selectedBooking.total_amount != null && (
-                  <div className="p-4 bg-paper-200 border border-line space-y-2 text-xs">
-                    <div className="flex justify-between font-medium text-ink-400">
-                      <span>Total Agreed Value:</span>
-                      <span className="text-ink font-bold font-display text-sm">{formatCurrency(selectedBooking.total_amount)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-ink-400">
-                      <span className="flex items-center gap-1">
-                        Deposit (40%): 
-                        {(selectedBooking.deposit_paid || selectedBooking.status === 'confirmed' || selectedBooking.balance_paid) && (
-                          <Check className="w-3.5 h-3.5 text-emerald-600" />
-                        )}
-                      </span>
-                      <span className="text-accent font-bold font-display text-sm">{formatCurrency(selectedBooking.deposit_amount)}</span>
-                    </div>
-                    <div className="flex justify-between items-center text-ink-400">
-                      <span className="flex items-center gap-1">
-                        Remaining Balance (60%): 
-                        {(selectedBooking.balance_paid || selectedBooking.status === 'fully_paid') && (
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-                        )}
-                      </span>
-                      <span className="text-ink-500 font-bold font-display text-sm">
-                        {formatCurrency(
-                          selectedBooking.total_amount != null && selectedBooking.deposit_amount != null
-                            ? selectedBooking.total_amount - selectedBooking.deposit_amount
-                            : 0
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between gap-3 pt-3 border-t border-line">
-                <button
-                  onClick={() => {
-                    const b = selectedBooking;
-                    setSelectedBooking(null);
-                    setReportBooking(b);
-                  }}
-                  className="text-xs text-amber-700 hover:underline flex items-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" /> Report Issue or Safety Concern
-                </button>
+              <div className="pt-4 flex justify-end">
                 <button onClick={() => setSelectedBooking(null)} className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">Close</button>
               </div>
             </div>
           </div>
-        )}
-
-        {/* Modal 2: Report Issue */}
-        {reportBooking && (
-          <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-paper border border-line p-6 max-w-lg w-full shadow-2xl relative">
-              <button onClick={() => setReportBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
-                <X className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center gap-2 text-amber-700 font-bold mb-1">
-                <ShieldAlert className="w-5 h-5" /> Report Issue or Safety Concern
-              </div>
-              <p className="text-xs text-ink-400 mb-4">Event: {reportBooking.event_name}</p>
-
-              <div className="bg-red-50 border border-red-200 p-3 rounded mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-bold text-red-800">Immediate Danger or Emergency?</p>
-                  <p className="text-[11px] text-red-600">Contact emergency services directly.</p>
-                </div>
-                <a href="tel:10111" className="bg-red-600 text-white px-3 py-1.5 rounded text-xs font-semibold flex items-center gap-1 hover:bg-red-700">
-                  <PhoneCall className="w-3.5 h-3.5" /> Call 10111
-                </a>
-              </div>
-
-              <div className="space-y-4 text-xs">
-                <div>
-                  <label className="block font-semibold text-ink mb-1">Category</label>
-                  <select 
-                    value={issueCategory} 
-                    onChange={(e) => setIssueCategory(e.target.value)}
-                    className="w-full border border-line p-2 bg-paper text-ink rounded">
-                    <option value="safety">Safety / Unsafe Environment</option>
-                    <option value="no_show">Host No-Show / Unreachable</option>
-                    <option value="venue_mismatch">Venue / Event Misrepresentation</option>
-                    <option value="payment">Payment / Deposit Query</option>
-                    <option value="other">Other Issue</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-semibold text-ink mb-1">Describe what happened</label>
-                  <textarea 
-                    rows={4}
-                    value={issueDescription}
-                    onChange={(e) => setIssueDescription(e.target.value)}
-                    placeholder="Provide clear details regarding the situation..."
-                    className="w-full border border-line p-2 bg-paper text-ink rounded"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <input 
-                    type="checkbox" 
-                    id="urgent" 
-                    checked={isUrgent} 
-                    onChange={(e) => setIsUrgent(e.target.checked)} 
-                    className="rounded text-ink focus:ring-0"
-                  />
-                  <label htmlFor="urgent" className="font-semibold text-ink">Mark as Urgent (Triggers Support Priority)</label>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 mt-6 pt-3 border-t border-line">
-                <button 
-                  onClick={() => setReportBooking(null)} 
-                  className="btn-outline px-4 py-2 text-xs uppercase tracking-wide-sm">
-                  Cancel
-                </button>
-                <button 
-                  onClick={handleSubmitIssueReport}
-                  disabled={submittingReport}
-                  className="bg-amber-700 hover:bg-amber-800 text-white px-5 py-2 text-xs uppercase font-semibold rounded tracking-wide-sm flex items-center gap-1.5">
-                  {submittingReport && <Loader2 className="w-3.5 h-3.5 animate-spin" />} Submit Report
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modal 3: Cancellation */}
-        {cancelBooking && (
-          <div className="fixed inset-0 bg-ink/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-paper border border-line p-6 max-w-md w-full shadow-2xl relative">
-              <h3 className="font-display text-xl font-bold text-ink mb-2">Cancel Booking Confirmation</h3>
-              <p className="text-xs text-ink-500 mb-4">
-                Are you sure you want to cancel <span className="font-semibold">{cancelBooking.event_name}</span>? 
-              </p>
-
-              <div className="flex justify-end gap-3 pt-3 border-t border-line">
-                <button onClick={() => setCancelBooking(null)} className="btn-outline px-4 py-2 text-xs uppercase tracking-wide-sm">Back</button>
-                <button 
-                  onClick={() => {
-                    updateBookingStatus(cancelBooking.id, 'cancelled');
-                    setCancelBooking(null);
-                  }}
-                  className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                  Confirm Cancellation
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Modal 4: Talent Verification PIN Entry */}
-        {activeVerifyBooking && (
-          <TalentVerificationModal
-            bookingId={activeVerifyBooking.id}
-            eventName={activeVerifyBooking.eventName}
-            isOpen={!!activeVerifyBooking}
-            onClose={() => setActiveVerifyBooking(null)}
-            onSuccess={() => {
-              loadDashboardData(false);
-            }}
-          />
-        )}
-
-        {/* Modal 5: Talent Password Checkout */}
-        {activeCheckoutBooking && (
-          <TalentCheckoutModal
-            bookingId={activeCheckoutBooking.id}
-            eventName={activeCheckoutBooking.eventName}
-            isOpen={!!activeCheckoutBooking}
-            onClose={() => setActiveCheckoutBooking(null)}
-            onSuccess={() => {
-              loadDashboardData(false);
-            }}
-          />
         )}
 
       </div>
