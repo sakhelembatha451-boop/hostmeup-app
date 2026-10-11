@@ -77,7 +77,7 @@ export default function ArtistDashboard() {
     }
 
     try {
-      // 1. Resolve current artist ID
+      // 1. Resolve artist profile ID & user ID
       const { data: artistProfile } = await supabase
         .from('artist_profiles')
         .select('id')
@@ -88,11 +88,13 @@ export default function ArtistDashboard() {
         new Set([profile.id, artistProfile?.id].filter(Boolean))
       );
 
-      // 2. Fetch raw bookings (excluding soft-deleted)
+      // 2. Query bookings matching artist_id OR client_id if artist was queried dynamically
+      const orCondition = targetArtistIds.map(id => `artist_id.eq.${id}`).join(',');
+
       let { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
         .select('*')
-        .in('artist_id', targetArtistIds)
+        .or(orCondition)
         .or('is_deleted.eq.false,is_deleted.is.null')
         .order('created_at', { ascending: false });
 
@@ -100,7 +102,7 @@ export default function ArtistDashboard() {
         const fallback = await supabase
           .from('booking')
           .select('*')
-          .in('artist_id', targetArtistIds)
+          .or(orCondition)
           .or('is_deleted.eq.false,is_deleted.is.null')
           .order('created_at', { ascending: false });
         if (fallback.data && fallback.data.length > 0) {
@@ -115,7 +117,7 @@ export default function ArtistDashboard() {
 
       // 3. Collect host identifiers
       const hostIds = Array.from(
-        new Set(rawBookings.map((b) => b.host_id).filter(Boolean))
+        new Set(rawBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
       );
 
       if (hostIds.length > 0) {
@@ -127,12 +129,12 @@ export default function ArtistDashboard() {
         const profileMap = new Map((profileRecords || []).map((p) => [p.id, p]));
 
         rawBookings = rawBookings.map((b) => {
-          const p = profileMap.get(b.host_id) || b.host || null;
+          const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
 
           return {
             ...b,
             host: {
-              id: p?.id || b.host_id,
+              id: p?.id || b.host_id || b.client_id,
               full_name: p?.full_name || 'Host',
               avatar_url: p?.avatar_url || null,
               location: p?.location || '',
@@ -200,7 +202,6 @@ export default function ArtistDashboard() {
 
     setIsDeleting(true);
     try {
-      // Optimistically update UI state immediately
       setBookings((prev) => prev.filter((b) => !idsToDelete.includes(b.id)));
       setSelectedBookingIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
 
@@ -208,13 +209,11 @@ export default function ArtistDashboard() {
         setSelectedBooking(null);
       }
 
-      // Try soft delete in primary table
       let { error } = await supabase
         .from('bookings')
         .update({ is_deleted: true })
         .in('id', idsToDelete);
 
-      // Fallback if view/table naming differs
       if (error && error.message?.includes('Could not find the table')) {
         const fallback = await supabase
           .from('booking')
@@ -223,7 +222,6 @@ export default function ArtistDashboard() {
         error = fallback.error;
       }
 
-      // Fallback to hard deletion on base table if soft delete fails
       if (error) {
         console.warn('Soft delete failed, attempting hard delete on base table:', error.message);
         const hardDelete = await supabase
@@ -238,7 +236,6 @@ export default function ArtistDashboard() {
     } catch (err: any) {
       console.error('Error deleting booking(s):', err);
       alert(`Could not delete booking: ${err?.message || 'Database permission denied'}`);
-      // Restore state from backend if database operations failed
       loadDashboardData(false);
     } finally {
       setIsDeleting(false);
@@ -592,7 +589,6 @@ export default function ArtistDashboard() {
                                 </button>
                               )}
 
-                              {/* Check Out Button - Always visible once confirmed/accepted/checked_in */}
                               <button
                                 onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name })}
                                 className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
