@@ -15,7 +15,7 @@ import {
   X,
   KeyRound,
   CheckCircle2,
-  CreditCard
+  ExternalLink
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
@@ -35,6 +35,9 @@ function formatCurrency(n: number | null | undefined) {
   if (n == null) return '—';
   return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
 }
+
+// Official Yoco Payment Page Link
+const YOCO_PAYMENT_PAGE_URL = 'https://pay.yoco.com/hostmeup';
 
 export default function HostDashboard() {
   const { profile } = useAuth();
@@ -168,7 +171,15 @@ export default function HostDashboard() {
     loadData();
   };
 
-  const processSuccessfulPayment = async (booking: BookingWithArtist, type: 'deposit' | 'remaining') => {
+  const handlePayment = async (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setProcessingPaymentId(booking.id);
+
+    // 1. Open Yoco Payment Page link in a new browser tab immediately
+    window.open(YOCO_PAYMENT_PAGE_URL, '_blank', 'noopener,noreferrer');
+
+    // 2. Update booking payment state in Supabase
     try {
       const updatePayload = type === 'deposit' 
         ? { deposit_paid: true, status: 'confirmed' }
@@ -181,55 +192,14 @@ export default function HostDashboard() {
 
       if (error) throw error;
 
-      alert(`${type === 'deposit' ? 'Deposit' : 'Remaining balance'} payment recorded successfully!`);
+      alert(`Opening Yoco payment page in a new tab... Please complete your ${type === 'deposit' ? 'deposit' : 'remaining balance'} payment there.`);
       await loadData();
     } catch (err: any) {
-      alert(`Error updating payment status: ${err?.message || 'Database error'}`);
+      console.error('Error updating booking status:', err);
+      alert(`Error updating booking status: ${err?.message || 'Database error'}`);
     } finally {
       setProcessingPaymentId(null);
     }
-  };
-
-  const handlePayment = async (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setProcessingPaymentId(booking.id);
-
-    // Try opening Yoco SDK if ready
-    const YocoConstructor = (window as any).Yoco || (window as any).YocoSDK;
-
-    if (YocoConstructor) {
-      try {
-        const amountToPay = type === 'deposit' 
-          ? (booking.deposit_amount || 0) 
-          : ((booking.total_price || 0) - (booking.deposit_amount || 0));
-
-        const yoco = new YocoConstructor({
-          publicKey: import.meta.env.VITE_YOCO_PUBLIC_KEY || 'yoco_live_133eb8f8c59f80eb_1fae54824aa3d9f863f1d7ad2d4a7913',
-        });
-
-        yoco.showPopup({
-          amountInCents: Math.round(amountToPay * 100),
-          currency: 'ZAR',
-          name: 'HostMeUp',
-          description: `${type === 'deposit' ? 'Deposit' : 'Balance'} for ${booking.event_name || 'Event'}`,
-          callback: async (result: any) => {
-            if (result.error) {
-              alert(`Payment failed: ${result.error.message}`);
-              setProcessingPaymentId(null);
-            } else {
-              await processSuccessfulPayment(booking, type);
-            }
-          }
-        });
-        return;
-      } catch (err) {
-        console.error('Yoco SDK popup exception:', err);
-      }
-    }
-
-    // Direct database update handler fallback if browser blocks external scripts
-    await processSuccessfulPayment(booking, type);
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b?.status === filter);
@@ -440,7 +410,7 @@ export default function HostDashboard() {
                                 {processingPaymentId === booking.id ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                 ) : (
-                                  <CreditCard className="w-3.5 h-3.5" />
+                                  <ExternalLink className="w-3.5 h-3.5" />
                                 )}
                                 <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
                               </button>
@@ -456,7 +426,7 @@ export default function HostDashboard() {
                                 {processingPaymentId === booking.id ? (
                                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                                 ) : (
-                                  <CreditCard className="w-3.5 h-3.5" />
+                                  <ExternalLink className="w-3.5 h-3.5" />
                                 )}
                                 <span>Pay Remaining ({formatCurrency(remainingBalance > 0 ? remainingBalance : booking.total_price)})</span>
                               </button>
