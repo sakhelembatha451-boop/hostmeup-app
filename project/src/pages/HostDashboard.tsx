@@ -21,6 +21,12 @@ import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 
+declare global {
+  interface Window {
+    YocoSDK?: any;
+  }
+}
+
 type BookingWithArtist = Booking & {
   balance_paid?: boolean;
   deposit_paid?: boolean;
@@ -173,27 +179,54 @@ export default function HostDashboard() {
     e.preventDefault();
     setProcessingPaymentId(booking.id);
 
-    try {
-      const updatePayload = type === 'deposit' 
-        ? { deposit_paid: true, status: 'confirmed' }
-        : { balance_paid: true };
+    const amountToPay = type === 'deposit' 
+      ? (booking.deposit_amount || 0) 
+      : ((booking.total_price || 0) - (booking.deposit_amount || 0));
 
-      const { error } = await supabase
-        .from('bookings')
-        .update(updatePayload)
-        .eq('id', booking.id);
+    const amountInCents = Math.round(amountToPay * 100);
+    const publicKey = import.meta.env.VITE_YOCO_PUBLIC_KEY || 'yoco_live_133eb8f8c59f80eb_1fae54824aa3d9f863f1d7ad2d4a7913';
 
-      if (error) {
-        alert(`Payment update error: ${error.message}`);
-      } else {
-        alert('Payment completed successfully!');
-        await loadData();
+    if (typeof window !== 'undefined' && window.YocoSDK) {
+      try {
+        const yoco = new window.YocoSDK({ publicKey });
+
+        yoco.showPopup({
+          amountInCents,
+          currency: 'ZAR',
+          name: 'HostMeUp',
+          description: `${type === 'deposit' ? 'Deposit' : 'Remaining Balance'} Payment for ${booking.event_name || 'Event'}`,
+          callback: async (result: any) => {
+            if (result.error) {
+              alert(`Payment failed: ${result.error.message}`);
+              setProcessingPaymentId(null);
+            } else {
+              const updatePayload = type === 'deposit' 
+                ? { deposit_paid: true, status: 'confirmed' }
+                : { balance_paid: true };
+
+              const { error } = await supabase
+                .from('bookings')
+                .update(updatePayload)
+                .eq('id', booking.id);
+
+              if (error) {
+                alert(`Error saving payment status: ${error.message}`);
+              } else {
+                alert('Payment processed successfully with Yoco!');
+                await loadData();
+              }
+              setProcessingPaymentId(null);
+            }
+          }
+        });
+        return;
+      } catch (err: any) {
+        console.error('Yoco SDK popup error:', err);
       }
-    } catch (err: any) {
-      alert(`Unexpected error: ${err?.message || err}`);
-    } finally {
-      setProcessingPaymentId(null);
     }
+
+    alert('Yoco payment SDK is still loading. Please refresh and try again.');
+    setProcessingPaymentId(null);
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b?.status === filter);
