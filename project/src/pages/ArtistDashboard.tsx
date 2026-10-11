@@ -70,39 +70,32 @@ export default function ArtistDashboard() {
   const [submittingReport, setSubmittingReport] = useState<boolean>(false);
 
   const loadDashboardData = useCallback(async (isInitialLoad = false) => {
-    if (!profile) return;
+    if (!profile?.id) {
+      setLoading(false);
+      return;
+    }
 
     if (isInitialLoad) {
       setLoading(true);
     }
 
     try {
-      // 1. Resolve artist profile ID & user ID securely
-      const { data: artistProfile } = await supabase
-        .from('artist_profiles')
-        .select('id')
-        .eq('user_id', profile.id)
-        .maybeSingle();
+      const authUserId = profile.id;
 
-      // Collect all possible identifiers for this artist user (user ID, artist profile ID, and client fallback)
-      const targetArtistIds = Array.from(
-        new Set([profile.id, artistProfile?.id].filter(Boolean))
-      );
-
-      // 2. Query bookings matching artist_id OR client_id using safe .in() filters
+      // 1. Direct query using the Supabase Auth UID (1-to-1 Architecture)
       let { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
         .select('*')
-        .in('artist_id', targetArtistIds)
+        .eq('artist_id', authUserId)
         .or('is_deleted.eq.false,is_deleted.is.null')
         .order('created_at', { ascending: false });
 
-      // Fallback check if table name is singular or if client_id needs matching too
+      // Fallback check if bookings were registered under client_id or profile id interchangeably
       if (bookingsErr || !rawBookings || rawBookings.length === 0) {
         const fallback = await supabase
           .from('bookings')
           .select('*')
-          .in('client_id', targetArtistIds)
+          .or(`artist_id.eq.${authUserId},client_id.eq.${authUserId}`)
           .or('is_deleted.eq.false,is_deleted.is.null')
           .order('created_at', { ascending: false });
 
@@ -116,12 +109,12 @@ export default function ArtistDashboard() {
         return;
       }
 
-      // 3. Collect host identifiers and fetch profiles
+      // 2. Populate Host information for cards
+      let processedBookings = rawBookings;
       const hostIds = Array.from(
         new Set(rawBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
       );
 
-      let processedBookings = rawBookings;
       if (hostIds.length > 0) {
         const { data: profileRecords } = await supabase
           .from('profiles')
@@ -163,13 +156,12 @@ export default function ArtistDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [profile]);
+  }, [profile?.id]);
 
   useEffect(() => { 
     loadDashboardData(true); 
   }, [loadDashboardData]);
 
-  // Handle Multi-selection Toggle
   const toggleSelectBooking = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setSelectedBookingIds((prev) =>
@@ -179,7 +171,6 @@ export default function ArtistDashboard() {
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
 
-  // Toggle Select All filtered bookings
   const toggleSelectAll = () => {
     const allFilteredIds = filtered.map((b) => b.id);
     const areAllSelected = allFilteredIds.every((id) => selectedBookingIds.includes(id));
@@ -191,7 +182,6 @@ export default function ArtistDashboard() {
     }
   };
 
-  // Delete Bookings (Single or Bulk)
   const handleDeleteBookings = async (idsToDelete: string[], e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     if (idsToDelete.length === 0) return;
@@ -211,7 +201,7 @@ export default function ArtistDashboard() {
         setSelectedBooking(null);
       }
 
-      let { error } = await supabase
+      const { error } = await supabase
         .from('bookings')
         .update({ is_deleted: true })
         .in('id', idsToDelete);
@@ -222,9 +212,7 @@ export default function ArtistDashboard() {
           .delete()
           .in('id', idsToDelete);
 
-        if (hardDelete.error) {
-          throw hardDelete.error;
-        }
+        if (hardDelete.error) throw hardDelete.error;
       }
     } catch (err: any) {
       console.error('Error deleting booking(s):', err);
@@ -235,7 +223,6 @@ export default function ArtistDashboard() {
     }
   };
 
-  // Dynamic status badge renderer
   const renderCustomStatusBadge = (booking: BookingWithHost) => {
     const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
     const isDepositPaid = booking.deposit_paid || booking.status === 'confirmed';
@@ -259,7 +246,6 @@ export default function ArtistDashboard() {
     return <StatusBadge status={booking.status} />;
   };
 
-  // Update Booking Status Handler
   const updateBookingStatus = async (id: string, newStatus: string, extraFields: Record<string, any> = {}) => {
     setUpdatingId(id);
     try {
@@ -285,38 +271,6 @@ export default function ArtistDashboard() {
     }
   };
 
-  // Submit Issue Report to Supabase
-  const handleSubmitIssueReport = async () => {
-    if (!reportBooking || !issueDescription.trim()) {
-      alert('Please explain the issue before submitting.');
-      return;
-    }
-
-    setSubmittingReport(true);
-    try {
-      await supabase
-        .from('booking_issues')
-        .insert({
-          booking_id: reportBooking.id,
-          reporter_id: profile?.id,
-          category: issueCategory,
-          description: issueDescription,
-          is_urgent: isUrgent,
-          status: 'open',
-          created_at: new Date().toISOString()
-        });
-
-      alert('Issue reported to HostMeUp Support. Our team will review this immediately.');
-      setReportBooking(null);
-      setIssueDescription('');
-    } catch (err) {
-      console.error('Error submitting report:', err);
-      setReportBooking(null);
-    } finally {
-      setSubmittingReport(false);
-    }
-  };
-
   const counts = {
     all: bookings.length,
     pending: bookings.filter((b) => b.status === 'pending').length,
@@ -328,7 +282,7 @@ export default function ArtistDashboard() {
 
   const totalEarnings = bookings
     .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed' || b.status === 'fully_paid')
-    .reduce((sum, b) => sum + (b.total_amount || b.total_price || 0), 0);
+    .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
   
   const depositedAmount = bookings
     .filter((b) => b.deposit_paid)
@@ -473,15 +427,18 @@ export default function ArtistDashboard() {
 
                     <div className="flex-1">
                       <div className="flex items-center justify-between gap-3 mb-4">
-                        <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name}</h3>
+                        <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name || 'Untitled Event'}</h3>
                         {renderCustomStatusBadge(booking)}
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
-                        <div className="flex items-center gap-1.5 text-ink-500"><Calendar className="w-3.5 h-3.5 text-ink-300" /><span>{new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span></div>
+                        <div className="flex items-center gap-1.5 text-ink-500">
+                          <Calendar className="w-3.5 h-3.5 text-ink-300" />
+                          <span>{booking.event_date ? new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
+                        </div>
                         {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
-                        <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration || `${booking.duration_hours || 1} hrs`}</span></div>
-                        <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location}</span></div>
+                        <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration || booking.duration_hours ? `${booking.duration_hours} hrs` : '—'}</span></div>
+                        <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location || '—'}</span></div>
                       </div>
 
                       <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
@@ -513,7 +470,7 @@ export default function ArtistDashboard() {
                             <>
                               {!booking.is_arrival_verified ? (
                                 <button
-                                  onClick={() => setActiveVerifyBooking({ id: booking.id, eventName: booking.event_name })}
+                                  onClick={() => setActiveVerifyBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
                                   className="bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
                                   <KeyRound className="w-3.5 h-3.5" /> Enter Host Pass Code
                                 </button>
@@ -527,7 +484,7 @@ export default function ArtistDashboard() {
                               )}
 
                               <button
-                                onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name })}
+                                onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
                                 className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
                                 <LogOut className="w-3.5 h-3.5" /> Check Out of Event
                               </button>
@@ -556,7 +513,14 @@ export default function ArtistDashboard() {
               <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
                 <X className="w-5 h-5" />
               </button>
-              <h2 className="font-display text-2xl font-bold text-ink mb-1">{selectedBooking.event_name}</h2>
+
+              <div className="flex items-center gap-3 mb-2">
+                {renderCustomStatusBadge(selectedBooking)}
+                <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
+              </div>
+
+              <h2 className="font-display text-2xl font-bold text-ink mb-1">{selectedBooking.event_name || 'Event Details'}</h2>
+
               <div className="pt-4 flex justify-end">
                 <button onClick={() => setSelectedBooking(null)} className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">Close</button>
               </div>
