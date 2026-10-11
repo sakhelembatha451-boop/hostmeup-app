@@ -450,7 +450,7 @@ export default function HostDashboard() {
               </div>
 
               <div className="space-y-6">
-                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid) && (
+                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid || selectedBooking.status === 'accepted') && (
                   <div className="border border-line p-5 bg-white space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400">Talent On-Site Pass</span>
