@@ -82,15 +82,27 @@ export default function ArtistDashboard() {
     try {
       const authUserId = profile.id;
 
-      // 1. Direct query using the Supabase Auth UID (1-to-1 Architecture)
+      // 1. Fetch artist profile associated with current user
+      const { data: artistProfile } = await supabase
+        .from('artist_profiles')
+        .select('id')
+        .eq('user_id', authUserId)
+        .maybeSingle();
+
+      // 2. Collect all valid IDs representing this artist (Auth UID + artist_profiles ID)
+      const targetArtistIds = Array.from(
+        new Set([authUserId, artistProfile?.id].filter(Boolean))
+      );
+
+      // 3. Query bookings matching any of the valid artist identifiers
       let { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
         .select('*')
-        .eq('artist_id', authUserId)
+        .in('artist_id', targetArtistIds)
         .or('is_deleted.eq.false,is_deleted.is.null')
         .order('created_at', { ascending: false });
 
-      // Fallback check if bookings were registered under client_id or profile id interchangeably
+      // Fallback query if needed
       if (bookingsErr || !rawBookings || rawBookings.length === 0) {
         const fallback = await supabase
           .from('bookings')
@@ -109,7 +121,7 @@ export default function ArtistDashboard() {
         return;
       }
 
-      // 2. Populate Host information for cards
+      // 4. Populate Host information for cards
       let processedBookings = rawBookings;
       const hostIds = Array.from(
         new Set(rawBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
