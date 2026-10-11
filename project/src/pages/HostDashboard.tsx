@@ -190,11 +190,7 @@ export default function HostDashboard() {
     }
   };
 
-  const handlePayment = (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setProcessingPaymentId(booking.id);
-
+  const openYocoPopup = (booking: BookingWithArtist, type: 'deposit' | 'remaining', YocoConstructor: any) => {
     const amountToPay = type === 'deposit' 
       ? (booking.deposit_amount || 0) 
       : ((booking.total_price || 0) - (booking.deposit_amount || 0));
@@ -202,32 +198,63 @@ export default function HostDashboard() {
     const amountInCents = Math.round(amountToPay * 100);
     const publicKey = import.meta.env.VITE_YOCO_PUBLIC_KEY || 'pk_test_ed3bd54dedRHA8E1a3b8';
 
-    const GlobalYoco = (window as any).YocoSDK || (window as any).Yoco;
+    try {
+      const yoco = new YocoConstructor({ publicKey });
 
-    if (GlobalYoco) {
-      try {
-        const yoco = new GlobalYoco({ publicKey });
-        yoco.showPopup({
-          amountInCents,
-          currency: 'ZAR',
-          name: 'HostMeUp',
-          description: `${type === 'deposit' ? 'Deposit' : 'Remaining Balance'} Payment for ${booking.event_name || 'Event'}`,
-          callback: async (result: any) => {
-            if (result.error) {
-              alert(`Payment failed: ${result.error.message}`);
-              setProcessingPaymentId(null);
-            } else {
-              await processSuccessfulPayment(booking, type);
-            }
+      yoco.showPopup({
+        amountInCents,
+        currency: 'ZAR',
+        name: 'HostMeUp',
+        description: `${type === 'deposit' ? 'Deposit' : 'Remaining Balance'} Payment for ${booking.event_name || 'Event'}`,
+        callback: async (result: any) => {
+          if (result.error) {
+            alert(`Payment failed: ${result.error.message}`);
+            setProcessingPaymentId(null);
+          } else {
+            console.log('Yoco Payment Token Created:', result.id);
+            await processSuccessfulPayment(booking, type);
           }
-        });
-        return;
-      } catch (err) {
-        console.error('Yoco SDK initialization error:', err);
-      }
+        }
+      });
+    } catch (err: any) {
+      console.error('Yoco popup initialization error:', err);
+      alert('Could not launch Yoco checkout modal. Please try refreshing.');
+      setProcessingPaymentId(null);
+    }
+  };
+
+  const handlePayment = (booking: BookingWithArtist, type: 'deposit' | 'remaining', e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setProcessingPaymentId(booking.id);
+
+    const YocoConstructor = (window as any).Yoco || (window as any).YocoSDK;
+
+    if (YocoConstructor) {
+      openYocoPopup(booking, type, YocoConstructor);
+      return;
     }
 
-    processSuccessfulPayment(booking, type);
+    const script = document.createElement('script');
+    script.src = 'https://js.yoco.com/sdk/v1/yoco-sdk-web.js';
+    script.async = true;
+
+    script.onload = () => {
+      const LoadedConstructor = (window as any).Yoco || (window as any).YocoSDK;
+      if (LoadedConstructor) {
+        openYocoPopup(booking, type, LoadedConstructor);
+      } else {
+        alert('Yoco SDK loaded but gateway constructor is unavailable.');
+        setProcessingPaymentId(null);
+      }
+    };
+
+    script.onerror = () => {
+      alert('Failed to load Yoco Payment Gateway script. Please check your connection.');
+      setProcessingPaymentId(null);
+    };
+
+    document.head.appendChild(script);
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b?.status === filter);
