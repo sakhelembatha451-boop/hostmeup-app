@@ -6,7 +6,7 @@ import {
   Calendar, MapPin, Clock, Loader2, Package, Check, X, 
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
   MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
-  Trash2, CheckSquare, Square
+  Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
@@ -22,6 +22,8 @@ type BookingWithHost = Booking & {
   balance_paid?: boolean;
   is_arrival_verified?: boolean;
   is_deleted?: boolean;
+  notes?: string | null;
+  special_requests?: string | null;
   host?: {
     id: string;
     full_name: string;
@@ -206,7 +208,7 @@ export default function ArtistDashboard() {
     setIsDeleting(true);
     try {
       setBookings((prev) => prev.filter((b) => !idsToDelete.includes(b.id)));
-      setSelectedBookingIds((prev) => prev.filter((id) => !id === id));
+      setSelectedBookingIds((prev) => prev.filter((id) => id !== id));
 
       if (selectedBooking && idsToDelete.includes(selectedBooking.id)) {
         setSelectedBooking(null);
@@ -517,24 +519,114 @@ export default function ArtistDashboard() {
           </div>
         )}
 
-        {/* Modal: Details */}
+        {/* Modal: Full Event Details */}
         {selectedBooking && (
           <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
-            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-6" onClick={(e) => e.stopPropagation()}>
+              
               <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
                 <X className="w-5 h-5" />
               </button>
 
-              <div className="flex items-center gap-3 mb-2">
-                {renderCustomStatusBadge(selectedBooking)}
-                <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
+              <div>
+                <div className="flex items-center gap-3 mb-2">
+                  {renderCustomStatusBadge(selectedBooking)}
+                  <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
+                </div>
+                <h2 className="font-display text-2xl font-bold text-ink">{selectedBooking.event_name || 'Untitled Event'}</h2>
               </div>
 
-              <h2 className="font-display text-2xl font-bold text-ink mb-1">{selectedBooking.event_name || 'Event Details'}</h2>
-
-              <div className="pt-4 flex justify-end">
-                <button onClick={() => setSelectedBooking(null)} className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">Close</button>
+              {/* Host Info */}
+              <div className="p-4 border border-line bg-paper-100 flex items-center gap-4">
+                {selectedBooking.host?.avatar_url ? (
+                  <img src={selectedBooking.host.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-line" />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display font-bold">
+                    {selectedBooking.host?.full_name?.[0]?.toUpperCase() || '?'}
+                  </div>
+                )}
+                <div>
+                  <div className="font-display font-semibold text-ink text-sm flex items-center gap-2">
+                    {selectedBooking.host?.full_name || 'Host'}
+                    <HostStatusBadge isVerified={true} verificationStatus="approved" />
+                  </div>
+                  {selectedBooking.host?.email && (
+                    <div className="text-xs text-ink-400 flex items-center gap-1.5 mt-0.5">
+                      <Mail className="w-3 h-3 text-ink-300" /> {selectedBooking.host.email}
+                    </div>
+                  )}
+                </div>
               </div>
+
+              {/* Event Schedule & Location */}
+              <div className="grid grid-cols-2 gap-4 border-y border-line py-4 text-xs">
+                <div>
+                  <span className="text-ink-400 uppercase tracking-wide-sm block mb-1">Date & Time</span>
+                  <div className="font-semibold text-ink flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-ink-400" />
+                    {selectedBooking.event_date ? new Date(selectedBooking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
+                  </div>
+                  {selectedBooking.start_time && (
+                    <div className="text-ink-500 flex items-center gap-1.5 mt-1">
+                      <Clock className="w-3.5 h-3.5 text-ink-400" /> {selectedBooking.start_time} ({selectedBooking.duration_hours || 1} hrs)
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <span className="text-ink-400 uppercase tracking-wide-sm block mb-1">Location</span>
+                  <div className="font-semibold text-ink flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5 text-ink-400" />
+                    {selectedBooking.location || 'Location Not Specified'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Pricing Breakdown */}
+              <div className="space-y-2 text-xs">
+                <span className="text-ink-400 uppercase tracking-wide-sm block">Payment Details</span>
+                <div className="flex justify-between py-1 border-b border-line">
+                  <span className="text-ink-500">Total Agreed Price:</span>
+                  <span className="font-bold text-ink">{formatCurrency(selectedBooking.total_price || selectedBooking.total_amount)}</span>
+                </div>
+                {selectedBooking.deposit_amount && (
+                  <div className="flex justify-between py-1 border-b border-line">
+                    <span className="text-ink-500">Required Deposit:</span>
+                    <span className="font-bold text-accent">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Notes / Special Requests */}
+              {(selectedBooking.notes || selectedBooking.special_requests) && (
+                <div className="space-y-1 text-xs">
+                  <span className="text-ink-400 uppercase tracking-wide-sm block">Host Notes & Instructions</span>
+                  <p className="p-3 bg-paper-100 border border-line text-ink-600 rounded-xs leading-relaxed">
+                    {selectedBooking.notes || selectedBooking.special_requests}
+                  </p>
+                </div>
+              )}
+
+              {/* Modal Actions */}
+              <div className="pt-4 flex items-center justify-between border-t border-line">
+                <button
+                  onClick={() => {
+                    setSelectedBooking(null);
+                    navigate('/inbox');
+                  }}
+                  className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
+                >
+                  <MessageSquare className="w-3.5 h-3.5" /> Message Host
+                </button>
+
+                <button 
+                  onClick={() => setSelectedBooking(null)} 
+                  className="btn-primary px-6 py-2 text-xs uppercase tracking-wide-sm"
+                >
+                  Close
+                </button>
+              </div>
+
             </div>
           </div>
         )}
