@@ -172,21 +172,19 @@ export default function HostDashboard() {
     loadData();
   };
 
+  // Updated Payment Redirect to include success.html callback with booking ID
   const handlePaymentRedirect = (booking: BookingWithArtist, type: 'deposit' | 'remaining') => {
     const amountToPay = type === 'deposit' 
       ? (booking.deposit_amount || 0) 
       : ((booking.total_price || 0) - (booking.deposit_amount || 0));
 
-    const formattedAmount = formatCurrency(amountToPay);
+    // Construct the success URL pointing to your success page with this booking's ID
+    const successUrl = `${window.location.origin}/success.html?booking_id=${booking.id}`;
 
-    alert(
-      `Yoco Payment Instructions:\n\n` +
-      `1. Amount to pay: ${formattedAmount}\n` +
-      `2. Reference: Booking #${booking.id.slice(0, 8)}\n\n` +
-      `After paying on Yoco, copy your payment reference number and submit it below to verify your payment.`
-    );
-
-    window.open(YOCO_PAYMENT_PAGE_URL, '_blank', 'noopener,noreferrer');
+    // Open Yoco payment page with success redirect parameter
+    const yocoCheckoutUrl = `${YOCO_PAYMENT_PAGE_URL}?amount=${amountToPay * 100}&success_url=${encodeURIComponent(successUrl)}`;
+    
+    window.open(yocoCheckoutUrl, '_blank', 'noopener,noreferrer');
   };
 
   const submitPaymentReference = async (booking: BookingWithArtist) => {
@@ -426,40 +424,6 @@ export default function HostDashboard() {
                                   <ExternalLink className="w-3.5 h-3.5" />
                                   <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
                                 </button>
-
-                                {submittingRefId === booking.id ? (
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="text"
-                                      placeholder="Enter Yoco Ref / Tx ID"
-                                      value={refInput}
-                                      onChange={(e) => setRefInput(e.target.value)}
-                                      className="px-2 py-1 text-xs border border-line rounded bg-paper text-ink"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => submitPaymentReference(booking)}
-                                      className="px-2.5 py-1 bg-emerald-700 text-white text-xs font-medium rounded hover:bg-emerald-800 flex items-center gap-1"
-                                    >
-                                      <Send className="w-3 h-3" /> Submit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setSubmittingRefId(null)}
-                                      className="text-xs text-ink-400 hover:text-ink underline"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setSubmittingRefId(booking.id)}
-                                    className="px-2.5 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-medium rounded transition-colors"
-                                  >
-                                    I Paid — Submit Ref
-                                  </button>
-                                )}
                               </div>
                             )}
 
@@ -474,40 +438,6 @@ export default function HostDashboard() {
                                   <ExternalLink className="w-3.5 h-3.5" />
                                   <span>Pay Remaining ({formatCurrency(remainingBalance > 0 ? remainingBalance : booking.total_price)})</span>
                                 </button>
-
-                                {submittingRefId === booking.id ? (
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="text"
-                                      placeholder="Enter Yoco Ref / Tx ID"
-                                      value={refInput}
-                                      onChange={(e) => setRefInput(e.target.value)}
-                                      className="px-2 py-1 text-xs border border-line rounded bg-paper text-ink"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={() => submitPaymentReference(booking)}
-                                      className="px-2.5 py-1 bg-emerald-700 text-white text-xs font-medium rounded hover:bg-emerald-800 flex items-center gap-1"
-                                    >
-                                      <Send className="w-3 h-3" /> Submit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setSubmittingRefId(null)}
-                                      className="text-xs text-ink-400 hover:text-ink underline"
-                                    >
-                                      Cancel
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => setSubmittingRefId(booking.id)}
-                                    className="px-2.5 py-1.5 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200 text-xs font-medium rounded transition-colors"
-                                  >
-                                    I Paid — Submit Ref
-                                  </button>
-                                )}
                               </div>
                             )}
 
