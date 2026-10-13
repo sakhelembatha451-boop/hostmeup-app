@@ -25,7 +25,8 @@
         const SUPABASE_URL = 'https://eebgysablcbjeojywnyk.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_Jb7ZXGW0uPCsmuIwXna1xA_yAf9zF7c';
         
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        // Renamed from 'supabase' to 'supabaseClient' to fix the duplicate identifier crash
+        const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         async function confirmPayment() {
             const urlParams = new URLSearchParams(window.location.search);
@@ -42,7 +43,7 @@
 
             try {
                 // Call the SECURITY DEFINER RPC function to safely bypass RLS
-                const { error } = await supabase.rpc('confirm_booking_payment', {
+                const { error } = await supabaseClient.rpc('confirm_booking_payment', {
                     target_booking_id: bookingId
                 });
 
