@@ -11,7 +11,7 @@
         p { color: #666; margin-bottom: 20px; }
         .loader { font-size: 14px; color: #888; }
     </style>
-    <!-- Supabase CDN -->
+    <!-- Supabase JS CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
@@ -23,7 +23,8 @@
 
     <script>
         const SUPABASE_URL = 'https://eebgysablcbjeojywnyk.supabase.co';
-        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // Ensure your real public key is here
+        const SUPABASE_ANON_KEY = 'sb_publishable_Jb7ZXGW0uPCsmuIwXna1xA_yAf9zF7c';
+        
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         async function confirmPayment() {
@@ -40,7 +41,7 @@
             }
 
             try {
-                // Call SQL RPC function to bypass RLS securely
+                // Call the SECURITY DEFINER RPC function to safely bypass RLS
                 const { error } = await supabase.rpc('confirm_booking_payment', {
                     target_booking_id: bookingId
                 });
@@ -48,11 +49,11 @@
                 if (error) throw error;
 
                 messageEl.textContent = "Your booking has been successfully confirmed and payment recorded!";
-                loaderEl.textContent = "Redirecting back to dashboard...";
+                loaderEl.textContent = "Redirecting back to dashboard in 3 seconds...";
 
                 setTimeout(() => {
                     window.location.href = '/host-dashboard';
-                }, 2500);
+                }, 3000);
             } catch (err) {
                 console.error('Update error:', err);
                 messageEl.textContent = "Payment successful, but we encountered an issue updating your booking. Please contact support.";
