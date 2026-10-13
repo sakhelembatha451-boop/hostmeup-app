@@ -23,7 +23,7 @@
 
     <script>
         const SUPABASE_URL = 'https://eebgysablcbjeojywnyk.supabase.co';
-        const SUPABASE_ANON_KEY = 'YOUR_ACTUAL_SUPABASE_ANON_KEY';
+        const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // Ensure your real public key is here
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         async function confirmPayment() {
@@ -40,18 +40,22 @@
             }
 
             try {
-                const { error } = await supabase
-                    .from('bookings')
-                    .update({ deposit_paid: true, status: 'confirmed' })
-                    .eq('id', bookingId);
+                // Call SQL RPC function to bypass RLS securely
+                const { error } = await supabase.rpc('confirm_booking_payment', {
+                    target_booking_id: bookingId
+                });
 
                 if (error) throw error;
 
                 messageEl.textContent = "Your booking has been successfully confirmed and payment recorded!";
-                loaderEl.textContent = "Thank you for using HostMeUp!";
+                loaderEl.textContent = "Redirecting back to dashboard...";
+
+                setTimeout(() => {
+                    window.location.href = '/host-dashboard';
+                }, 2500);
             } catch (err) {
                 console.error('Update error:', err);
-                messageEl.textContent = "Payment successful, but we encountered an issue updating your booking.";
+                messageEl.textContent = "Payment successful, but we encountered an issue updating your booking. Please contact support.";
                 loaderEl.style.display = 'none';
             }
         }
