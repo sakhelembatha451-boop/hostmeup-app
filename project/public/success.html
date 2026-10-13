@@ -6,49 +6,54 @@
     <title>Payment Successful - HostMeUp</title>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f9f9f9; color: #333; }
-        .card { background: #fff; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: inline-block; max-width: 400px; width: 100%; }
+        .card { background: #fff; padding: 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); display: inline-block; max-width: 450px; width: 100%; }
         h1 { color: #28a745; margin-bottom: 10px; }
         p { color: #666; margin-bottom: 20px; }
         .loader { font-size: 14px; color: #888; }
+        .error-box { background: #ffe6e6; color: #cc0000; padding: 10px; border-radius: 4px; font-size: 13px; margin-top: 15px; text-align: left; word-break: break-all; display: none; }
     </style>
-    <!-- Supabase JS CDN -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
     <div class="card">
-        <h1>Payment Successful! 🎉</h1>
-        <p id="status-message">Confirming your booking and updating your status...</p>
+        <h1 id="title">Processing Payment...</h1>
+        <p id="status-message">Connecting to database...</p>
         <div class="loader" id="loader">Please wait a moment...</div>
+        <div id="error-box" class="error-box"></div>
     </div>
 
     <script>
         const SUPABASE_URL = 'https://eebgysablcbjeojywnyk.supabase.co';
         const SUPABASE_ANON_KEY = 'sb_publishable_Jb7ZXGW0uPCsmuIwXna1xA_yAf9zF7c';
-        
-        // Renamed from 'supabase' to 'supabaseClient' to fix the duplicate identifier crash
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         async function confirmPayment() {
             const urlParams = new URLSearchParams(window.location.search);
             const bookingId = urlParams.get('booking_id');
 
+            const titleEl = document.getElementById('title');
             const messageEl = document.getElementById('status-message');
             const loaderEl = document.getElementById('loader');
+            const errorBox = document.getElementById('error-box');
 
             if (!bookingId) {
-                messageEl.textContent = "Payment received, but no booking reference was found.";
+                titleEl.textContent = "Missing Booking ID";
+                messageEl.textContent = "No booking reference was provided in the URL.";
                 loaderEl.style.display = 'none';
                 return;
             }
 
             try {
-                // Call the SECURITY DEFINER RPC function to safely bypass RLS
-                const { error } = await supabaseClient.rpc('confirm_booking_payment', {
+                console.log("Calling RPC for booking ID:", bookingId);
+                const { data, error } = await supabaseClient.rpc('confirm_booking_payment', {
                     target_booking_id: bookingId
                 });
 
-                if (error) throw error;
+                if (error) {
+                    throw error;
+                }
 
+                titleEl.textContent = "Payment Successful! 🎉";
                 messageEl.textContent = "Your booking has been successfully confirmed and payment recorded!";
                 loaderEl.textContent = "Redirecting back to dashboard in 3 seconds...";
 
@@ -56,9 +61,12 @@
                     window.location.href = '/host-dashboard';
                 }, 3000);
             } catch (err) {
-                console.error('Update error:', err);
-                messageEl.textContent = "Payment successful, but we encountered an issue updating your booking. Please contact support.";
+                console.error('Supabase update error:', err);
+                titleEl.textContent = "Update Notice";
+                messageEl.textContent = "Payment registered, but database update encountered an error:";
                 loaderEl.style.display = 'none';
+                errorBox.style.display = 'block';
+                errorBox.textContent = JSON.stringify(err, null, 2);
             }
         }
 
