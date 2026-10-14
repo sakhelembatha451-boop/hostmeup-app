@@ -30,20 +30,24 @@ const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
 function BookingSuccessPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const bookingId = searchParams.get('booking_id');
+  const rawBookingId = searchParams.get('booking_id');
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     async function confirmPayment() {
-      if (!bookingId) {
+      if (!rawBookingId) {
         setStatus('error');
         setErrorMessage('No booking reference found in URL.');
         return;
       }
 
+      // Clean and extract valid UUID from raw parameter (handles accidental markdown/URL suffix pollution)
+      const uuidMatch = rawBookingId.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
+      const bookingId = uuidMatch ? uuidMatch[0] : rawBookingId;
+
       try {
-        // Call the secure backend RPC function (bypasses RLS safely)
+        // Call the secure backend RPC function
         const { error } = await supabaseClient.rpc('confirm_booking_payment', {
           target_booking_id: bookingId
         });
@@ -62,7 +66,7 @@ function BookingSuccessPage() {
     }
 
     confirmPayment();
-  }, [bookingId, navigate]);
+  }, [rawBookingId, navigate]);
 
   return (
     <div className="min-h-[70vh] flex items-center justify-center px-4">
