@@ -172,14 +172,14 @@ export default function HostDashboard() {
     loadData();
   };
 
-  // Updated Payment Redirect: * 100 removed so Yoco receives correct Rand amount
+  // Updated Payment Redirect: Points directly to the React /success route with booking.id
   const handlePaymentRedirect = (booking: BookingWithArtist, type: 'deposit' | 'remaining') => {
     const amountToPay = type === 'deposit' 
       ? (booking.deposit_amount || 0) 
       : ((booking.total_price || 0) - (booking.deposit_amount || 0));
 
-    // Construct the success URL pointing to your success page with this booking's ID
-    const successUrl = `${window.location.origin}/success.html?booking_id=${booking.id}`;
+    // Construct the success URL pointing to the React /success route
+    const successUrl = `${window.location.origin}/success?booking_id=${booking.id}`;
 
     // Open Yoco payment page with correct amount and success redirect parameter
     const yocoCheckoutUrl = `${YOCO_PAYMENT_PAGE_URL}?amount=${amountToPay}&success_url=${encodeURIComponent(successUrl)}`;
