@@ -1,4 +1,7 @@
-import { BrowserRouter, Routes, Route, useLocation, Navigate, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation, Navigate, Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { createClient } from '@supabase/supabase-js';
+import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import Navbar from '@/components/Navbar';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -19,7 +22,87 @@ import AdminSettingsPage from '@/pages/AdminSettingsPage';
 import AdminVerification from '@/pages/AdminVerification';
 import AdminSafetyPage from '@/pages/AdminSafetyPage';
 import Legal from '@/components/Legal';
-import { Loader2 } from 'lucide-react';
+
+const supabaseUrl = 'https://eebgysablcbjeojywnyk.supabase.co';
+const supabaseAnonKey = 'sb_publishable_Jb7ZXGW0uPCsmuIwXna1xA_yAf9zF7c';
+const supabaseClient = createClient(supabaseUrl, supabaseAnonKey);
+
+function BookingSuccessPage() {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const bookingId = searchParams.get('booking_id');
+  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
+  const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    async function confirmPayment() {
+      if (!bookingId) {
+        setStatus('error');
+        setErrorMessage('No booking reference found in URL.');
+        return;
+      }
+
+      try {
+        const { error } = await supabaseClient.rpc('confirm_booking_payment', {
+          target_booking_id: bookingId
+        });
+
+        if (error) throw error;
+
+        setStatus('success');
+        setTimeout(() => {
+          navigate('/host-dashboard');
+        }, 3000);
+      } catch (err: any) {
+        console.error('Payment confirmation error:', err);
+        setStatus('error');
+        setErrorMessage(err.message || 'Failed to update booking status.');
+      }
+    }
+
+    confirmPayment();
+  }, [bookingId, navigate]);
+
+  return (
+    <div className="min-h-[70vh] flex items-center justify-center px-4">
+      <div className="max-w-md w-full bg-white p-8 rounded-xl shadow-sm border border-line text-center">
+        {status === 'loading' && (
+          <>
+            <Loader2 className="w-12 h-12 text-emerald-600 animate-spin mx-auto mb-4" />
+            <h1 className="text-xl font-bold text-ink mb-2">Confirming Payment...</h1>
+            <p className="text-ink-400 text-sm">Please wait while we record your deposit and update your booking.</p>
+          </>
+        )}
+
+        {status === 'success' && (
+          <>
+            <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto mb-4" />
+            <h1 className="text-xl font-bold text-ink mb-2">Payment Successful! 🎉</h1>
+            <p className="text-ink-400 text-sm mb-4">Your deposit has been recorded and the booking is confirmed.</p>
+            <p className="text-xs text-ink-300">Redirecting to your dashboard in 3 seconds...</p>
+          </>
+        )}
+
+        {status === 'error' && (
+          <>
+            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
+            <h1 className="text-xl font-bold text-ink mb-2">Update Notice</h1>
+            <p className="text-ink-400 text-sm mb-4">Payment was processed, but we encountered an issue updating the database:</p>
+            <div className="bg-red-50 text-red-700 p-3 rounded text-xs text-left mb-6 break-words">
+              {errorMessage}
+            </div>
+            <button
+              onClick={() => navigate('/host-dashboard')}
+              className="btn-primary w-full py-2.5 text-xs uppercase tracking-wide-sm"
+            >
+              Return to Dashboard
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function DashboardRedirect() {
   const { profile, loading } = useAuth();
@@ -83,6 +166,7 @@ function AppRoutes() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
+        <Route path="/success" element={<BookingSuccessPage />} />
         <Route
           path="/book/:id"
           element={
@@ -115,7 +199,6 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
-        {/* Redirect old host profile path to settings */}
         <Route
           path="/host-profile/edit"
           element={<Navigate to="/host-settings" replace />}
@@ -144,7 +227,6 @@ function AppRoutes() {
             </ProtectedRoute>
           }
         />
-        {/* Dynamic route for direct user messaging */}
         <Route
           path="/inbox/:recipientId"
           element={
