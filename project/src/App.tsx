@@ -43,11 +43,10 @@ function BookingSuccessPage() {
       }
 
       try {
-        // Directly update the bookings table for this ID
-        const { error } = await supabaseClient
-          .from('bookings')
-          .update({ deposit_paid: true })
-          .eq('id', bookingId);
+        // Call the secure backend RPC function (bypasses RLS safely)
+        const { error } = await supabaseClient.rpc('confirm_booking_payment', {
+          target_booking_id: bookingId
+        });
 
         if (error) throw error;
 
