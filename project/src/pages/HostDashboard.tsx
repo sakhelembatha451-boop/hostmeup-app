@@ -194,16 +194,19 @@ export default function HostDashboard() {
         ? `${booking.notes}\n[Yoco Ref: ${refInput.trim()}]`
         : `[Yoco Ref: ${refInput.trim()}]`;
 
+      // Automatically updates notes, marks deposit as paid, and confirms the booking
       const { error } = await supabase
         .from('bookings')
         .update({ 
-          notes: updatedNotes
+          notes: updatedNotes,
+          deposit_paid: true,
+          status: 'confirmed'
         })
         .eq('id', booking.id);
 
       if (error) throw error;
 
-      alert('Payment reference submitted successfully!');
+      alert('Payment verified and booking confirmed successfully!');
       setSubmittingRefId(null);
       setRefInput('');
       await loadData();
