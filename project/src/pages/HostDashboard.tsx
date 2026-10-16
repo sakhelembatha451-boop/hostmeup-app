@@ -172,16 +172,12 @@ export default function HostDashboard() {
     loadData();
   };
 
-  // Updated Payment Redirect: Points directly to the React /success route with booking.id
   const handlePaymentRedirect = (booking: BookingWithArtist, type: 'deposit' | 'remaining') => {
     const amountToPay = type === 'deposit' 
       ? (booking.deposit_amount || 0) 
       : ((booking.total_price || 0) - (booking.deposit_amount || 0));
 
-    // Construct the success URL pointing to the React /success route
     const successUrl = `${window.location.origin}/success?booking_id=${booking.id}`;
-
-    // Open Yoco payment page with correct amount and success redirect parameter
     const yocoCheckoutUrl = `${YOCO_PAYMENT_PAGE_URL}?amount=${amountToPay}&success_url=${encodeURIComponent(successUrl)}`;
     
     window.open(yocoCheckoutUrl, '_blank', 'noopener,noreferrer');
@@ -415,15 +411,54 @@ export default function HostDashboard() {
                           <div className="flex flex-col gap-3">
                             {/* Option 1: Deposit Not Paid */}
                             {!isDepositPaid && (
-                              <div className="flex flex-wrap items-center gap-3">
-                                <button
-                                  type="button"
-                                  onClick={(e) => handlePaymentRedirect(booking, 'deposit')}
-                                  className="px-3 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/80 flex items-center gap-1.5 transition-colors"
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5" />
-                                  <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
-                                </button>
+                              <div className="flex flex-col gap-2.5">
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => handlePaymentRedirect(booking, 'deposit')}
+                                    className="px-3 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/80 flex items-center gap-1.5 transition-colors"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
+                                  </button>
+                                </div>
+
+                                {/* Secure Reference Input Block */}
+                                {submittingRefId === booking.id ? (
+                                  <div className="bg-paper p-3 border border-line space-y-2 rounded max-w-md">
+                                    <p className="text-xs text-ink-500">
+                                      Enter your official <strong>Yoco Transaction Reference</strong> from your payment receipt email/SMS:
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        placeholder="e.g. YCO-83921"
+                                        value={refInput}
+                                        onChange={(e) => setRefInput(e.target.value)}
+                                        className="px-3 py-1.5 text-xs border border-line rounded flex-1 bg-white text-ink"
+                                      />
+                                      <button
+                                        onClick={() => submitPaymentReference(booking)}
+                                        className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-emerald-800 whitespace-nowrap"
+                                      >
+                                        Verify & Submit
+                                      </button>
+                                      <button
+                                        onClick={() => setSubmittingRefId(null)}
+                                        className="px-2 py-1.5 text-xs text-ink-400 hover:text-ink"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setSubmittingRefId(booking.id)}
+                                    className="text-xs text-ink-500 underline hover:text-ink w-fit"
+                                  >
+                                    Already paid on Yoco? Enter receipt reference to verify
+                                  </button>
+                                )}
                               </div>
                             )}
 
