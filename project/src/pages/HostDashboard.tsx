@@ -16,7 +16,7 @@ import {
   KeyRound,
   CheckCircle2,
   ExternalLink,
-  Send
+  Clock3
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
@@ -190,7 +190,6 @@ export default function HostDashboard() {
     }
 
     try {
-      // Call the secure Supabase Edge Function to verify payment with Yoco servers
       const { data, error } = await supabase.functions.invoke('verify-yoco-payment', {
         body: {
           booking_id: booking.id,
@@ -204,7 +203,7 @@ export default function HostDashboard() {
       }
 
       if (data && data.success === true) {
-        alert('Payment verified with Yoco and booking confirmed successfully!');
+        alert(data.message || 'Reference submitted successfully!');
         setSubmittingRefId(null);
         setRefInput('');
         await loadData();
@@ -217,9 +216,11 @@ export default function HostDashboard() {
   };
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b?.status === filter);
+  
   const counts = {
     all: bookings.length,
     pending: bookings.filter((b) => b?.status === 'pending').length,
+    pending_verification: bookings.filter((b) => b?.status === 'pending_verification').length,
     confirmed: bookings.filter((b) => b?.status === 'confirmed' || b?.deposit_paid).length,
     accepted: bookings.filter((b) => b?.status === 'accepted').length,
     declined: bookings.filter((b) => b?.status === 'declined').length,
@@ -273,8 +274,8 @@ export default function HostDashboard() {
           {[
             { label: 'Total', value: counts.all },
             { label: 'Pending', value: counts.pending },
-            { label: 'Deposit Paid', value: counts.confirmed },
-            { label: 'Declined', value: counts.declined },
+            { label: 'In Review', value: counts.pending_verification },
+            { label: 'Confirmed', value: counts.confirmed },
           ].map((stat) => (
             <div key={stat.label}>
               <div className="font-display text-4xl font-bold text-ink mb-1">{stat.value}</div>
@@ -285,10 +286,10 @@ export default function HostDashboard() {
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 pb-4 border-b border-line">
           <div className="flex flex-wrap gap-2">
-            {['all', 'pending', 'confirmed', 'accepted', 'declined'].map((f) => (
+            {['all', 'pending', 'pending_verification', 'confirmed', 'accepted', 'declined'].map((f) => (
               <button key={f} onClick={() => setFilter(f)}
                 className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
-                {f} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
+                {f.replace('_', ' ')} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
               </button>
             ))}
           </div>
@@ -333,6 +334,7 @@ export default function HostDashboard() {
               if (!booking) return null;
               const isSelected = selectedBookingIds.includes(booking.id);
               const isDepositPaid = booking.deposit_paid || booking.status?.toLowerCase() === 'confirmed';
+              const isPendingVerification = booking.status?.toLowerCase() === 'pending_verification';
               const isBalancePaid = booking.balance_paid;
               const remainingBalance = (booking.total_price || 0) - (booking.deposit_amount || 0);
 
@@ -413,8 +415,16 @@ export default function HostDashboard() {
                           </button>
                         ) : (
                           <div className="flex flex-col gap-3">
-                            {/* Option 1: Deposit Not Paid */}
-                            {!isDepositPaid && (
+                            {/* Option A: Pending Verification State */}
+                            {isPendingVerification && (
+                              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide-sm text-amber-800 bg-amber-50 px-3 py-2 rounded border border-amber-200 w-fit">
+                                <Clock3 className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                                <span>Payment Reference Submitted — Awaiting Talent Confirmation</span>
+                              </div>
+                            )}
+
+                            {/* Option B: Deposit Not Paid & Not Pending */}
+                            {!isDepositPaid && !isPendingVerification && (
                               <div className="flex flex-col gap-2.5">
                                 <div className="flex flex-wrap items-center gap-3">
                                   <button
@@ -427,7 +437,6 @@ export default function HostDashboard() {
                                   </button>
                                 </div>
 
-                                {/* Secure Reference Input Block */}
                                 {submittingRefId === booking.id ? (
                                   <div className="bg-paper p-3 border border-line space-y-2 rounded max-w-md">
                                     <p className="text-xs text-ink-500">
@@ -466,7 +475,7 @@ export default function HostDashboard() {
                               </div>
                             )}
 
-                            {/* Option 2: Deposit Paid, Balance Outstanding */}
+                            {/* Option C: Deposit Paid, Balance Outstanding */}
                             {isDepositPaid && !isBalancePaid && (
                               <div className="flex flex-wrap items-center gap-3">
                                 <button
@@ -480,7 +489,7 @@ export default function HostDashboard() {
                               </div>
                             )}
 
-                            {/* Option 3: Fully Paid */}
+                            {/* Option D: Fully Paid */}
                             {isDepositPaid && isBalancePaid && (
                               <span className="text-xs font-semibold uppercase tracking-wide-sm text-emerald-700 bg-emerald-50 px-3 py-1 rounded border border-emerald-200 flex items-center gap-1 w-fit">
                                 <CheckCircle2 className="w-3.5 h-3.5" /> Fully Paid
