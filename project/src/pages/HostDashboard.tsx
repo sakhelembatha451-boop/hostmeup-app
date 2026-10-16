@@ -190,28 +190,28 @@ export default function HostDashboard() {
     }
 
     try {
-      const updatedNotes = booking.notes 
-        ? `${booking.notes}\n[Yoco Ref: ${refInput.trim()}]`
-        : `[Yoco Ref: ${refInput.trim()}]`;
+      // Call the secure Supabase Edge Function to verify payment with Yoco servers
+      const { data, error } = await supabase.functions.invoke('verify-yoco-payment', {
+        body: {
+          booking_id: booking.id,
+          yoco_reference: refInput.trim(),
+        },
+      });
 
-      // Automatically updates notes, marks deposit as paid, and confirms the booking
-      const { error } = await supabase
-        .from('bookings')
-        .update({ 
-          notes: updatedNotes,
-          deposit_paid: true,
-          status: 'confirmed'
-        })
-        .eq('id', booking.id);
+      if (error) {
+        throw new Error(error.message || 'Failed to communicate with verification server.');
+      }
 
-      if (error) throw error;
-
-      alert('Payment verified and booking confirmed successfully!');
-      setSubmittingRefId(null);
-      setRefInput('');
-      await loadData();
+      if (data && data.success) {
+        alert('Payment verified with Yoco and booking confirmed successfully!');
+        setSubmittingRefId(null);
+        setRefInput('');
+        await loadData();
+      } else {
+        alert(`Verification Failed: ${data?.error || 'Invalid Yoco payment reference.'}`);
+      }
     } catch (err: any) {
-      alert(`Error submitting reference: ${err?.message || 'Database error'}`);
+      alert(`Verification Error: ${err?.message || 'Could not verify payment'}`);
     }
   };
 
