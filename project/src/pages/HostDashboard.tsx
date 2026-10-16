@@ -119,24 +119,6 @@ export default function HostDashboard() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Auto-generate PIN helper if confirmed/deposit_paid booking has no PIN
-  useEffect(() => {
-    if (selectedBooking && (selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid) && !selectedBooking.verification_pin) {
-      const newPin = Math.floor(1000 + Math.random() * 9000).toString();
-      
-      supabase
-        .from('bookings')
-        .update({ verification_pin: newPin })
-        .eq('id', selectedBooking.id)
-        .then(({ error }) => {
-          if (!error) {
-            setSelectedBooking((prev) => prev ? { ...prev, verification_pin: newPin } : null);
-            loadData();
-          }
-        });
-    }
-  }, [selectedBooking, loadData]);
-
   const handleDeleteBookings = async (idsToDelete: string[]) => {
     if (idsToDelete.length === 0) return;
 
