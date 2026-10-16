@@ -24,6 +24,7 @@ type BookingWithHost = Booking & {
   is_deleted?: boolean;
   notes?: string | null;
   special_requests?: string | null;
+  verification_pin?: string | null;
   host?: {
     id: string;
     full_name: string;
@@ -284,24 +285,30 @@ export default function ArtistDashboard() {
     }
   };
 
-  // Quick handler for artist to confirm payment after checking Resend/Yoco
+  // Quick handler for artist to confirm payment after checking Resend/Yoco & auto-generate PIN
   const artistConfirmBooking = async (bookingId: string) => {
-    if (!window.confirm("Are you sure you want to confirm this payment? This will mark the deposit as paid and unlock the host's event pass.")) return;
+    if (!window.confirm("Are you sure you want to confirm this payment? This will mark the deposit as paid and generate the 4-digit event pass PIN for the host.")) return;
 
     setUpdatingId(bookingId);
     try {
+      const targetBooking = bookings.find((b) => b.id === bookingId);
+      
+      // Auto-generate a 4-digit PIN if not already present
+      const generatedPin = targetBooking?.verification_pin || Math.floor(1000 + Math.random() * 9000).toString();
+
       const { error } = await supabase
         .from('bookings')
         .update({
           status: 'confirmed',
           deposit_paid: true,
+          verification_pin: generatedPin,
           notes: `[Verified & Confirmed by Talent]`
         })
         .eq('id', bookingId);
 
       if (error) throw error;
 
-      alert('Payment confirmed and booking activated successfully!');
+      alert(`Payment confirmed and booking activated successfully! Event Pass PIN (${generatedPin}) unlocked for host.`);
       await loadDashboardData(false);
     } catch (err: any) {
       console.error('Error confirming payment:', err);
