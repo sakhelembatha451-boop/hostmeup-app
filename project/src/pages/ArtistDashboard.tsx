@@ -6,7 +6,7 @@ import {
   Calendar, MapPin, Clock, Loader2, Package, Check, X, 
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
   MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
-  Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText
+  Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText, Clock3
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
@@ -65,12 +65,6 @@ export default function ArtistDashboard() {
   const [activeVerifyBooking, setActiveVerifyBooking] = useState<{ id: string; eventName: string } | null>(null);
   const [activeCheckoutBooking, setActiveCheckoutBooking] = useState<{ id: string; eventName: string } | null>(null);
 
-  // Issue Reporting Form State
-  const [issueCategory, setIssueCategory] = useState<string>('safety');
-  const [issueDescription, setIssueDescription] = useState<string>('');
-  const [isUrgent, setIsUrgent] = useState<boolean>(false);
-  const [submittingReport, setSubmittingReport] = useState<boolean>(false);
-
   const loadDashboardData = useCallback(async (isInitialLoad = false) => {
     if (!profile?.id) {
       setLoading(false);
@@ -84,19 +78,16 @@ export default function ArtistDashboard() {
     try {
       const authUserId = profile.id;
 
-      // 1. Fetch artist profile associated with current user
       const { data: artistProfile } = await supabase
         .from('artist_profiles')
         .select('id')
         .eq('user_id', authUserId)
         .maybeSingle();
 
-      // 2. Collect all valid IDs (Auth UID + artist_profile ID)
       const targetArtistIds = Array.from(
         new Set([authUserId, artistProfile?.id].filter(Boolean))
       );
 
-      // 3. Query bookings matching any valid artist identifier or client ID
       const { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
         .select('*')
@@ -114,7 +105,6 @@ export default function ArtistDashboard() {
         return;
       }
 
-      // Filter out deleted items in memory safely
       const activeBookings = rawBookings.filter((b) => !b.is_deleted);
 
       if (activeBookings.length === 0) {
@@ -122,7 +112,6 @@ export default function ArtistDashboard() {
         return;
       }
 
-      // 4. Populate Host information for cards
       let processedBookings = activeBookings;
       const hostIds = Array.from(
         new Set(activeBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
@@ -239,6 +228,7 @@ export default function ArtistDashboard() {
   const renderCustomStatusBadge = (booking: BookingWithHost) => {
     const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
     const isDepositPaid = booking.deposit_paid || booking.status === 'confirmed';
+    const isPendingVerification = booking.status === 'pending_verification';
 
     if (isFullyPaid) {
       return (
@@ -252,6 +242,14 @@ export default function ArtistDashboard() {
       return (
         <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200 rounded-sm inline-flex items-center gap-1">
           <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" /> Deposit Paid
+        </span>
+      );
+    }
+
+    if (isPendingVerification) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200 rounded-sm inline-flex items-center gap-1">
+          <Clock3 className="w-3.5 h-3.5 text-amber-600 animate-pulse" /> Pending Verification
         </span>
       );
     }
@@ -286,9 +284,37 @@ export default function ArtistDashboard() {
     }
   };
 
+  // Quick handler for artist to confirm payment after checking Resend/Yoco
+  const artistConfirmBooking = async (bookingId: string) => {
+    if (!window.confirm("Are you sure you want to confirm this payment? This will mark the deposit as paid and unlock the host's event pass.")) return;
+
+    setUpdatingId(bookingId);
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({
+          status: 'confirmed',
+          deposit_paid: true,
+          notes: `[Verified & Confirmed by Talent]`
+        })
+        .eq('id', bookingId);
+
+      if (error) throw error;
+
+      alert('Payment confirmed and booking activated successfully!');
+      await loadDashboardData(false);
+    } catch (err: any) {
+      console.error('Error confirming payment:', err);
+      alert(`Could not confirm payment: ${err?.message || 'Please try again.'}`);
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
   const counts = {
     all: bookings.length,
     pending: bookings.filter((b) => b.status === 'pending').length,
+    pending_verification: bookings.filter((b) => b.status === 'pending_verification').length,
     confirmed: bookings.filter((b) => b.status === 'confirmed' || b.deposit_paid).length,
     accepted: bookings.filter((b) => b.status === 'accepted').length,
     declined: bookings.filter((b) => b.status === 'declined').length,
@@ -332,8 +358,8 @@ export default function ArtistDashboard() {
             <div className="text-xs uppercase tracking-wide-sm text-ink-400">Total Requests</div>
           </div>
           <div>
-            <div className="font-display text-4xl font-bold text-ink mb-1">{counts.pending}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Pending</div>
+            <div className="font-display text-4xl font-bold text-ink mb-1">{counts.pending_verification}</div>
+            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Pending Review</div>
           </div>
           <div>
             <div className="font-display text-3xl font-bold text-accent mb-1">{formatCurrency(depositedAmount)}</div>
@@ -348,10 +374,10 @@ export default function ArtistDashboard() {
         {/* Filters and Selection Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
           <div className="flex flex-wrap gap-2">
-            {['all', 'pending', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
+            {['all', 'pending', 'pending_verification', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
               <button key={f} onClick={() => setFilter(f)}
                 className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
-                {f} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
+                {f.replace('_', ' ')} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
               </button>
             ))}
           </div>
@@ -393,6 +419,7 @@ export default function ArtistDashboard() {
           <div className="space-y-6">
             {filtered.map((booking) => {
               const isSelected = selectedBookingIds.includes(booking.id);
+              const isPendingVerification = booking.status === 'pending_verification';
 
               return (
                 <div 
@@ -481,7 +508,16 @@ export default function ArtistDashboard() {
                             </>
                           )}
 
-                          {(booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in') && (
+                          {isPendingVerification && (
+                            <button
+                              onClick={() => artistConfirmBooking(booking.id)}
+                              disabled={updatingId === booking.id}
+                              className="bg-emerald-700 hover:bg-emerald-800 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Confirm Payment
+                            </button>
+                          )}
+
+                          {(booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in') && !isPendingVerification && (
                             <>
                               {!booking.is_arrival_verified ? (
                                 <button
@@ -599,13 +635,31 @@ export default function ArtistDashboard() {
                 )}
               </div>
 
-              {/* Notes / Special Requests */}
+              {/* Notes / Special Requests / Submitted Reference */}
               {(selectedBooking.notes || selectedBooking.special_requests) && (
                 <div className="space-y-1 text-xs">
                   <span className="text-ink-400 uppercase tracking-wide-sm block">Host Notes & Instructions</span>
                   <p className="p-3 bg-paper-100 border border-line text-ink-600 rounded-xs leading-relaxed">
                     {selectedBooking.notes || selectedBooking.special_requests}
                   </p>
+                </div>
+              )}
+
+              {/* Modal Confirmation Action for Pending Verification */}
+              {selectedBooking.status === 'pending_verification' && (
+                <div className="p-4 bg-amber-50 border border-amber-200 rounded space-y-3">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+                    <Clock3 className="w-4 h-4 text-amber-600 animate-pulse" />
+                    <span>Host has submitted a payment reference. Please check your Resend email invoice or Yoco notification before confirming.</span>
+                  </div>
+                  <button
+                    onClick={() => {
+                      artistConfirmBooking(selectedBooking.id);
+                      setSelectedBooking(null);
+                    }}
+                    className="w-full bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 px-4 text-xs font-semibold uppercase tracking-wide-sm rounded flex items-center justify-center gap-2 transition-colors">
+                    <CheckCircle2 className="w-4 h-4" /> Confirm Payment & Unlock Booking
+                  </button>
                 </div>
               )}
 
