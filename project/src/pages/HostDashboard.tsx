@@ -199,10 +199,11 @@ export default function HostDashboard() {
       });
 
       if (error) {
-        throw new Error(error.message || 'Failed to communicate with verification server.');
+        alert(`Verification Failed: ${error.message || 'Could not verify payment with server.'}`);
+        return;
       }
 
-      if (data && data.success) {
+      if (data && data.success === true) {
         alert('Payment verified with Yoco and booking confirmed successfully!');
         setSubmittingRefId(null);
         setRefInput('');
