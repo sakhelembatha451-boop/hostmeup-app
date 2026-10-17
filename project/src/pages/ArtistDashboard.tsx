@@ -304,7 +304,13 @@ export default function ArtistDashboard() {
 
   const artistConfirmBooking = async (bookingId: string) => {
     const targetBooking = bookings.find((b) => b.id === bookingId);
-    const isRemainingBalancePayment = targetBooking?.deposit_paid;
+    
+    // Smart detection: It's a remaining balance payment if deposit was already paid OR if the event is already completed/checked out
+    const isRemainingBalancePayment = 
+      targetBooking?.deposit_paid || 
+      targetBooking?.status === 'completed' || 
+      !!targetBooking?.completed_at || 
+      targetBooking?.status === 'checked_in';
 
     const confirmPromptText = isRemainingBalancePayment
       ? "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the REMAINING BALANCE payment.\n\nBy clicking OK, you agree that you have verified the funds and acknowledge full payment for this event."
@@ -315,16 +321,17 @@ export default function ArtistDashboard() {
     setUpdatingId(bookingId);
     try {
       const generatedPin = targetBooking?.verification_pin || Math.floor(1000 + Math.random() * 9000).toString();
+      const isAlreadyCompleted = targetBooking?.status === 'completed' || !!targetBooking?.completed_at;
 
       const updatePayload = isRemainingBalancePayment ? {
-        status: 'fully_paid',
+        status: isAlreadyCompleted ? 'completed' : 'fully_paid',
         balance_paid: true,
-        notes: `[Full Payment Verified & Confirmed by Talent]`
+        notes: `${targetBooking?.notes || ''} [Full Payment Verified & Confirmed by Talent]`
       } : {
         status: 'confirmed',
         deposit_paid: true,
         verification_pin: generatedPin,
-        notes: `[Deposit Verified & Confirmed by Talent]`
+        notes: `${targetBooking?.notes || ''} [Deposit Verified & Confirmed by Talent]`
       };
 
       const { error } = await supabase
