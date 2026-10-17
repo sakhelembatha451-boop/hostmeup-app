@@ -2,8 +2,8 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
 
-// Updated Hero Video: Female model fashion photoshoot with studio lighting and camera work
-const HERO_VIDEO = 'https://assets.mixkit.co/videos/preview/mixkit-stylish-model-posing-in-a-photo-shoot-42865-large.mp4';
+// Path pointing directly to your local public/hero-model.mp4 file
+const HERO_VIDEO = '/hero-model.mp4';
 const HERO_POSTER = 'https://images.pexels.com/photos/1066171/pexels-photo-1066171.jpeg?auto=compress&cs=tinysrgb&h=1200&w=800';
 
 const FEATURED = [
@@ -57,7 +57,7 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Right: full-bleed auto-playing video of the model shoot */}
+            {/* Right: full-bleed auto-playing local video from public/hero-model.mp4 */}
             <div className="lg:col-span-5 relative overflow-hidden bg-paper-300 min-h-[50vh] lg:min-h-0">
               <video
                 autoPlay
