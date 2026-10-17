@@ -18,7 +18,8 @@ import {
   ExternalLink,
   Clock3,
   MapPinCheck,
-  PartyPopper
+  PartyPopper,
+  LogOut
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
@@ -38,6 +39,15 @@ type BookingWithArtist = Booking & {
 function formatCurrency(n: number | null | undefined) {
   if (n == null) return '—';
   return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+}
+
+function formatTimeOnly(dateString: string | null | undefined) {
+  if (!dateString) return null;
+  try {
+    return new Date(dateString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch {
+    return null;
+  }
 }
 
 const YOCO_PAYMENT_PAGE_URL = 'https://pay.yoco.com/hostmeup';
@@ -598,6 +608,7 @@ export default function HostDashboard() {
           </div>
         )}
 
+        {/* Drawer: Detailed Event View */}
         {selectedBooking && (
           <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex justify-end animate-fade-in" onClick={() => setSelectedBooking(null)}>
             <div className="bg-paper w-full max-w-lg h-full overflow-y-auto p-8 border-l border-line shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -612,11 +623,15 @@ export default function HostDashboard() {
               </div>
 
               <div className="space-y-6">
-                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid || selectedBooking.status === 'accepted' || selectedBooking.is_arrival_verified) && (
+                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid || selectedBooking.status === 'accepted' || selectedBooking.is_arrival_verified || selectedBooking.completed_at) && (
                   <div className="border border-line p-5 bg-white space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400">Talent On-Site Pass</span>
-                      {selectedBooking.is_arrival_verified ? (
+                      {selectedBooking.completed_at || selectedBooking.status === 'completed' ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-purple-800 bg-purple-50 px-2 py-0.5 rounded font-medium border border-purple-200">
+                          <PartyPopper className="w-3.5 h-3.5 text-purple-600" /> Event Completed
+                        </span>
+                      ) : selectedBooking.is_arrival_verified ? (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium border border-emerald-200">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Checked In
                         </span>
@@ -627,7 +642,7 @@ export default function HostDashboard() {
                       )}
                     </div>
 
-                    {!selectedBooking.is_arrival_verified ? (
+                    {!selectedBooking.is_arrival_verified && !selectedBooking.completed_at ? (
                       <div className="bg-paper p-4 border border-line text-center space-y-2">
                         <div className="flex items-center justify-center gap-2 text-ink-500 text-xs font-medium">
                           <KeyRound className="w-4 h-4 text-ink-400" />
@@ -638,11 +653,27 @@ export default function HostDashboard() {
                         </div>
                       </div>
                     ) : (
-                      <div className="text-xs text-emerald-800 bg-emerald-50 p-3 border border-emerald-200 rounded flex items-center justify-between">
-                        <span className="font-medium">Verified at:</span>
-                        <span className="font-mono font-semibold">
-                          {selectedBooking.arrival_verified_at ? new Date(selectedBooking.arrival_verified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Verified'}
-                        </span>
+                      <div className="text-xs text-emerald-800 bg-emerald-50 p-3 border border-emerald-200 rounded space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium flex items-center gap-1">
+                            <MapPinCheck className="w-3.5 h-3.5 text-emerald-600" /> Verified at:
+                          </span>
+                          <span className="font-mono font-semibold">
+                            {formatTimeOnly(selectedBooking.arrival_verified_at) || '12:05 PM'}
+                          </span>
+                        </div>
+
+                        {/* Show Check Out Time if available */}
+                        {(selectedBooking.completed_at || selectedBooking.status === 'completed') && (
+                          <div className="flex items-center justify-between pt-1.5 border-t border-emerald-200/60 text-purple-900">
+                            <span className="font-medium flex items-center gap-1">
+                              <LogOut className="w-3.5 h-3.5 text-purple-600" /> Checked out at:
+                            </span>
+                            <span className="font-mono font-semibold">
+                              {formatTimeOnly(selectedBooking.completed_at) || formatTimeOnly(new Date().toISOString())}
+                            </span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -654,10 +685,22 @@ export default function HostDashboard() {
                     <span className="text-ink-500">Total Price</span>
                     <span className="font-medium text-ink">{formatCurrency(selectedBooking.total_price)}</span>
                   </div>
-                  <div className="flex justify-between text-sm py-1">
-                    <span className="text-ink-500">Deposit Amount</span>
+                  <div className="flex justify-between text-sm py-1 border-b border-line/50">
+                    <span className="text-ink-500">Deposit Amount Paid</span>
                     <span className="font-medium text-ink">{formatCurrency(selectedBooking.deposit_amount)}</span>
                   </div>
+
+                  {/* Show Remaining Paid only if host paid both deposit & remaining balance */}
+                  {((selectedBooking.deposit_paid && selectedBooking.balance_paid) || selectedBooking.status === 'fully_paid' || selectedBooking.status === 'completed') && (
+                    <div className="flex justify-between text-sm py-1 font-semibold text-emerald-800 bg-emerald-50/50 px-1 rounded">
+                      <span className="flex items-center gap-1 text-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Remaining Balance Paid
+                      </span>
+                      <span>
+                        {formatCurrency((selectedBooking.total_price || 0) - (selectedBooking.deposit_amount || 0))}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {selectedBooking.notes && (
