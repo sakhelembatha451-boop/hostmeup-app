@@ -6,7 +6,8 @@ import {
   Calendar, MapPin, Clock, Loader2, Package, Check, X, 
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
   MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
-  Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText, Clock3
+  Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText, Clock3,
+  PartyPopper
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
@@ -225,9 +226,27 @@ export default function ArtistDashboard() {
   };
 
   const renderCustomStatusBadge = (booking: BookingWithHost) => {
+    const isCompleted = booking.status === 'completed' || !!booking.completed_at;
+    const isCheckedIn = booking.is_arrival_verified || booking.status === 'checked_in';
     const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
     const isDepositPaid = booking.deposit_paid || booking.status === 'confirmed';
     const isPendingVerification = booking.status === 'pending_verification';
+
+    if (isCompleted) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-800 border border-purple-200 rounded-sm inline-flex items-center gap-1">
+          <PartyPopper className="w-3.5 h-3.5 text-purple-600" /> Event Completed
+        </span>
+      );
+    }
+
+    if (isCheckedIn) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-sm inline-flex items-center gap-1">
+          <MapPinCheck className="w-3.5 h-3.5 text-emerald-600" /> Checked In
+        </span>
+      );
+    }
 
     if (isFullyPaid) {
       return (
@@ -320,7 +339,7 @@ export default function ArtistDashboard() {
     confirmed: bookings.filter((b) => b.status === 'confirmed' || b.deposit_paid).length,
     accepted: bookings.filter((b) => b.status === 'accepted').length,
     declined: bookings.filter((b) => b.status === 'declined').length,
-    completed: bookings.filter((b) => b.status === 'completed').length,
+    completed: bookings.filter((b) => b.status === 'completed' || b.completed_at).length,
   };
 
   const totalEarnings = bookings
@@ -528,19 +547,18 @@ export default function ArtistDashboard() {
                                   <KeyRound className="w-3.5 h-3.5" /> Enter Host Pass Code
                                 </button>
                               ) : (
-                                <button
-                                  onClick={() => updateBookingStatus(booking.id, 'checked_in', { checked_in_at: new Date().toISOString() })}
-                                  disabled={updatingId === booking.id}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                                  <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
-                                </button>
+                                <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                                  <MapPinCheck className="w-3.5 h-3.5 text-emerald-600" /> Arrived at Event
+                                </span>
                               )}
 
-                              <button
-                                onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
-                                className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                                <LogOut className="w-3.5 h-3.5" /> Check Out of Event
-                              </button>
+                              {booking.status !== 'completed' && (
+                                <button
+                                  onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
+                                  className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                                  <LogOut className="w-3.5 h-3.5" /> Check Out of Event
+                                </button>
+                              )}
 
                               <button
                                 onClick={() => navigate('/inbox')}
