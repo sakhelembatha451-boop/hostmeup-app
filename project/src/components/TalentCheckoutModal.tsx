@@ -50,25 +50,30 @@ export default function TalentCheckoutModal({
         }
       }
 
-      // 2. Update booking status to 'completed'
-      const { error: updateError } = await supabase
+      // 2. Update booking status to 'completed' in Supabase
+      console.log('Updating booking ID:', bookingId, 'to completed...');
+      const { data, error: updateError } = await supabase
         .from('bookings')
         .update({
           status: 'completed',
           completed_at: new Date().toISOString(),
           notes: `[Checked out by talent at ${new Date().toLocaleTimeString()}]`,
         })
-        .eq('id', bookingId);
+        .eq('id', bookingId)
+        .select();
 
       if (updateError) {
+        console.error('Supabase update error:', updateError);
         throw updateError;
       }
+
+      console.log('Successfully updated booking row:', data);
 
       alert('Successfully checked out of event! Event marked as completed.');
       onCheckoutSuccess();
       onClose();
     } catch (err: any) {
-      console.error('Checkout error:', err);
+      console.error('Checkout error catch block:', err);
       setError(err?.message || 'Failed to check out. Please try again.');
     } finally {
       setLoading(false);
