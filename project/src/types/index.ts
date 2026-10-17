@@ -11,6 +11,9 @@ export interface Profile {
   phone_number?: string | null;
   avatar_url?: string | null;
   role?: UserRole;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  emergency_contact_relationship?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -32,12 +35,22 @@ export interface ArtistProfile {
   stage_name?: string | null;
   bio?: string | null;
   category?: string | null;
+  categories?: string[] | null;
   performance_roles?: string[] | null;
   rate?: number | null;
   hourly_rate?: number | null;
   base_rate?: number | null;
   rate_unit?: 'hour' | 'event' | 'day' | string;
+  custom_rate_display?: string | null;
   location?: string | null;
+  location_city?: string | null;
+  location_province?: string | null;
+  cover_url?: string | null;
+  avatar_url?: string | null;
+  gallery_urls?: string[] | null;
+  gallery?: string[] | null;
+  portfolio_urls?: string[] | null;
+  media_urls?: string[] | null;
   is_verified?: boolean;
   created_at?: string;
 }
@@ -48,30 +61,67 @@ export type ArtistWithProfile = Profile & {
 };
 
 // ==========================================
+// Service Item Types
+// ==========================================
+
+export interface ServiceItem {
+  id: string;
+  profile_id: string;
+  service_name: string;
+  price: number;
+  duration_minutes?: number;
+  created_at?: string;
+}
+
+// ==========================================
 // Booking Types
 // ==========================================
 
-export type BookingStatus = 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'rejected';
+export type BookingStatus = 
+  | 'pending' 
+  | 'pending_verification' 
+  | 'accepted' 
+  | 'confirmed' 
+  | 'checked_in' 
+  | 'completed' 
+  | 'fully_paid' 
+  | 'cancelled' 
+  | 'rejected' 
+  | 'declined';
 
 export interface Booking {
   id: string;
   artist_id: string;
   host_id: string;
+  client_id?: string;
+  service_id?: string | null;
   event_name: string;
   event_date: string;
   start_time?: string | null;
   gig_duration?: string | null;
+  duration_hours?: number | null;
   equipment_needed?: string[] | null;
   location: string;
   notes?: string | null;
   status: BookingStatus;
-  total_amount: number;
+  total_price: number;
+  total_amount?: number; // Fallback support
   deposit_amount: number;
   deposit_paid: boolean;
+  balance_paid?: boolean;
   verification_pin?: string;
   verification_token?: string;
+  is_arrival_verified?: boolean;
+  arrival_verified_at?: string | null;
+  completed_at?: string | null;
   created_at?: string;
   updated_at?: string;
+  artist?: {
+    id: string;
+    full_name: string;
+    avatar_url: string | null;
+    location?: string;
+  };
 }
 
 // ==========================================
