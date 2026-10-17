@@ -457,7 +457,7 @@ export default function ArtistProfilePage() {
     ? artist.gallery
     : Array.isArray(artist.portfolio_urls) && artist.portfolio_urls.length > 0
     ? artist.portfolio_urls
-    : Array.isArray(artist.media_urls)
+    : Array.isArray(artist.media_urls) && artist.media_urls.length > 0
     ? artist.media_urls
     : [];
 
@@ -533,6 +533,28 @@ export default function ArtistProfilePage() {
                 </div>
               </div>
             )}
+
+            {/* Portfolio / Media Gallery Grid */}
+            {galleryImages.length > 0 && (
+              <div className="border-t border-line pt-8">
+                <h3 className="font-display text-lg font-bold text-ink mb-4">Portfolio Gallery</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {galleryImages.map((url: string, index: number) => (
+                    <div 
+                      key={index} 
+                      className="aspect-square bg-paper-200 border border-line overflow-hidden rounded-xs cursor-pointer group relative"
+                      onClick={() => setActiveImage(url)}
+                    >
+                      <img 
+                        src={url} 
+                        alt={`Portfolio item ${index + 1}`} 
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-6">
@@ -594,6 +616,28 @@ export default function ArtistProfilePage() {
         customRateDisplay={artist.custom_rate_display}
         services={services}
       />
+
+      {/* Image Lightbox Modal */}
+      {activeImage && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setActiveImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <button 
+              onClick={() => setActiveImage(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 p-2"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img 
+              src={activeImage} 
+              alt="Enlarged view" 
+              className="max-w-full max-h-[85vh] object-contain border border-line"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
