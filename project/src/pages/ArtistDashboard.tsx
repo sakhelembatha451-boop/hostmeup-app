@@ -456,6 +456,7 @@ export default function ArtistDashboard() {
             {filtered.map((booking) => {
               const isSelected = selectedBookingIds.includes(booking.id);
               const isPendingVerification = booking.status === 'pending_verification';
+              const isCompleted = booking.status === 'completed' || !!booking.completed_at;
 
               return (
                 <div 
@@ -552,7 +553,7 @@ export default function ArtistDashboard() {
                             </button>
                           )}
 
-                          {(booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in' || booking.status === 'fully_paid') && !isPendingVerification && (
+                          {!isCompleted && (booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in' || booking.status === 'fully_paid') && !isPendingVerification && (
                             <>
                               {!booking.is_arrival_verified ? (
                                 <button
@@ -566,13 +567,11 @@ export default function ArtistDashboard() {
                                 </span>
                               )}
 
-                              {booking.status !== 'completed' && (
-                                <button
-                                  onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
-                                  className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                                  <LogOut className="w-3.5 h-3.5" /> Check Out of Event
-                                </button>
-                              )}
+                              <button
+                                onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
+                                className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                                <LogOut className="w-3.5 h-3.5" /> Check Out of Event
+                              </button>
 
                               <button
                                 onClick={() => navigate('/inbox')}
