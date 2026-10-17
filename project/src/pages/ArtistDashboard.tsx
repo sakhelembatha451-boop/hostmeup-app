@@ -61,8 +61,6 @@ export default function ArtistDashboard() {
 
   // Modals State
   const [selectedBooking, setSelectedBooking] = useState<BookingWithHost | null>(null);
-  const [reportBooking, setReportBooking] = useState<BookingWithHost | null>(null);
-  const [cancelBooking, setCancelBooking] = useState<BookingWithHost | null>(null);
   const [activeVerifyBooking, setActiveVerifyBooking] = useState<{ id: string; eventName: string } | null>(null);
   const [activeCheckoutBooking, setActiveCheckoutBooking] = useState<{ id: string; eventName: string } | null>(null);
 
@@ -285,15 +283,12 @@ export default function ArtistDashboard() {
     }
   };
 
-  // Quick handler for artist to confirm payment after checking Resend/Yoco & auto-generate PIN
   const artistConfirmBooking = async (bookingId: string) => {
     if (!window.confirm("Are you sure you want to confirm this payment? This will mark the deposit as paid and generate the 4-digit event pass PIN for the host.")) return;
 
     setUpdatingId(bookingId);
     try {
       const targetBooking = bookings.find((b) => b.id === bookingId);
-      
-      // Auto-generate a 4-digit PIN if not already present
       const generatedPin = targetBooking?.verification_pin || Math.floor(1000 + Math.random() * 9000).toString();
 
       const { error } = await supabase
@@ -692,6 +687,34 @@ export default function ArtistDashboard() {
 
             </div>
           </div>
+        )}
+
+        {/* Modal: Talent Verification (PIN Check-in) */}
+        {activeVerifyBooking && (
+          <TalentVerificationModal
+            bookingId={activeVerifyBooking.id}
+            eventName={activeVerifyBooking.eventName}
+            isOpen={!!activeVerifyBooking}
+            onClose={() => setActiveVerifyBooking(null)}
+            onVerified={() => {
+              setActiveVerifyBooking(null);
+              loadDashboardData(false);
+            }}
+          />
+        )}
+
+        {/* Modal: Talent Check-out */}
+        {activeCheckoutBooking && (
+          <TalentCheckoutModal
+            bookingId={activeCheckoutBooking.id}
+            eventName={activeCheckoutBooking.eventName}
+            isOpen={!!activeCheckoutBooking}
+            onClose={() => setActiveCheckoutBooking(null)}
+            onCheckoutSuccess={() => {
+              setActiveCheckoutBooking(null);
+              loadDashboardData(false);
+            }}
+          />
         )}
 
       </div>
