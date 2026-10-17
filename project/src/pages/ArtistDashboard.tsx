@@ -306,10 +306,9 @@ export default function ArtistDashboard() {
     const targetBooking = bookings.find((b) => b.id === bookingId);
     const isRemainingBalancePayment = targetBooking?.deposit_paid;
 
-    // Detailed legal & financial verification prompt
     const confirmPromptText = isRemainingBalancePayment
       ? "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the REMAINING BALANCE payment.\n\nBy clicking OK, you agree that you have verified the funds and acknowledge full payment for this event."
-      : "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the DEPOSIT payment.\n\nBy clicking OK, you agree that you have verified the funds and unlock the 4-digit Event Pass PIN for the host.";
+      : "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the DEPOSIT payment.\n\nBy clicking OK, you agree that you have verified the funds and unlocked the event pass for the host.";
 
     if (!window.confirm(confirmPromptText)) return;
 
@@ -337,7 +336,7 @@ export default function ArtistDashboard() {
 
       alert(isRemainingBalancePayment 
         ? 'Remaining balance payment verified & confirmed! Booking is now fully paid.' 
-        : `Deposit verified! Event Pass PIN (${generatedPin}) unlocked for host.`
+        : 'Payment confirmed successfully! Host event pass unlocked.'
       );
       await loadDashboardData(false);
     } catch (err: any) {
