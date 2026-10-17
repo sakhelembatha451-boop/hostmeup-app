@@ -2,8 +2,9 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { ArrowRight, ArrowUpRight } from 'lucide-react';
 
-// Updated Hero Image: Professional modeling photoshoot with photographer and studio lighting
-const HERO_IMG = 'https://images.pexels.com/photos/3379934/pexels-photo-3379934.jpeg?auto=compress&cs=tinysrgb&h=1200&w=800';
+// Updated Hero Video: Female model fashion photoshoot with studio lighting and camera work
+const HERO_VIDEO = 'https://assets.mixkit.co/videos/preview/mixkit-stylish-model-posing-in-a-photo-shoot-42865-large.mp4';
+const HERO_POSTER = 'https://images.pexels.com/photos/1066171/pexels-photo-1066171.jpeg?auto=compress&cs=tinysrgb&h=1200&w=800';
 
 const FEATURED = [
   { name: 'Sofia Chen', role: 'Singer / Vocalist', location: '', img: 'https://images.pexels.com/photos/8412351/pexels-photo-8412351.jpeg?auto=compress&cs=tinysrgb&h=900&w=600' },
@@ -56,9 +57,19 @@ export default function LandingPage() {
               </div>
             </div>
 
-            {/* Right: full-bleed image (Modeling & Photography shoot) */}
+            {/* Right: full-bleed auto-playing video of the model shoot */}
             <div className="lg:col-span-5 relative overflow-hidden bg-paper-300 min-h-[50vh] lg:min-h-0">
-              <img src={HERO_IMG} alt="Professional photo shoot with a model and photographer in a studio" width={800} height={1200} className="absolute inset-0 w-full h-full object-cover" />
+              <video
+                autoPlay
+                loop
+                muted
+                playsInline
+                poster={HERO_POSTER}
+                className="absolute inset-0 w-full h-full object-cover"
+              >
+                <source src={HERO_VIDEO} type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
             </div>
           </div>
         </div>
