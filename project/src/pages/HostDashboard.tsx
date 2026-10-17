@@ -480,7 +480,7 @@ export default function HostDashboard() {
                         ) : (
                           <div className="flex flex-col gap-3">
                             {/* Option A: Pending Verification State */}
-                            {isPendingVerification && (
+                            {isPendingVerification && !isCompleted && (
                               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide-sm text-amber-800 bg-amber-50 px-3 py-2 rounded border border-amber-200 w-fit">
                                 <Clock3 className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
                                 <span>Payment Reference Submitted — Awaiting Talent Confirmation</span>
@@ -488,7 +488,7 @@ export default function HostDashboard() {
                             )}
 
                             {/* Option B: Deposit Not Paid & Not Pending */}
-                            {!isDepositPaid && !isPendingVerification && (
+                            {!isDepositPaid && !isPendingVerification && !isCompleted && (
                               <div className="flex flex-col gap-2.5">
                                 <div className="flex flex-wrap items-center gap-3">
                                   <button
@@ -539,8 +539,8 @@ export default function HostDashboard() {
                               </div>
                             )}
 
-                            {/* Option C: Deposit Paid, Balance Outstanding */}
-                            {isDepositPaid && !isBalancePaid && !isPendingVerification && (
+                            {/* Option C: Deposit Paid, Balance Outstanding & Event NOT Completed */}
+                            {isDepositPaid && !isBalancePaid && !isPendingVerification && !isCompleted && (
                               <div className="flex flex-col gap-2.5">
                                 <div className="flex flex-wrap items-center gap-3">
                                   <button
@@ -591,7 +591,7 @@ export default function HostDashboard() {
                               </div>
                             )}
 
-                            {/* Option D: Fully Paid Badge (Only shown after artist accepts/verifies) */}
+                            {/* Option D: Fully Paid Badge (Shown when balance is paid OR when event is completed and balance is verified/paid) */}
                             {isBalancePaid && (
                               <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-semibold uppercase tracking-wide-sm rounded inline-flex items-center gap-1.5 w-fit">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Fully Paid
@@ -690,7 +690,7 @@ export default function HostDashboard() {
                     <span className="font-medium text-ink">{formatCurrency(selectedBooking.deposit_amount)}</span>
                   </div>
 
-                  {/* Show Remaining Paid if balance_paid is true or status is fully_paid/completed */}
+                  {/* Show Remaining Paid only if balance_paid is true or status is fully_paid/completed */}
                   {(
                     selectedBooking.balance_paid || 
                     selectedBooking.status === 'fully_paid' || 
