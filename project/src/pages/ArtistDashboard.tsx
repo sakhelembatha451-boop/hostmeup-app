@@ -303,26 +303,42 @@ export default function ArtistDashboard() {
   };
 
   const artistConfirmBooking = async (bookingId: string) => {
-    if (!window.confirm("Are you sure you want to confirm this payment? This will mark the deposit as paid and generate the 4-digit event pass PIN for the host.")) return;
+    const targetBooking = bookings.find((b) => b.id === bookingId);
+    const isRemainingBalancePayment = targetBooking?.deposit_paid;
+
+    // Detailed legal & financial verification prompt
+    const confirmPromptText = isRemainingBalancePayment
+      ? "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the REMAINING BALANCE payment.\n\nBy clicking OK, you agree that you have verified the funds and acknowledge full payment for this event."
+      : "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the DEPOSIT payment.\n\nBy clicking OK, you agree that you have verified the funds and unlock the 4-digit Event Pass PIN for the host.";
+
+    if (!window.confirm(confirmPromptText)) return;
 
     setUpdatingId(bookingId);
     try {
-      const targetBooking = bookings.find((b) => b.id === bookingId);
       const generatedPin = targetBooking?.verification_pin || Math.floor(1000 + Math.random() * 9000).toString();
+
+      const updatePayload = isRemainingBalancePayment ? {
+        status: 'fully_paid',
+        balance_paid: true,
+        notes: `[Full Payment Verified & Confirmed by Talent]`
+      } : {
+        status: 'confirmed',
+        deposit_paid: true,
+        verification_pin: generatedPin,
+        notes: `[Deposit Verified & Confirmed by Talent]`
+      };
 
       const { error } = await supabase
         .from('bookings')
-        .update({
-          status: 'confirmed',
-          deposit_paid: true,
-          verification_pin: generatedPin,
-          notes: `[Verified & Confirmed by Talent]`
-        })
+        .update(updatePayload)
         .eq('id', bookingId);
 
       if (error) throw error;
 
-      alert(`Payment confirmed and booking activated successfully! Event Pass PIN (${generatedPin}) unlocked for host.`);
+      alert(isRemainingBalancePayment 
+        ? 'Remaining balance payment verified & confirmed! Booking is now fully paid.' 
+        : `Deposit verified! Event Pass PIN (${generatedPin}) unlocked for host.`
+      );
       await loadDashboardData(false);
     } catch (err: any) {
       console.error('Error confirming payment:', err);
@@ -531,14 +547,13 @@ export default function ArtistDashboard() {
 
                           {isPendingVerification && (
                             <button
-                              onClick={() => artistConfirmBooking(booking.id)}
-                              disabled={updatingId === booking.id}
+                              onClick={() => setSelectedBooking(booking)}
                               className="bg-emerald-700 hover:bg-emerald-800 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Confirm Payment
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Confirm Payment
                             </button>
                           )}
 
-                          {(booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in') && !isPendingVerification && (
+                          {(booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in' || booking.status === 'fully_paid') && !isPendingVerification && (
                             <>
                               {!booking.is_arrival_verified ? (
                                 <button
@@ -658,8 +673,8 @@ export default function ArtistDashboard() {
               {/* Notes / Special Requests / Submitted Reference */}
               {(selectedBooking.notes || selectedBooking.special_requests) && (
                 <div className="space-y-1 text-xs">
-                  <span className="text-ink-400 uppercase tracking-wide-sm block">Host Notes & Instructions</span>
-                  <p className="p-3 bg-paper-100 border border-line text-ink-600 rounded-xs leading-relaxed">
+                  <span className="text-ink-400 uppercase tracking-wide-sm block">Host Notes & Submitted Yoco Reference</span>
+                  <p className="p-3 bg-paper-100 border border-line text-ink-600 rounded-xs leading-relaxed font-mono">
                     {selectedBooking.notes || selectedBooking.special_requests}
                   </p>
                 </div>
