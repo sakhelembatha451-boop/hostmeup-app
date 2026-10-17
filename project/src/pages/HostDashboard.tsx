@@ -388,7 +388,8 @@ export default function HostDashboard() {
               const isSelected = selectedBookingIds.includes(booking.id);
               const isDepositPaid = booking.deposit_paid || booking.status?.toLowerCase() === 'confirmed';
               const isPendingVerification = booking.status?.toLowerCase() === 'pending_verification';
-              const isBalancePaid = booking.balance_paid;
+              const isBalancePaid = booking.balance_paid || booking.status?.toLowerCase() === 'fully_paid';
+              const isCompleted = booking.status?.toLowerCase() === 'completed' || !!booking.completed_at;
               const remainingBalance = (booking.total_price || 0) - (booking.deposit_amount || 0);
 
               return (
@@ -477,7 +478,7 @@ export default function HostDashboard() {
                             )}
 
                             {/* Option B: Deposit Not Paid & Not Pending */}
-                            {!isDepositPaid && !isPendingVerification && (
+                            {!isDepositPaid && !isPendingVerification && !isCompleted && (
                               <div className="flex flex-col gap-2.5">
                                 <div className="flex flex-wrap items-center gap-3">
                                   <button
@@ -529,7 +530,7 @@ export default function HostDashboard() {
                             )}
 
                             {/* Option C: Deposit Paid, Balance Outstanding */}
-                            {isDepositPaid && !isBalancePaid && !isPendingVerification && (
+                            {isDepositPaid && !isBalancePaid && !isPendingVerification && !isCompleted && (
                               <div className="flex flex-col gap-2.5">
                                 <div className="flex flex-wrap items-center gap-3">
                                   <button
@@ -580,8 +581,8 @@ export default function HostDashboard() {
                               </div>
                             )}
 
-                            {/* Option D: Fully Paid */}
-                            {isDepositPaid && isBalancePaid && (
+                            {/* Option D: Fully Paid (or Completed) */}
+                            {isDepositPaid && isBalancePaid && !isCompleted && (
                               <span className="text-xs font-semibold uppercase tracking-wide-sm text-emerald-700 bg-emerald-50 px-3 py-1 rounded border border-emerald-200 flex items-center gap-1 w-fit">
                                 <CheckCircle2 className="w-3.5 h-3.5" /> Fully Paid
                               </span>
