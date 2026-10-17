@@ -16,7 +16,9 @@ import {
   KeyRound,
   CheckCircle2,
   ExternalLink,
-  Clock3
+  Clock3,
+  MapPinCheck,
+  PartyPopper
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
@@ -29,6 +31,7 @@ type BookingWithArtist = Booking & {
   verification_token?: string;
   is_arrival_verified?: boolean;
   arrival_verified_at?: string;
+  completed_at?: string;
   artist?: { id: string; full_name: string; avatar_url: string | null; location: string };
 };
 
@@ -149,6 +152,56 @@ export default function HostDashboard() {
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const renderCustomStatusBadge = (booking: BookingWithArtist) => {
+    const isCompleted = booking.status === 'completed' || !!booking.completed_at;
+    const isCheckedIn = booking.is_arrival_verified || booking.status === 'checked_in';
+    const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
+    const isDepositPaid = booking.deposit_paid || booking.status?.toLowerCase() === 'confirmed';
+    const isPendingVerification = booking.status?.toLowerCase() === 'pending_verification';
+
+    if (isCompleted) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-800 border border-purple-200 rounded-sm inline-flex items-center gap-1">
+          <PartyPopper className="w-3.5 h-3.5 text-purple-600" /> Event Completed
+        </span>
+      );
+    }
+
+    if (isCheckedIn) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-sm inline-flex items-center gap-1">
+          <MapPinCheck className="w-3.5 h-3.5 text-emerald-600" /> Checked In
+        </span>
+      );
+    }
+
+    if (isFullyPaid) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-sm inline-flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Balance Paid
+        </span>
+      );
+    }
+
+    if (isDepositPaid) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200 rounded-sm inline-flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" /> Deposit Paid
+        </span>
+      );
+    }
+
+    if (isPendingVerification) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200 rounded-sm inline-flex items-center gap-1">
+          <Clock3 className="w-3.5 h-3.5 text-amber-600 animate-pulse" /> Pending Verification
+        </span>
+      );
+    }
+
+    return <StatusBadge status={booking.status} />;
   };
 
   const toggleSelectBooking = (id: string, e: React.MouseEvent) => {
@@ -380,7 +433,7 @@ export default function HostDashboard() {
                         <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name || 'Untitled Event'}</h3>
                         
                         <div className="flex items-center gap-2">
-                          <StatusBadge status={booking.status} />
+                          {renderCustomStatusBadge(booking)}
 
                           <button
                             onClick={(e) => {
@@ -520,12 +573,12 @@ export default function HostDashboard() {
               </div>
 
               <div className="space-y-6">
-                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid || selectedBooking.status === 'accepted') && (
+                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid || selectedBooking.status === 'accepted' || selectedBooking.is_arrival_verified) && (
                   <div className="border border-line p-5 bg-white space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400">Talent On-Site Pass</span>
                       {selectedBooking.is_arrival_verified ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium">
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium border border-emerald-200">
                           <CheckCircle2 className="w-3.5 h-3.5" /> Checked In
                         </span>
                       ) : (
@@ -546,8 +599,11 @@ export default function HostDashboard() {
                         </div>
                       </div>
                     ) : (
-                      <div className="text-xs text-ink-500 bg-emerald-50/50 p-3 border border-emerald-100">
-                        Verified at: {selectedBooking.arrival_verified_at ? new Date(selectedBooking.arrival_verified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Verified'}
+                      <div className="text-xs text-emerald-800 bg-emerald-50 p-3 border border-emerald-200 rounded flex items-center justify-between">
+                        <span className="font-medium">Verified at:</span>
+                        <span className="font-mono font-semibold">
+                          {selectedBooking.arrival_verified_at ? new Date(selectedBooking.arrival_verified_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Verified'}
+                        </span>
                       </div>
                     )}
                   </div>
