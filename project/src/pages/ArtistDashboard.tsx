@@ -14,6 +14,7 @@ import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
+import { maskContactInfo } from '@/utils/masking';
 
 type BookingWithHost = Booking & {
   conversation_id?: string | null;
@@ -305,7 +306,6 @@ export default function ArtistDashboard() {
   const artistConfirmBooking = async (bookingId: string) => {
     const targetBooking = bookings.find((b) => b.id === bookingId);
     
-    // Smart detection: It's a remaining balance payment if deposit was already paid OR if the event is already completed/checked out
     const isRemainingBalancePayment = 
       targetBooking?.deposit_paid || 
       targetBooking?.status === 'completed' || 
@@ -465,6 +465,13 @@ export default function ArtistDashboard() {
               const isPendingVerification = booking.status === 'pending_verification';
               const isCompleted = booking.status === 'completed' || !!booking.completed_at;
 
+              // Strict boolean evaluation for escrow masking
+              const isPaid = booking.deposit_paid === true;
+              const rawNote = booking.notes || booking.special_requests || '';
+              const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
+              const rawHostEmail = booking.host?.email || '';
+              const displayHostEmail = isPaid ? rawHostEmail : (rawHostEmail ? maskContactInfo(rawHostEmail) : '');
+
               return (
                 <div 
                   key={booking.id} 
@@ -507,7 +514,9 @@ export default function ArtistDashboard() {
                           </span>
                           <HostStatusBadge isVerified={true} verificationStatus="approved" />
                         </div>
-                        <div className="text-xs text-ink-400 mt-0.5">Verified Host</div>
+                        {displayHostEmail && (
+                          <div className="text-xs text-ink-400 font-mono mt-0.5">{displayHostEmail}</div>
+                        )}
                       </div>
                     </div>
 
@@ -526,6 +535,18 @@ export default function ArtistDashboard() {
                         <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration || booking.duration_hours ? `${booking.duration_hours} hrs` : '—'}</span></div>
                         <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location || '—'}</span></div>
                       </div>
+
+                      {displayNote && (
+                        <div className="bg-paper-200/50 p-2.5 border border-line text-xs space-y-1 mb-4">
+                          <p className="text-ink-600 italic">"{displayNote}"</p>
+                          {!isPaid && (
+                            <p className="text-[10px] text-amber-700 flex items-center gap-1 font-sans not-italic pt-1 border-t border-line/50">
+                              <ShieldCheck className="w-3 h-3 shrink-0" />
+                              Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
+                            </p>
+                          )}
+                        </div>
+                      )}
 
                       <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
                         <button
@@ -598,134 +619,147 @@ export default function ArtistDashboard() {
         )}
 
         {/* Modal: Full Event Details */}
-        {selectedBooking && (
-          <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
-            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-6" onClick={(e) => e.stopPropagation()}>
-              
-              <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
-                <X className="w-5 h-5" />
-              </button>
+        {selectedBooking && (() => {
+          const isPaid = selectedBooking.deposit_paid === true;
+          const rawNote = selectedBooking.notes || selectedBooking.special_requests || '';
+          const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
+          const rawHostEmail = selectedBooking.host?.email || '';
+          const displayHostEmail = isPaid ? rawHostEmail : (rawHostEmail ? maskContactInfo(rawHostEmail) : '');
 
-              <div>
-                <div className="flex items-center gap-3 mb-2">
-                  {renderCustomStatusBadge(selectedBooking)}
-                  <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
-                </div>
-                <h2 className="font-display text-2xl font-bold text-ink">{selectedBooking.event_name || 'Untitled Event'}</h2>
-              </div>
+          return (
+            <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
+              <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-6" onClick={(e) => e.stopPropagation()}>
+                
+                <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
+                  <X className="w-5 h-5" />
+                </button>
 
-              {/* Host Info */}
-              <div className="p-4 border border-line bg-paper-100 flex items-center gap-4">
-                {selectedBooking.host?.avatar_url ? (
-                  <img src={selectedBooking.host.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-line" />
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display font-bold">
-                    {selectedBooking.host?.full_name?.[0]?.toUpperCase() || '?'}
-                  </div>
-                )}
                 <div>
-                  <div className="font-display font-semibold text-ink text-sm flex items-center gap-2">
-                    {selectedBooking.host?.full_name || 'Host'}
-                    <HostStatusBadge isVerified={true} verificationStatus="approved" />
+                  <div className="flex items-center gap-3 mb-2">
+                    {renderCustomStatusBadge(selectedBooking)}
+                    <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
                   </div>
-                  {selectedBooking.host?.email && (
-                    <div className="text-xs text-ink-400 flex items-center gap-1.5 mt-0.5">
-                      <Mail className="w-3 h-3 text-ink-300" /> {selectedBooking.host.email}
+                  <h2 className="font-display text-2xl font-bold text-ink">{selectedBooking.event_name || 'Untitled Event'}</h2>
+                </div>
+
+                {/* Host Info */}
+                <div className="p-4 border border-line bg-paper-100 flex items-center gap-4">
+                  {selectedBooking.host?.avatar_url ? (
+                    <img src={selectedBooking.host.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-line" />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display font-bold">
+                      {selectedBooking.host?.full_name?.[0]?.toUpperCase() || '?'}
                     </div>
                   )}
-                </div>
-              </div>
-
-              {/* Event Schedule & Location */}
-              <div className="grid grid-cols-2 gap-4 border-y border-line py-4 text-xs">
-                <div>
-                  <span className="text-ink-400 uppercase tracking-wide-sm block mb-1">Date & Time</span>
-                  <div className="font-semibold text-ink flex items-center gap-1.5">
-                    <Calendar className="w-3.5 h-3.5 text-ink-400" />
-                    {selectedBooking.event_date ? new Date(selectedBooking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
-                  </div>
-                  {selectedBooking.start_time && (
-                    <div className="text-ink-500 flex items-center gap-1.5 mt-1">
-                      <Clock className="w-3.5 h-3.5 text-ink-400" /> {selectedBooking.start_time} ({selectedBooking.duration_hours || 1} hrs)
+                  <div>
+                    <div className="font-display font-semibold text-ink text-sm flex items-center gap-2">
+                      {selectedBooking.host?.full_name || 'Host'}
+                      <HostStatusBadge isVerified={true} verificationStatus="approved" />
                     </div>
-                  )}
-                </div>
-
-                <div>
-                  <span className="text-ink-400 uppercase tracking-wide-sm block mb-1">Location</span>
-                  <div className="font-semibold text-ink flex items-center gap-1.5">
-                    <MapPin className="w-3.5 h-3.5 text-ink-400" />
-                    {selectedBooking.location || 'Location Not Specified'}
+                    {displayHostEmail && (
+                      <div className="text-xs text-ink-400 flex items-center gap-1.5 mt-0.5 font-mono">
+                        <Mail className="w-3 h-3 text-ink-300" /> {displayHostEmail}
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
 
-              {/* Pricing Breakdown */}
-              <div className="space-y-2 text-xs">
-                <span className="text-ink-400 uppercase tracking-wide-sm block">Payment Details</span>
-                <div className="flex justify-between py-1 border-b border-line">
-                  <span className="text-ink-500">Total Agreed Price:</span>
-                  <span className="font-bold text-ink">{formatCurrency(selectedBooking.total_price || selectedBooking.total_amount)}</span>
+                {/* Event Schedule & Location */}
+                <div className="grid grid-cols-2 gap-4 border-y border-line py-4 text-xs">
+                  <div>
+                    <span className="text-ink-400 uppercase tracking-wide-sm block mb-1">Date & Time</span>
+                    <div className="font-semibold text-ink flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-ink-400" />
+                      {selectedBooking.event_date ? new Date(selectedBooking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
+                    </div>
+                    {selectedBooking.start_time && (
+                      <div className="text-ink-500 flex items-center gap-1.5 mt-1">
+                        <Clock className="w-3.5 h-3.5 text-ink-400" /> {selectedBooking.start_time} ({selectedBooking.duration_hours || 1} hrs)
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <span className="text-ink-400 uppercase tracking-wide-sm block mb-1">Location</span>
+                    <div className="font-semibold text-ink flex items-center gap-1.5">
+                      <MapPin className="w-3.5 h-3.5 text-ink-400" />
+                      {selectedBooking.location || 'Location Not Specified'}
+                    </div>
+                  </div>
                 </div>
-                {selectedBooking.deposit_amount && (
+
+                {/* Pricing Breakdown */}
+                <div className="space-y-2 text-xs">
+                  <span className="text-ink-400 uppercase tracking-wide-sm block">Payment Details</span>
                   <div className="flex justify-between py-1 border-b border-line">
-                    <span className="text-ink-500">Required Deposit:</span>
-                    <span className="font-bold text-accent">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                    <span className="text-ink-500">Total Agreed Price:</span>
+                    <span className="font-bold text-ink">{formatCurrency(selectedBooking.total_price || selectedBooking.total_amount)}</span>
+                  </div>
+                  {selectedBooking.deposit_amount && (
+                    <div className="flex justify-between py-1 border-b border-line">
+                      <span className="text-ink-500">Required Deposit:</span>
+                      <span className="font-bold text-accent">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Notes / Special Requests / Submitted Reference */}
+                {displayNote && (
+                  <div className="space-y-1 text-xs">
+                    <span className="text-ink-400 uppercase tracking-wide-sm block">Host Notes & Submitted Yoco Reference</span>
+                    <div className="p-3 bg-white border border-line text-xs font-mono rounded leading-relaxed text-ink">
+                      {displayNote}
+                    </div>
+                    {!isPaid && (
+                      <p className="text-[11px] text-amber-700 mt-1.5 flex items-center gap-1 font-sans">
+                        🛡️ Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
+                      </p>
+                    )}
                   </div>
                 )}
-              </div>
 
-              {/* Notes / Special Requests / Submitted Reference */}
-              {(selectedBooking.notes || selectedBooking.special_requests) && (
-                <div className="space-y-1 text-xs">
-                  <span className="text-ink-400 uppercase tracking-wide-sm block">Host Notes & Submitted Yoco Reference</span>
-                  <p className="p-3 bg-paper-100 border border-line text-ink-600 rounded-xs leading-relaxed font-mono">
-                    {selectedBooking.notes || selectedBooking.special_requests}
-                  </p>
-                </div>
-              )}
-
-              {/* Modal Confirmation Action for Pending Verification */}
-              {selectedBooking.status === 'pending_verification' && (
-                <div className="p-4 bg-amber-50 border border-amber-200 rounded space-y-3">
-                  <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
-                    <Clock3 className="w-4 h-4 text-amber-600 animate-pulse" />
-                    <span>Host has submitted a payment reference. Please check your Resend email invoice or Yoco notification before confirming.</span>
+                {/* Modal Confirmation Action for Pending Verification */}
+                {selectedBooking.status === 'pending_verification' && (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+                      <Clock3 className="w-4 h-4 text-amber-600 animate-pulse" />
+                      <span>Host has submitted a payment reference. Please check your Resend email invoice or Yoco notification before confirming.</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        artistConfirmBooking(selectedBooking.id);
+                        setSelectedBooking(null);
+                      }}
+                      className="w-full bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 px-4 text-xs font-semibold uppercase tracking-wide-sm rounded flex items-center justify-center gap-2 transition-colors">
+                      <CheckCircle2 className="w-4 h-4" /> Confirm Payment & Unlock Booking
+                    </button>
                   </div>
+                )}
+
+                {/* Modal Actions */}
+                <div className="pt-4 flex items-center justify-between border-t border-line">
                   <button
                     onClick={() => {
-                      artistConfirmBooking(selectedBooking.id);
                       setSelectedBooking(null);
+                      navigate('/inbox');
                     }}
-                    className="w-full bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 px-4 text-xs font-semibold uppercase tracking-wide-sm rounded flex items-center justify-center gap-2 transition-colors">
-                    <CheckCircle2 className="w-4 h-4" /> Confirm Payment & Unlock Booking
+                    className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" /> Message Host
+                  </button>
+
+                  <button 
+                    onClick={() => setSelectedBooking(null)} 
+                    className="btn-primary px-6 py-2 text-xs uppercase tracking-wide-sm"
+                  >
+                    Close
                   </button>
                 </div>
-              )}
 
-              {/* Modal Actions */}
-              <div className="pt-4 flex items-center justify-between border-t border-line">
-                <button
-                  onClick={() => {
-                    setSelectedBooking(null);
-                    navigate('/inbox');
-                  }}
-                  className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
-                >
-                  <MessageSquare className="w-3.5 h-3.5" /> Message Host
-                </button>
-
-                <button 
-                  onClick={() => setSelectedBooking(null)} 
-                  className="btn-primary px-6 py-2 text-xs uppercase tracking-wide-sm"
-                >
-                  Close
-                </button>
               </div>
-
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Modal: Talent Verification (PIN Check-in) */}
         {activeVerifyBooking && (
