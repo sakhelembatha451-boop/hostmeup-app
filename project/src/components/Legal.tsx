@@ -21,6 +21,35 @@ export default function Legal() {
         <p>
           All payments are processed in South African Rand (ZAR) via secure third-party payment gateways. Host-Me-Up collects upfront payments from clients for confirmed bookings and holds these funds centrally until service fulfillment. Host-Me-Up retains a service commission and administrative booking fee from each transaction prior to disbursing payouts to listed service providers.
         </p>
+
+        {/* Platform Protection & Non-Circumvention Policy */}
+        <div style={{ backgroundColor: '#f9f9f9', borderLeft: '4px solid #111', padding: '20px', margin: '25px 0', borderRadius: '4px' }}>
+          <h3 style={{ marginTop: 0 }}>Non-Circumvention & Direct Booking Policy</h3>
+          <p>
+            <strong>1. Exclusivity Period:</strong> Users (including both Event Hosts and Talent Professionals/Service Providers) acknowledge that Host-Me-Up invests significant resources into maintaining and protecting its curated directory, talent exposure, and booking ecosystem. For a period of <strong>twenty-four (24) months</strong> following the initial point of contact between a Host and a Service Provider through the Host-Me-Up Platform, all communications, negotiations, bookings, repeat engagements, and monetary transactions between the parties must be conducted strictly and exclusively through Host-Me-Up.
+          </p>
+          <p>
+            <strong>2. Prohibited Actions:</strong> During the Exclusivity Period, Users expressly agree not to:
+          </p>
+          <ul>
+            <li>Direct, solicit, offer, encourage, or accept any booking, performance, or service engagement with a party introduced through Host-Me-Up outside of the Platform.</li>
+            <li>Share, request, or transmit direct personal contact details—including phone numbers, personal email addresses, messaging handles (e.g., WhatsApp, Instagram, Telegram), or social media profiles—prior to a confirmed booking and deposit on the Platform.</li>
+            <li>Request, propose, or accept payments through any external channels (including direct bank transfers, cash, or third-party digital wallets) outside of Host-Me-Up's authorized payment gateway.</li>
+            <li>Artificially lower or distort reported booking rates on the Platform while accepting supplemental off-platform payments to avoid platform service fees.</li>
+          </ul>
+          <p>
+            <strong>3. Automated Safety Filters:</strong> To preserve platform security and enforce compliance, Host-Me-Up reserves the right to employ automated communication monitoring tools to identify, restrict, or mask external links, phone numbers, email addresses, and restricted keywords sent within the messaging interface prior to a confirmed booking.
+          </p>
+          <p>
+            <strong>4. Remedies for Breach & Liquidated Damages:</strong> In the event that a User breaches this policy:
+          </p>
+          <ul>
+            <li><strong>Account Status:</strong> Host-Me-Up reserves the absolute right to immediately suspend or permanently terminate the User's account and forfeit any accumulated verified ratings, badges, or directory placement status.</li>
+            <li><strong>Directory Removal:</strong> Any Service Provider found in violation shall lose "Verified Talent" credentials and be permanently removed from Host-Me-Up's featured directories.</li>
+            <li><strong>Liquidated Damages:</strong> The breaching party shall be liable to Host-Me-Up for liquidated damages equal to the higher of <strong>R5,000 (ZAR)</strong> or <strong>100% of the total estimated booking fee</strong> that would have been generated had the booking been conducted through the Platform.</li>
+          </ul>
+        </div>
+
         <p>
           Listed service providers are independent contractors responsible for delivering their agreed services on the event date in a professional manner. Host-Me-Up is not liable for service defaults, cancellations, or misconduct by third-party providers.
         </p>
