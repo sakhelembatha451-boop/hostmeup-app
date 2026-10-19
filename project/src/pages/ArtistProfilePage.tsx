@@ -15,7 +15,8 @@ import {
   X, 
   Shield, 
   Save,
-  MessageSquare
+  MessageSquare,
+  Star
 } from 'lucide-react';
 
 interface ServiceItem {
@@ -23,6 +24,17 @@ interface ServiceItem {
   service_name: string;
   price: number;
   duration_minutes?: number;
+}
+
+interface ReviewItem {
+  id: string;
+  rating: number;
+  comment?: string;
+  created_at: string;
+  reviewer?: {
+    full_name?: string;
+    avatar_url?: string;
+  };
 }
 
 interface BookingModalProps {
@@ -94,12 +106,11 @@ const BookingModal: React.FC<BookingModalProps> = ({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('You must be logged in to send a booking request.');
 
-      // Bulletproof 1-to-1 Auth UID Booking Payload
       const { error: bookingError } = await supabase.from('bookings').insert([
         {
-          client_id: user.id,          // Host/Client Auth UID
-          host_id: user.id,            // Synced for host dashboard queries
-          artist_id: artistId,         // Artist Auth UID (guaranteed 1-to-1 match)
+          client_id: user.id,
+          host_id: user.id,
+          artist_id: artistId,
           service_id: selectedServiceId || null,
           event_date: eventDate,
           start_time: startTime,
@@ -263,6 +274,7 @@ export default function ArtistProfilePage() {
   const navigate = useNavigate();
   const [artist, setArtist] = useState<any>(null);
   const [services, setServices] = useState<ServiceItem[]>([]);
+  const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -270,12 +282,6 @@ export default function ArtistProfilePage() {
   
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<string | null>(null);
-
-  const [emergencyName, setEmergencyName] = useState('');
-  const [emergencyPhone, setEmergencyPhone] = useState('');
-  const [emergencyRelationship, setEmergencyRelationship] = useState('');
-  const [savingEmergency, setSavingEmergency] = useState(false);
-  const [emergencyMessage, setEmergencyMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   useEffect(() => {
     checkCurrentUser();
@@ -288,7 +294,6 @@ export default function ArtistProfilePage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
       setCurrentUserId(user.id);
-      fetchEmergencyContact(user.id);
       fetchUserProfileRole(user.id);
     }
   };
@@ -309,32 +314,11 @@ export default function ArtistProfilePage() {
     }
   };
 
-  const fetchEmergencyContact = async (userId: string) => {
-    try {
-      const { data, error: fetchErr } = await supabase
-        .from('profiles')
-        .select('emergency_contact_name, emergency_contact_phone, emergency_contact_relationship')
-        .eq('id', userId)
-        .single();
-
-      if (fetchErr && fetchErr.code !== 'PGRST116') return;
-
-      if (data) {
-        setEmergencyName(data.emergency_contact_name || '');
-        setEmergencyPhone(data.emergency_contact_phone || '');
-        setEmergencyRelationship(data.emergency_contact_relationship || '');
-      }
-    } catch (err: any) {
-      console.error('Error in fetchEmergencyContact:', err.message);
-    }
-  };
-
   const fetchArtistProfile = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Fetch artist profile matching either profile ID or user_id
       const { data, error: fetchError } = await supabase
         .from('artist_profiles')
         .select('*')
@@ -362,49 +346,37 @@ export default function ArtistProfilePage() {
             pricing_type: hostData.pricing_type || mergedArtist.pricing_type,
           };
         }
+
+        // Fetch services
+        const { data: serviceData } = await supabase
+          .from('talent_services')
+          .select('*')
+          .eq('profile_id', targetUserId);
+
+        setServices(serviceData || []);
+
+        // Fetch reviews
+        const { data: reviewData } = await supabase
+          .from('reviews')
+          .select(`
+            id,
+            rating,
+            comment,
+            created_at,
+            reviewer:reviewer_id (full_name, avatar_url)
+          `)
+          .eq('artist_id', targetUserId)
+          .order('created_at', { ascending: false });
+
+        setReviews(reviewData || []);
       }
 
       setArtist(mergedArtist);
-
-      const { data: serviceData } = await supabase
-        .from('talent_services')
-        .select('*')
-        .eq('profile_id', targetUserId);
-
-      setServices(serviceData || []);
     } catch (err: any) {
       console.error('Error fetching artist:', err.message);
       setError('Could not load artist profile.');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleSaveEmergencyContact = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentUserId) return;
-
-    try {
-      setSavingEmergency(true);
-      setEmergencyMessage(null);
-
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({
-          emergency_contact_name: emergencyName,
-          emergency_contact_phone: emergencyPhone,
-          emergency_contact_relationship: emergencyRelationship
-        })
-        .eq('id', currentUserId);
-
-      if (updateError) throw updateError;
-
-      setEmergencyMessage({ type: 'success', text: 'Emergency contact updated successfully.' });
-    } catch (err: any) {
-      console.error('Error updating emergency contact:', err.message);
-      setEmergencyMessage({ type: 'error', text: 'Failed to save emergency contact.' });
-    } finally {
-      setSavingEmergency(false);
     }
   };
 
@@ -449,7 +421,9 @@ export default function ArtistProfilePage() {
 
   const targetAuthId = artist.user_id || artist.id;
   const isOwner = currentUserId && targetAuthId === currentUserId;
-  const isAdmin = currentUserRole === 'admin';
+  const isVerified = artist.is_verified || artist.verification_status === 'verified';
+  const rating = artist.rating || (reviews.length > 0 ? reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length : 0);
+  const reviewCount = artist.review_count || reviews.length;
 
   const galleryImages: string[] = Array.isArray(artist.gallery_urls) && artist.gallery_urls.length > 0
     ? artist.gallery_urls
@@ -484,18 +458,39 @@ export default function ArtistProfilePage() {
                   <Music2 className="w-12 h-12" />
                 </div>
               )}
+
+              {/* Verified Badge on Cover Top-Left */}
+              {isVerified && (
+                <div className="absolute top-4 left-4 bg-emerald-700 text-white text-xs uppercase font-bold px-3 py-1 flex items-center gap-1.5 shadow-md">
+                  <ShieldCheck className="w-4 h-4" /> Verified Creator
+                </div>
+              )}
             </div>
 
             <div>
-              <div className="flex items-center justify-between">
-                <h1 className="font-display text-3xl font-bold text-ink">{artist.stage_name || 'Unnamed Artist'}</h1>
-                <div className="text-xl font-bold text-ink">{renderPricingBadge()}</div>
-              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h1 className="font-display text-3xl font-bold text-ink">{artist.stage_name || 'Unnamed Artist'}</h1>
+                  </div>
 
-              <p className="text-xs text-ink-500 mt-2 flex items-center gap-1.5">
-                <MapPin className="w-4 h-4" />
-                {artist.location_city ? `${artist.location_city}, ${artist.location_province || 'ZA'}` : artist.location || 'Location not specified'}
-              </p>
+                  <p className="text-xs text-ink-500 mt-2 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4" />
+                    {artist.location_city ? `${artist.location_city}, ${artist.location_province || 'ZA'}` : artist.location || 'Location not specified'}
+                  </p>
+                </div>
+
+                <div className="flex flex-col items-end gap-1">
+                  <div className="text-xl font-bold text-ink">{renderPricingBadge()}</div>
+                  {reviewCount > 0 && (
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-ink bg-paper-100 border border-line px-2.5 py-1">
+                      <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                      <span>{Number(rating).toFixed(1)}</span>
+                      <span className="text-ink-400 font-normal">({reviewCount} {reviewCount === 1 ? 'review' : 'reviews'})</span>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               {artist.categories && artist.categories.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-4">
@@ -555,10 +550,81 @@ export default function ArtistProfilePage() {
                 </div>
               </div>
             )}
+
+            {/* Host Reviews & Rating Breakdown Section */}
+            <div className="border-t border-line pt-8">
+              <div className="flex items-center justify-between mb-6">
+                <div>
+                  <h3 className="font-display text-xl font-bold text-ink">Host Reviews & Feedback</h3>
+                  <p className="text-xs text-ink-500 mt-0.5">Verified feedback from past event hosts</p>
+                </div>
+                {reviewCount > 0 && (
+                  <div className="flex items-center gap-1.5 text-sm font-bold text-ink bg-paper-100 border border-line px-3 py-1.5">
+                    <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                    <span>{Number(rating).toFixed(1)} / 5.0</span>
+                    <span className="text-ink-400 font-normal text-xs">({reviewCount})</span>
+                  </div>
+                )}
+              </div>
+
+              {reviews.length === 0 ? (
+                <div className="border border-dashed border-line p-8 text-center bg-paper-100">
+                  <Star className="w-8 h-8 text-ink-300 mx-auto mb-2" />
+                  <p className="text-xs text-ink-500 font-medium">No reviews submitted yet for this artist.</p>
+                  <p className="text-[11px] text-ink-400 mt-1">Completed gigs allow hosts to submit ratings and feedback.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {reviews.map((rev) => (
+                    <div key={rev.id} className="border border-line bg-paper-100 p-5 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {rev.reviewer?.avatar_url ? (
+                            <img src={rev.reviewer.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover border border-line" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-ink text-paper flex items-center justify-center font-bold text-xs">
+                              {rev.reviewer?.full_name?.[0]?.toUpperCase() || 'H'}
+                            </div>
+                          )}
+                          <div>
+                            <h4 className="font-display font-semibold text-ink text-sm">
+                              {rev.reviewer?.full_name || 'Event Host'}
+                            </h4>
+                            <p className="text-[10px] text-ink-400">
+                              {new Date(rev.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Star Rating Display */}
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              className={`w-3.5 h-3.5 ${
+                                star <= rev.rating
+                                  ? 'fill-amber-500 text-amber-500'
+                                  : 'text-ink-300'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      {rev.comment && (
+                        <p className="text-xs text-ink-600 leading-relaxed bg-paper p-3 border border-line">
+                          "{rev.comment}"
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="space-y-6">
-            <div className="border border-line bg-paper-100 p-6 space-y-6">
+            <div className="border border-line bg-paper-100 p-6 space-y-6 sticky top-6">
               <h3 className="font-display text-lg font-bold text-ink">
                 {isOwner ? 'Your Artist Profile' : `Book ${artist.stage_name || 'Artist'}`}
               </h3>
@@ -569,9 +635,15 @@ export default function ArtistProfilePage() {
                   <span>Rate: {renderPricingBadge()}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <ShieldCheck className="w-4 h-4 text-ink-400" />
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
                   <span>Verified HostMeUp Creator</span>
                 </div>
+                {reviewCount > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                    <span>{Number(rating).toFixed(1)} Star Rating ({reviewCount} reviews)</span>
+                  </div>
+                )}
               </div>
 
               {isOwner ? (
@@ -606,7 +678,7 @@ export default function ArtistProfilePage() {
         </div>
       </div>
 
-      {/* Render Booking Modal passing the exact Auth UID */}
+      {/* Render Booking Modal */}
       <BookingModal
         isOpen={isBookingModalOpen}
         onClose={() => setIsBookingModalOpen(false)}
