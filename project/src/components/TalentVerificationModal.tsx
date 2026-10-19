@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { KeyRound, QrCode, CheckCircle2, ShieldCheck, X, Loader2, AlertCircle } from 'lucide-react';
+import { KeyRound, ShieldCheck, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface TalentVerificationModalProps {
   bookingId: string;
@@ -28,10 +28,9 @@ export default function TalentVerificationModal({
     if (!/^\d*$/.test(value)) return;
 
     const newPin = [...pin];
-    newPin[index] = value.slice(-1); // Take latest char
+    newPin[index] = value.slice(-1);
     setPin(newPin);
 
-    // Auto-focus next input field
     if (value && index < 3) {
       const nextInput = document.getElementById(`pin-input-${index + 1}`);
       nextInput?.focus();
@@ -58,7 +57,6 @@ export default function TalentVerificationModal({
     setVerifying(true);
 
     try {
-      // 1. Fetch booking to verify PIN matches
       let { data: booking, error: fetchErr } = await supabase
         .from('bookings')
         .select('id, verification_pin, status')
@@ -80,12 +78,11 @@ export default function TalentVerificationModal({
       }
 
       if (booking.verification_pin !== enteredPin) {
-        setError('Invalid PIN. Please ask the host for their 4-digit pass code.');
+        setError('Invalid PIN code. Please confirm with the host.');
         setVerifying(false);
         return;
       }
 
-      // 2. Try primary update with arrival_verified_at column
       const updateData = {
         is_arrival_verified: true,
         arrival_verified_at: new Date().toISOString(),
@@ -98,7 +95,6 @@ export default function TalentVerificationModal({
         .update(updateData)
         .eq('id', bookingId);
 
-      // Handle table name difference
       if (updateErr && updateErr.message.includes('Could not find the table')) {
         targetTable = 'booking';
         const fallbackUpdate = await supabase
@@ -108,25 +104,19 @@ export default function TalentVerificationModal({
         updateErr = fallbackUpdate.error;
       }
 
-      // Safe Fallback: If arrival_verified_at column is missing from schema cache, update standard fields
       if (updateErr && (updateErr.message.includes('arrival_verified_at') || updateErr.code === 'PGRST204')) {
-        console.warn('Column arrival_verified_at not found in schema cache. Running safe update fallback...');
-        const safeData = {
-          is_arrival_verified: true,
-          updated_at: new Date().toISOString(),
-        };
-
         const safeFallback = await supabase
           .from(targetTable)
-          .update(safeData)
+          .update({
+            is_arrival_verified: true,
+            updated_at: new Date().toISOString(),
+          })
           .eq('id', bookingId);
 
         updateErr = safeFallback.error;
       }
 
-      if (updateErr) {
-        throw updateErr;
-      }
+      if (updateErr) throw updateErr;
 
       setVerifiedSuccess(true);
       setTimeout(() => {
@@ -143,11 +133,11 @@ export default function TalentVerificationModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in"
+      className="fixed inset-0 z-50 bg-ink/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in"
       onClick={onClose}
     >
       <div
-        className="bg-paper border border-line p-6 sm:p-8 max-w-md w-full relative shadow-2xl space-y-6"
+        className="bg-paper border border-line p-8 max-w-md w-full relative shadow-2xl space-y-6"
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -159,36 +149,38 @@ export default function TalentVerificationModal({
         </button>
 
         {verifiedSuccess ? (
-          <div className="py-8 text-center space-y-3 animate-fade-in">
-            <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-10 h-10" />
+          <div className="py-8 text-center space-y-4 animate-fade-in">
+            <div className="w-14 h-14 bg-emerald-700 text-paper flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-8 h-8" />
             </div>
-            <h3 className="font-display text-2xl font-bold text-ink">On-Site Arrival Verified!</h3>
-            <p className="text-xs text-ink-500">
-              Arrival confirmed for <strong>{eventName}</strong>. Payment release processing initiated.
+            <p className="text-xs uppercase tracking-wide-sm text-emerald-800 font-bold">— Verified</p>
+            <h3 className="font-display text-2xl font-bold text-ink">Arrival Confirmed</h3>
+            <p className="text-xs text-ink-500 leading-relaxed max-w-xs mx-auto">
+              On-site check-in verified for <strong>{eventName}</strong>. Escrow payout processing initiated.
             </p>
           </div>
         ) : (
           <>
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-emerald-700 text-xs font-bold uppercase tracking-wider mb-1">
-                <ShieldCheck className="w-4 h-4" /> On-Site Arrival Verification
-              </div>
-              <h2 className="font-display text-2xl font-bold text-ink">Enter Host Pass Code</h2>
-              <p className="text-xs text-ink-400">
-                Ask the host at <strong>{eventName}</strong> for their 4-digit PIN code to complete on-site check-in.
+            <div>
+              <p className="text-[10px] uppercase tracking-wide-sm text-emerald-700 font-bold flex items-center gap-1 mb-2">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                Escrow Security Check-In
+              </p>
+              <h2 className="font-display text-3xl font-bold text-ink tracking-tight">Host Verification</h2>
+              <p className="text-xs text-ink-500 mt-1">
+                Enter the 4-digit PIN provided by the event host at <strong>{eventName}</strong>.
               </p>
             </div>
 
             {error && (
-              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 text-red-800 text-xs">
+                <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
               </div>
             )}
 
             <form onSubmit={handleVerify} className="space-y-6">
-              {/* 4-Digit Input Boxes */}
+              {/* 4-Digit Sharp Minimalist Inputs */}
               <div className="flex justify-center gap-3">
                 {pin.map((digit, idx) => (
                   <input
@@ -200,7 +192,7 @@ export default function TalentVerificationModal({
                     value={digit}
                     onChange={(e) => handlePinChange(idx, e.target.value)}
                     onKeyDown={(e) => handleKeyDown(idx, e)}
-                    className="w-14 h-16 text-center text-2xl font-bold font-mono bg-paper-200 border border-line rounded focus:border-ink focus:outline-none transition-colors"
+                    className="w-14 h-16 text-center text-2xl font-bold font-mono bg-paper-100 border border-line text-ink focus:border-ink focus:bg-paper focus:outline-none transition-colors"
                     required
                   />
                 ))}
@@ -209,15 +201,15 @@ export default function TalentVerificationModal({
               <button
                 type="submit"
                 disabled={verifying || pin.join('').length !== 4}
-                className="btn-primary w-full flex items-center justify-center gap-2 py-3 text-xs uppercase tracking-wide-sm disabled:opacity-50"
+                className="w-full flex items-center justify-center gap-2 py-3.5 text-xs font-semibold uppercase tracking-wide-sm bg-ink text-paper hover:bg-ink/90 disabled:opacity-50 transition-colors border border-ink"
               >
                 {verifying ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" /> Verifying...
+                    <Loader2 className="w-4 h-4 animate-spin" /> Verifying Code...
                   </>
                 ) : (
                   <>
-                    <KeyRound className="w-4 h-4" /> Verify Arrival
+                    <KeyRound className="w-4 h-4" /> Verify & Authorize
                   </>
                 )}
               </button>
