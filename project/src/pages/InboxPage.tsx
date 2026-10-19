@@ -15,9 +15,11 @@ import {
   Loader2,
   User,
   Calendar,
+  ShieldCheck,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
+import { maskContactInfo } from '@/utils/masking';
 
 interface Message {
   id: string;
@@ -369,13 +371,16 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
       const audioUrl = publicUrlData.publicUrl;
 
+      // Sanitize outgoing message content against off-platform contact sharing
+      const sanitizedAudioContent = maskContactInfo(`[VOICE_NOTE]${audioUrl}`);
+
       await supabase.from('messages').insert([
         {
           conversation_id: selectedConv.id,
           sender_id: profile.id,
           recipient_id: selectedConv.user?.id || selectedConv.user_id,
-          body: `[VOICE_NOTE]${audioUrl}`,
-          content: `[VOICE_NOTE]${audioUrl}`,
+          body: sanitizedAudioContent,
+          content: sanitizedAudioContent,
         },
       ]);
 
@@ -408,14 +413,16 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
     try {
       const recipientId = selectedConv.user?.id || selectedConv.user_id;
+      // Sanitize chat messages automatically for contact info
+      const sanitizedContent = maskContactInfo(replyText.trim());
 
       const { error } = await supabase.from('messages').insert([
         {
           conversation_id: selectedConv.id,
           sender_id: profile.id,
           recipient_id: recipientId,
-          content: replyText.trim(),
-          body: replyText.trim(),
+          content: sanitizedContent,
+          body: sanitizedContent,
         },
       ]);
 
@@ -443,6 +450,8 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
     try {
       const recipientProfile = recipients.find((u) => u.id === selectedRecipientId);
+      // Sanitize initial message
+      const sanitizedFirstMessage = maskContactInfo(firstMessage.trim());
 
       const { data: conv, error: convErr } = await supabase
         .from('conversations')
@@ -466,8 +475,8 @@ export const InboxPage: React.FC<InboxPageProps> = ({
           conversation_id: conv.id,
           sender_id: profile.id,
           recipient_id: selectedRecipientId,
-          content: firstMessage.trim(),
-          body: firstMessage.trim(),
+          content: sanitizedFirstMessage,
+          body: sanitizedFirstMessage,
         },
       ]);
 
@@ -747,9 +756,12 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                       messages.map((msg) => {
                         const isOwn = msg.sender_id === profile?.id;
                         const isSelected = selectedMsgIds.includes(msg.id);
-                        const textContent = msg.content || msg.body || '';
-                        const isVoiceNote = textContent.startsWith('[VOICE_NOTE]');
-                        const voiceUrl = isVoiceNote ? textContent.replace('[VOICE_NOTE]', '') : '';
+                        const rawTextContent = msg.content || msg.body || '';
+                        const isVoiceNote = rawTextContent.startsWith('[VOICE_NOTE]');
+                        const voiceUrl = isVoiceNote ? rawTextContent.replace('[VOICE_NOTE]', '') : '';
+                        // Apply masking utility to message texts
+                        const textContent = isVoiceNote ? '' : maskContactInfo(rawTextContent);
+                        const hasBeenMasked = rawTextContent !== textContent;
 
                         return (
                           <div
@@ -802,6 +814,13 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                                   )}
                                 </div>
                               </div>
+
+                              {hasBeenMasked && (
+                                <span className="text-[10px] text-amber-700 flex items-center gap-1 mt-1 px-1">
+                                  <ShieldCheck className="w-3 h-3 shrink-0" />
+                                  Contact details hidden until deposit clears via Escrow.
+                                </span>
+                              )}
 
                               <span className="text-xs text-ink-300 mt-1 px-1">
                                 {new Date(msg.created_at).toLocaleString('en-US', {
