@@ -13,7 +13,7 @@ import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
-import { maskContactInfo, containsContactInfo } from '@/utils/masking';
+import { maskContactInfo } from '@/utils/masking';
 
 type BookingWithHost = Booking & {
   conversation_id?: string | null;
@@ -131,19 +131,26 @@ export default function ArtistDashboard() {
 
         processedBookings = rawBookings.map((b) => {
           const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
+          const isPaid = b.deposit_paid || b.balance_paid || b.status === 'confirmed' || b.status === 'fully_paid';
 
-          // Ensure pre-booking notes are scrubbed of unmasked phone numbers/emails for leakage prevention
-          const sanitizedNotes = b.special_requests ? maskContactInfo(b.special_requests) : b.special_requests;
+          // Ensure notes are masked unless deposit is confirmed
+          const rawNotes = b.special_requests || b.notes || '';
+          const sanitizedNotes = isPaid ? rawNotes : maskContactInfo(rawNotes);
+          
+          // Mask host email unless deposit is confirmed
+          const rawHostEmail = p?.email || '';
+          const sanitizedHostEmail = isPaid ? rawHostEmail : (rawHostEmail ? maskContactInfo(rawHostEmail) : '');
 
           return {
             ...b,
             special_requests: sanitizedNotes,
+            notes: sanitizedNotes,
             host: {
               id: p?.id || b.host_id || b.client_id,
               full_name: p?.full_name || 'Host',
               avatar_url: p?.avatar_url || null,
               location: p?.location || '',
-              email: p?.email || '',
+              email: sanitizedHostEmail,
               is_verified: true,
               verified: true,
               host_profile: null,
@@ -278,37 +285,6 @@ export default function ArtistDashboard() {
       alert('Could not update status. Please try again.');
     } finally {
       setUpdatingId(null);
-    }
-  };
-
-  const handleSubmitIssueReport = async () => {
-    if (!reportBooking || !issueDescription.trim()) {
-      alert('Please explain the issue before submitting.');
-      return;
-    }
-
-    setSubmittingReport(true);
-    try {
-      await supabase
-        .from('booking_issues')
-        .insert({
-          booking_id: reportBooking.id,
-          reporter_id: profile?.id,
-          category: issueCategory,
-          description: issueDescription,
-          is_urgent: isUrgent,
-          status: 'open',
-          created_at: new Date().toISOString()
-        });
-
-      alert('Issue reported to HostMeUp Support. Our team will review this immediately.');
-      setReportBooking(null);
-      setIssueDescription('');
-    } catch (err) {
-      console.error('Error submitting report:', err);
-      setReportBooking(null);
-    } finally {
-      setSubmittingReport(false);
     }
   };
 
@@ -484,9 +460,9 @@ export default function ArtistDashboard() {
                       </div>
 
                       {/* Display masked inquiry notes if present */}
-                      {booking.special_requests && (
+                      {(booking.special_requests || booking.notes) && (
                         <div className="mb-4 p-3 bg-paper-200/50 border border-line text-xs text-ink-600 rounded">
-                          <strong className="text-ink">Inquiry Notes:</strong> {booking.special_requests}
+                          <strong className="text-ink">Inquiry Notes:</strong> {booking.special_requests || booking.notes}
                         </div>
                       )}
 
@@ -555,27 +531,94 @@ export default function ArtistDashboard() {
           </div>
         )}
 
-        {/* Modal: Details */}
-        {selectedBooking && (
-          <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
-            <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
-                <X className="w-5 h-5" />
-              </button>
+        {/* Modal: Details (With Dynamic Masking Applied) */}
+        {selectedBooking && (() => {
+          const isPaid = selectedBooking.deposit_paid || selectedBooking.balance_paid || selectedBooking.status === 'confirmed' || selectedBooking.status === 'fully_paid';
+          const rawNote = selectedBooking.special_requests || selectedBooking.notes || '';
+          const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
+          const rawEmail = selectedBooking.host?.email || '';
+          const displayEmail = isPaid ? rawEmail : (rawEmail ? maskContactInfo(rawEmail) : '');
 
-              <div className="flex items-center gap-3 mb-2">
-                {renderCustomStatusBadge(selectedBooking)}
-                <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
-              </div>
+          return (
+            <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
+              <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
+                  <X className="w-5 h-5" />
+                </button>
 
-              <h2 className="font-display text-2xl font-bold text-ink mb-1">{selectedBooking.event_name || 'Event Details'}</h2>
+                <div className="flex items-center gap-3 mb-4">
+                  {renderCustomStatusBadge(selectedBooking)}
+                  <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
+                </div>
 
-              <div className="pt-4 flex justify-end">
-                <button onClick={() => setSelectedBooking(null)} className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">Close</button>
+                <h2 className="font-display text-2xl font-bold text-ink mb-4">{selectedBooking.event_name || 'Event Details'}</h2>
+
+                {/* Host Info Box */}
+                <div className="p-4 bg-paper-200/50 border border-line rounded mb-4">
+                  <div className="flex items-center gap-3 mb-2">
+                    {selectedBooking.host?.avatar_url ? (
+                      <img src={selectedBooking.host.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-ink-200 text-ink flex items-center justify-center font-bold">
+                        {selectedBooking.host?.full_name?.[0]?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                    <div>
+                      <div className="font-bold text-sm text-ink">{selectedBooking.host?.full_name || 'Host'}</div>
+                      {displayEmail && <div className="text-xs text-ink-500">{displayEmail}</div>}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Event Details */}
+                <div className="space-y-3 text-sm mb-6">
+                  <div className="flex justify-between border-b border-line pb-2">
+                    <span className="text-ink-400">Date & Time:</span>
+                    <span className="font-medium">{selectedBooking.event_date ? new Date(selectedBooking.event_date).toLocaleDateString() : '—'} {selectedBooking.start_time || ''}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-line pb-2">
+                    <span className="text-ink-400">Location:</span>
+                    <span className="font-medium">{selectedBooking.location || '—'}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-line pb-2">
+                    <span className="text-ink-400">Agreed Price:</span>
+                    <span className="font-medium">{formatCurrency(selectedBooking.total_price || selectedBooking.total_amount || 0)}</span>
+                  </div>
+                  <div className="flex justify-between border-b border-line pb-2">
+                    <span className="text-ink-400">Required Deposit:</span>
+                    <span className="font-bold text-accent">{formatCurrency(selectedBooking.deposit_amount || 0)}</span>
+                  </div>
+                </div>
+
+                {/* Host Notes Box */}
+                {displayNote && (
+                  <div className="mb-6">
+                    <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-400 mb-2">
+                      Host Notes & Submitted Details
+                    </label>
+                    <div className="p-3 bg-white border border-line text-xs font-mono rounded leading-relaxed text-ink">
+                      {displayNote}
+                    </div>
+                    {!isPaid && (
+                      <p className="text-[11px] text-amber-700 mt-1.5 flex items-center gap-1">
+                        🛡️ Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="pt-4 flex justify-between items-center border-t border-line">
+                  <button 
+                    onClick={() => navigate('/inbox')}
+                    className="btn-outline px-4 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-1.5">
+                    <MessageSquare className="w-3.5 h-3.5" /> Message Host
+                  </button>
+                  <button onClick={() => setSelectedBooking(null)} className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">Close</button>
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
       </div>
     </div>
