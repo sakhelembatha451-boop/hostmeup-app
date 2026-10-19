@@ -188,7 +188,7 @@ export default function ArtistBookingDashboard() {
       ) : (
         <div className="space-y-4">
           {filteredBookings.map((booking) => {
-            const isPaid = booking.deposit_paid || booking.status === 'accepted' || booking.status === 'completed';
+            const isPaid = booking.deposit_paid === true || booking.status === 'accepted' || booking.status === 'completed';
             const rawNote = booking.notes || '';
             const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
             const rawClientEmail = booking.client_profile?.email || '';
@@ -326,7 +326,7 @@ export default function ArtistBookingDashboard() {
 
       {/* Modal Popup: Details with Masking Applied Directly on Render */}
       {selectedBooking && (() => {
-        const isPaid = selectedBooking.deposit_paid || selectedBooking.status === 'accepted' || selectedBooking.status === 'completed';
+        const isPaid = selectedBooking.deposit_paid === true || selectedBooking.status === 'accepted' || selectedBooking.status === 'completed';
         const rawNote = selectedBooking.notes || '';
         const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
         const rawClientEmail = selectedBooking.client_profile?.email || '';
