@@ -81,7 +81,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
   const [searchParams] = useSearchParams();
   const { recipientId } = useParams<{ recipientId?: string }>();
 
-  // Read URL route params and search params as fallbacks if props aren't explicitly passed
+  // Read URL route params and search params as fallbacks
   const effectiveUserId =
     propTargetUserId ||
     recipientId ||
@@ -94,6 +94,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isDepositPaidForConv, setIsDepositPaidForConv] = useState<boolean>(false);
   const [replyText, setReplyText] = useState('');
   const [loading, setLoading] = useState(true);
   const [msgLoading, setMsgLoading] = useState(false);
@@ -237,11 +238,35 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     loadRecipients();
   }, [loadConversations, loadRecipients]);
 
+  // Check if booking deposit is paid between current user and chat partner
+  const checkDepositStatus = useCallback(async (conv: Conversation) => {
+    if (!profile) return false;
+    const partnerId = conv.user?.id || conv.user_id || conv.participant1_id || conv.participant2_id;
+    if (!partnerId) return false;
+
+    try {
+      const { data: bookingData } = await supabase
+        .from('bookings')
+        .select('deposit_paid, status')
+        .or(`and(artist_id.eq.${profile.id},client_id.eq.${partnerId}),and(artist_id.eq.${partnerId},client_id.eq.${profile.id}),and(artist_id.eq.${profile.id},host_id.eq.${partnerId}),and(artist_id.eq.${partnerId},host_id.eq.${profile.id})`)
+        .eq('deposit_paid', true)
+        .maybeSingle();
+
+      return !!bookingData;
+    } catch (err) {
+      console.error('Error checking deposit status:', err);
+      return false;
+    }
+  }, [profile]);
+
   // Load Messages for active thread
-  const loadMessages = useCallback(async (convId: string) => {
+  const loadMessages = useCallback(async (conv: Conversation) => {
     setMsgLoading(true);
     setSelectedMsgIds([]);
     try {
+      const isPaid = await checkDepositStatus(conv);
+      setIsDepositPaidForConv(isPaid);
+
       const { data, error } = await supabase
         .from('messages')
         .select(`
@@ -252,7 +277,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
             avatar_url
           )
         `)
-        .eq('conversation_id', convId)
+        .eq('conversation_id', conv.id)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
@@ -276,11 +301,11 @@ export const InboxPage: React.FC<InboxPageProps> = ({
       setMsgLoading(false);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
     }
-  }, [profile]);
+  }, [profile, checkDepositStatus]);
 
   useEffect(() => {
     if (!selectedConv) return;
-    loadMessages(selectedConv.id);
+    loadMessages(selectedConv);
 
     const subscription = supabase
       .channel(`messages:${selectedConv.id}`)
@@ -293,7 +318,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
           filter: `conversation_id=eq.${selectedConv.id}`,
         },
         () => {
-          loadMessages(selectedConv.id);
+          loadMessages(selectedConv);
           loadConversations();
         }
       )
@@ -370,17 +395,15 @@ export const InboxPage: React.FC<InboxPageProps> = ({
         .getPublicUrl(filePath);
 
       const audioUrl = publicUrlData.publicUrl;
-
-      // Sanitize outgoing message content against off-platform contact sharing
-      const sanitizedAudioContent = maskContactInfo(`[VOICE_NOTE]${audioUrl}`);
+      const rawContent = `[VOICE_NOTE]${audioUrl}`;
 
       await supabase.from('messages').insert([
         {
           conversation_id: selectedConv.id,
           sender_id: profile.id,
           recipient_id: selectedConv.user?.id || selectedConv.user_id,
-          body: sanitizedAudioContent,
-          content: sanitizedAudioContent,
+          body: rawContent,
+          content: rawContent,
         },
       ]);
 
@@ -391,7 +414,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
       setAudioBlob(null);
       setRecordingTime(0);
-      await loadMessages(selectedConv.id);
+      await loadMessages(selectedConv);
       loadConversations();
     } catch (err: any) {
       console.error('Failed to send voice note:', err);
@@ -413,16 +436,15 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
     try {
       const recipientId = selectedConv.user?.id || selectedConv.user_id;
-      // Sanitize chat messages automatically for contact info
-      const sanitizedContent = maskContactInfo(replyText.trim());
+      const rawMessage = replyText.trim();
 
       const { error } = await supabase.from('messages').insert([
         {
           conversation_id: selectedConv.id,
           sender_id: profile.id,
           recipient_id: recipientId,
-          content: sanitizedContent,
-          body: sanitizedContent,
+          content: rawMessage,
+          body: rawMessage,
         },
       ]);
 
@@ -434,7 +456,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
         .eq('id', selectedConv.id);
 
       setReplyText('');
-      await loadMessages(selectedConv.id);
+      await loadMessages(selectedConv);
       loadConversations();
     } catch (err) {
       console.error('Error sending message:', err);
@@ -450,8 +472,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
 
     try {
       const recipientProfile = recipients.find((u) => u.id === selectedRecipientId);
-      // Sanitize initial message
-      const sanitizedFirstMessage = maskContactInfo(firstMessage.trim());
+      const rawMessage = firstMessage.trim();
 
       const { data: conv, error: convErr } = await supabase
         .from('conversations')
@@ -475,8 +496,8 @@ export const InboxPage: React.FC<InboxPageProps> = ({
           conversation_id: conv.id,
           sender_id: profile.id,
           recipient_id: selectedRecipientId,
-          content: sanitizedFirstMessage,
-          body: sanitizedFirstMessage,
+          content: rawMessage,
+          body: rawMessage,
         },
       ]);
 
@@ -759,9 +780,13 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                         const rawTextContent = msg.content || msg.body || '';
                         const isVoiceNote = rawTextContent.startsWith('[VOICE_NOTE]');
                         const voiceUrl = isVoiceNote ? rawTextContent.replace('[VOICE_NOTE]', '') : '';
-                        // Apply masking utility to message texts
-                        const textContent = isVoiceNote ? '' : maskContactInfo(rawTextContent);
-                        const hasBeenMasked = rawTextContent !== textContent;
+
+                        // Only mask if deposit_paid is NOT true
+                        const textContent = (isDepositPaidForConv || isVoiceNote)
+                          ? rawTextContent
+                          : maskContactInfo(rawTextContent);
+
+                        const hasBeenMasked = !isDepositPaidForConv && !isVoiceNote && rawTextContent !== textContent;
 
                         return (
                           <div
