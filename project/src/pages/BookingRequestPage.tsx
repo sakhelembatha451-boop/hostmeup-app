@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck, ShieldAlert, UserPlus, Trash2, Search, ExternalLink } from 'lucide-react';
 import type { ArtistWithProfile } from '@/types';
 import { getAdminId, createConversation, createNotification } from '@/lib/messaging';
+import { maskContactInfo } from '@/utils/masking';
 
 interface SelectedTalent {
   artist: ArtistWithProfile;
@@ -228,6 +229,10 @@ export default function BookingRequestPage() {
     const primaryTalent = selectedTalents[0].artist;
     const targetArtistId = primaryTalent.id || primaryTalent.artist_profile?.user_id || id;
 
+    // Build raw note string and automatically sanitize contact details before database write
+    const rawNoteText = `Hired Talent Providers (${selectedTalents.length}): ${selectedTalents.map(t => t.artist.artist_profile?.stage_name || t.artist.full_name).join(', ')}. ${notes}`;
+    const sanitizedNotes = maskContactInfo(rawNoteText);
+
     const payload = {
       artist_id: targetArtistId,
       host_id: profile.id,
@@ -237,7 +242,7 @@ export default function BookingRequestPage() {
       gig_duration: `${durationHours || '1'} hours`,
       equipment_needed: equipment,
       location,
-      notes: `Hired Talent Providers (${selectedTalents.length}): ${selectedTalents.map(t => t.artist.artist_profile?.stage_name || t.artist.full_name).join(', ')}. ${notes}`,
+      notes: sanitizedNotes,
       status: 'pending',
       total_amount: totalAmount,
       deposit_amount: depositAmount,
