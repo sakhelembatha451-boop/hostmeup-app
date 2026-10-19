@@ -13,6 +13,7 @@ import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
+import { maskContactInfo, containsContactInfo } from '@/utils/masking';
 
 type BookingWithHost = Booking & {
   conversation_id?: string | null;
@@ -114,7 +115,7 @@ export default function ArtistDashboard() {
         return;
       }
 
-      // 3. Populate Host information for cards
+      // 3. Populate Host information for cards & apply automatic contact masking security checks on incoming inquiry notes
       let processedBookings = rawBookings;
       const hostIds = Array.from(
         new Set(rawBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
@@ -131,8 +132,12 @@ export default function ArtistDashboard() {
         processedBookings = rawBookings.map((b) => {
           const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
 
+          // Ensure pre-booking notes are scrubbed of unmasked phone numbers/emails for leakage prevention
+          const sanitizedNotes = b.special_requests ? maskContactInfo(b.special_requests) : b.special_requests;
+
           return {
             ...b,
+            special_requests: sanitizedNotes,
             host: {
               id: p?.id || b.host_id || b.client_id,
               full_name: p?.full_name || 'Host',
@@ -243,7 +248,7 @@ export default function ArtistDashboard() {
     if (isDepositPaid) {
       return (
         <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200 rounded-sm inline-flex items-center gap-1">
-          <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" /> Deposit Paid
+          <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" /> Deposit Paid (Escrow Secured)
         </span>
       );
     }
@@ -477,6 +482,13 @@ export default function ArtistDashboard() {
                         <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration || booking.duration_hours ? `${booking.duration_hours} hrs` : '—'}</span></div>
                         <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location || '—'}</span></div>
                       </div>
+
+                      {/* Display masked inquiry notes if present */}
+                      {booking.special_requests && (
+                        <div className="mb-4 p-3 bg-paper-200/50 border border-line text-xs text-ink-600 rounded">
+                          <strong className="text-ink">Inquiry Notes:</strong> {booking.special_requests}
+                        </div>
+                      )}
 
                       <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
                         <button
