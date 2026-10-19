@@ -18,6 +18,7 @@ import {
   MessageSquare,
   Star
 } from 'lucide-react';
+import ReviewModal from '@/components/ReviewModal';
 
 interface ServiceItem {
   id: string;
@@ -31,6 +32,8 @@ interface ReviewItem {
   rating: number;
   comment?: string;
   created_at: string;
+  booking_id?: string;
+  reviewer_id?: string;
   reviewer?: {
     full_name?: string;
     avatar_url?: string;
@@ -283,6 +286,11 @@ export default function ArtistProfilePage() {
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [activeImage, setActiveImage] = useState<string | null>(null);
 
+  // Booking & Review State for Logged-In Host
+  const [userHostBooking, setUserHostBooking] = useState<any | null>(null);
+  const [userReview, setUserReview] = useState<ReviewItem | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+
   useEffect(() => {
     checkCurrentUser();
     if (id) {
@@ -328,6 +336,7 @@ export default function ArtistProfilePage() {
       if (fetchError) throw fetchError;
 
       let mergedArtist = { ...data };
+      const profileDbId = data.id;
       const targetUserId = data.user_id || data.id;
 
       if (targetUserId) {
@@ -355,7 +364,7 @@ export default function ArtistProfilePage() {
 
         setServices(serviceData || []);
 
-        // Fetch reviews
+        // Fetch all reviews matching artist's profile_id OR user_id
         const { data: reviewData } = await supabase
           .from('reviews')
           .select(`
@@ -363,12 +372,38 @@ export default function ArtistProfilePage() {
             rating,
             comment,
             created_at,
+            booking_id,
+            reviewer_id,
             reviewer:reviewer_id (full_name, avatar_url)
           `)
-          .eq('artist_id', targetUserId)
+          .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId}`)
           .order('created_at', { ascending: false });
 
         setReviews(reviewData || []);
+
+        // Check if current logged-in host has booked this artist
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: hostBooking } = await supabase
+            .from('bookings')
+            .select('*')
+            .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId}`)
+            .or(`host_id.eq.${user.id},client_id.eq.${user.id}`)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (hostBooking) {
+            setUserHostBooking(hostBooking);
+          }
+
+          if (reviewData) {
+            const existingUserReview = reviewData.find((r) => r.reviewer_id === user.id);
+            if (existingUserReview) {
+              setUserReview(existingUserReview);
+            }
+          }
+        }
       }
 
       setArtist(mergedArtist);
@@ -553,30 +588,56 @@ export default function ArtistProfilePage() {
 
             {/* Host Reviews & Rating Breakdown Section */}
             <div className="border-t border-line pt-8">
-              <div className="flex items-center justify-between mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <div>
                   <h3 className="font-display text-xl font-bold text-ink">Host Reviews & Feedback</h3>
                   <p className="text-xs text-ink-500 mt-0.5">Verified feedback from past event hosts</p>
                 </div>
-                {reviewCount > 0 && (
-                  <div className="flex items-center gap-1.5 text-sm font-bold text-ink bg-paper-100 border border-line px-3 py-1.5">
-                    <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
-                    <span>{Number(rating).toFixed(1)} / 5.0</span>
-                    <span className="text-ink-400 font-normal text-xs">({reviewCount})</span>
-                  </div>
-                )}
+
+                <div className="flex items-center gap-3">
+                  {/* Rate / Edit Review Button for Logged-In Hosts */}
+                  {userHostBooking && !isOwner && (
+                    <button
+                      type="button"
+                      onClick={() => setIsReviewModalOpen(true)}
+                      className="px-3.5 py-1.5 bg-ink text-paper text-xs uppercase font-semibold tracking-wide-sm border border-ink hover:bg-ink/90 flex items-center gap-1.5 transition-colors shadow-xs"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      <span>{userReview ? '★ Edit My Review' : '★ Leave Review'}</span>
+                    </button>
+                  )}
+
+                  {reviewCount > 0 && (
+                    <div className="flex items-center gap-1.5 text-sm font-bold text-ink bg-paper-100 border border-line px-3 py-1.5">
+                      <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                      <span>{Number(rating).toFixed(1)} / 5.0</span>
+                      <span className="text-ink-400 font-normal text-xs">({reviewCount})</span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {reviews.length === 0 ? (
-                <div className="border border-dashed border-line p-8 text-center bg-paper-100">
-                  <Star className="w-8 h-8 text-ink-300 mx-auto mb-2" />
-                  <p className="text-xs text-ink-500 font-medium">No reviews submitted yet for this artist.</p>
-                  <p className="text-[11px] text-ink-400 mt-1">Completed gigs allow hosts to submit ratings and feedback.</p>
+                <div className="border border-dashed border-line p-8 text-center bg-paper-100 space-y-3">
+                  <Star className="w-8 h-8 text-ink-300 mx-auto" />
+                  <div>
+                    <p className="text-xs text-ink-500 font-medium">No reviews submitted yet for this artist.</p>
+                    <p className="text-[11px] text-ink-400 mt-0.5">Completed gigs allow hosts to submit ratings and feedback.</p>
+                  </div>
+                  {userHostBooking && !isOwner && (
+                    <button
+                      type="button"
+                      onClick={() => setIsReviewModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink/90 mt-2"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Leave First Review
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4">
                   {reviews.map((rev) => (
-                    <div key={rev.id} className="border border-line bg-paper-100 p-5 space-y-3">
+                    <div key={rev.id} className="border border-line bg-paper-100 p-5 space-y-3 relative">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
                           {rev.reviewer?.avatar_url ? (
@@ -587,8 +648,11 @@ export default function ArtistProfilePage() {
                             </div>
                           )}
                           <div>
-                            <h4 className="font-display font-semibold text-ink text-sm">
-                              {rev.reviewer?.full_name || 'Event Host'}
+                            <h4 className="font-display font-semibold text-ink text-sm flex items-center gap-2">
+                              <span>{rev.reviewer?.full_name || 'Event Host'}</span>
+                              {rev.reviewer_id === currentUserId && (
+                                <span className="text-[9px] uppercase font-bold tracking-wider text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">You</span>
+                              )}
                             </h4>
                             <p className="text-[10px] text-ink-400">
                               {new Date(rev.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -688,6 +752,18 @@ export default function ArtistProfilePage() {
         customRateDisplay={artist.custom_rate_display}
         services={services}
       />
+
+      {/* Render Review Modal for Host */}
+      {userHostBooking && (
+        <ReviewModal
+          isOpen={isReviewModalOpen}
+          onClose={() => setIsReviewModalOpen(false)}
+          bookingId={userHostBooking.id}
+          artistId={targetAuthId}
+          artistName={artist.stage_name || 'Artist'}
+          onSuccess={() => fetchArtistProfile()}
+        />
+      )}
 
       {/* Image Lightbox Modal */}
       {activeImage && (
