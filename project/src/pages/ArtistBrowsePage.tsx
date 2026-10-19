@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { MapPin, Loader2, Music2 } from 'lucide-react';
+import { MapPin, Loader2, Music2, ShieldCheck, Star } from 'lucide-react';
 import type { Category } from '@/types';
 
 const CATEGORIES: { label: string; value: Category | 'ALL' }[] = [
@@ -110,6 +110,9 @@ export default function ArtistsPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {artists.map((artist) => {
               const rateDisplay = formatRate(artist);
+              const isVerified = artist.is_verified || artist.verification_status === 'verified';
+              const rating = artist.rating || 0;
+              const reviewCount = artist.review_count || 0;
 
               return (
                 <Link
@@ -131,22 +134,44 @@ export default function ArtistsPage() {
                     )}
                     
                     {/* Custom Rate Badge */}
-                    <div className="absolute top-3 right-3 bg-ink text-paper text-xs px-2.5 py-1 font-semibold">
+                    <div className="absolute top-3 right-3 bg-ink text-paper text-xs px-2.5 py-1 font-semibold shadow-md">
                       {rateDisplay}
                     </div>
+
+                    {/* Verified Badge Tag on Image Top-Left */}
+                    {isVerified && (
+                      <div className="absolute top-3 left-3 bg-emerald-700 text-white text-[10px] uppercase font-bold px-2 py-1 flex items-center gap-1 shadow-md">
+                        <ShieldCheck className="w-3.5 h-3.5" /> Verified
+                      </div>
+                    )}
                   </div>
 
                   <div className="p-6 flex-1 flex flex-col justify-between">
                     <div>
-                      <h3 className="font-display text-xl font-bold text-ink group-hover:underline">
-                        {artist.stage_name || artist.name || 'Unnamed Artist'}
-                      </h3>
-                      <p className="text-xs text-ink-500 mt-1 flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5" />
-                        {artist.location_city
-                          ? `${artist.location_city}, ${artist.location_province || 'ZA'}`
-                          : artist.location || 'Location not specified'}
-                      </p>
+                      <div className="flex items-center justify-between gap-2 mb-1">
+                        <h3 className="font-display text-xl font-bold text-ink group-hover:underline truncate">
+                          {artist.stage_name || artist.name || 'Unnamed Artist'}
+                        </h3>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-1">
+                        <p className="text-xs text-ink-500 flex items-center gap-1">
+                          <MapPin className="w-3.5 h-3.5" />
+                          {artist.location_city
+                            ? `${artist.location_city}, ${artist.location_province || 'ZA'}`
+                            : artist.location || 'Location not specified'}
+                        </p>
+
+                        {/* Review Counter & Rating Badge */}
+                        {reviewCount > 0 && (
+                          <div className="flex items-center gap-1 text-xs font-semibold text-ink">
+                            <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                            <span>{Number(rating).toFixed(1)}</span>
+                            <span className="text-ink-400 text-[10px]">({reviewCount})</span>
+                          </div>
+                        )}
+                      </div>
+
                       {artist.bio && (
                         <p className="text-xs text-ink-600 mt-3 line-clamp-2 leading-relaxed">
                           {artist.bio}
