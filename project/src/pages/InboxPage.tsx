@@ -245,14 +245,32 @@ export const InboxPage: React.FC<InboxPageProps> = ({
     if (!partnerId) return false;
 
     try {
+      // Get artist_profiles.id for both profile.id and partnerId
+      const { data: artistProfiles } = await supabase
+        .from('artist_profiles')
+        .select('id, user_id')
+        .in('user_id', [profile.id, partnerId]);
+
+      const myArtistProfileId = artistProfiles?.find((a) => a.user_id === profile.id)?.id;
+      const partnerArtistProfileId = artistProfiles?.find((a) => a.user_id === partnerId)?.id;
+
+      const myTargetIds = Array.from(new Set([profile.id, myArtistProfileId].filter(Boolean)));
+      const partnerTargetIds = Array.from(new Set([partnerId, partnerArtistProfileId].filter(Boolean)));
+
       const { data: bookingData } = await supabase
         .from('bookings')
-        .select('deposit_paid, status')
-        .or(`and(artist_id.eq.${profile.id},client_id.eq.${partnerId}),and(artist_id.eq.${partnerId},client_id.eq.${profile.id}),and(artist_id.eq.${profile.id},host_id.eq.${partnerId}),and(artist_id.eq.${partnerId},host_id.eq.${profile.id})`)
-        .eq('deposit_paid', true)
-        .maybeSingle();
+        .select('id, deposit_paid, status')
+        .or(`deposit_paid.eq.true,status.eq.confirmed,status.eq.fully_paid,status.eq.completed`)
+        .or(`artist_id.in.(${myTargetIds.join(',')}),client_id.in.(${myTargetIds.join(',')}),host_id.in.(${myTargetIds.join(',')})`)
+        .or(`artist_id.in.(${partnerTargetIds.join(',')}),client_id.in.(${partnerTargetIds.join(',')}),host_id.in.(${partnerTargetIds.join(',')})`);
 
-      return !!bookingData;
+      if (!bookingData || bookingData.length === 0) return false;
+
+      const isPaid = bookingData.some(
+        (b) => b.deposit_paid === true || b.status === 'confirmed' || b.status === 'fully_paid' || b.status === 'completed'
+      );
+
+      return isPaid;
     } catch (err) {
       console.error('Error checking deposit status:', err);
       return false;
@@ -781,7 +799,7 @@ export const InboxPage: React.FC<InboxPageProps> = ({
                         const isVoiceNote = rawTextContent.startsWith('[VOICE_NOTE]');
                         const voiceUrl = isVoiceNote ? rawTextContent.replace('[VOICE_NOTE]', '') : '';
 
-                        // Only mask if deposit_paid is NOT true
+                        // Render unmasked text if deposit is paid, or dynamically mask on render if unpaid
                         const textContent = (isDepositPaidForConv || isVoiceNote)
                           ? rawTextContent
                           : maskContactInfo(rawTextContent);
