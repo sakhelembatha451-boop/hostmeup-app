@@ -11,8 +11,10 @@ import {
   User,
   CheckCircle2,
   XCircle,
-  Clock3
+  Clock3,
+  ShieldCheck
 } from 'lucide-react';
+import { maskContactInfo } from '@/utils/masking';
 
 export interface Booking {
   id: string;
@@ -27,6 +29,7 @@ export interface Booking {
   notes?: string;
   status: 'pending' | 'accepted' | 'declined' | 'completed' | 'cancelled';
   created_at: string;
+  deposit_paid?: boolean;
   client_profile?: {
     full_name?: string;
     email?: string;
@@ -176,108 +179,129 @@ export default function ArtistBookingDashboard() {
         </div>
       ) : (
         <div className="space-y-4">
-          {filteredBookings.map((booking) => (
-            <div
-              key={booking.id}
-              className="border border-line bg-paper-100 p-4 transition-all hover:border-ink/50 space-y-4"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-paper-200 border border-line flex items-center justify-center text-ink shrink-0 font-bold text-sm">
-                    {booking.client_profile?.avatar_url ? (
-                      <img
-                        src={booking.client_profile.avatar_url}
-                        alt="Client"
-                        className="w-full h-full object-cover"
-                      />
-                    ) : (
-                      <User className="w-5 h-5 text-ink-400" />
-                    )}
+          {filteredBookings.map((booking) => {
+            const isPaid = booking.deposit_paid || booking.status === 'accepted' || booking.status === 'completed';
+            const rawNote = booking.notes || '';
+            const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
+            const rawClientEmail = booking.client_profile?.email || '';
+            const displayClientEmail = isPaid ? rawClientEmail : (rawClientEmail ? maskContactInfo(rawClientEmail) : '');
+
+            return (
+              <div
+                key={booking.id}
+                className="border border-line bg-paper-100 p-4 transition-all hover:border-ink/50 space-y-4"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-paper-200 border border-line flex items-center justify-center text-ink shrink-0 font-bold text-sm">
+                      {booking.client_profile?.avatar_url ? (
+                        <img
+                          src={booking.client_profile.avatar_url}
+                          alt="Client"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <User className="w-5 h-5 text-ink-400" />
+                      )}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-ink">
+                        {booking.client_profile?.full_name || 'Client Request'}
+                      </h4>
+                      {displayClientEmail && (
+                        <p className="text-[11px] text-ink-500 font-mono">
+                          {displayClientEmail}
+                        </p>
+                      )}
+                      <p className="text-[10px] text-ink-400 mt-0.5">
+                        Requested on {new Date(booking.created_at).toLocaleDateString()}
+                      </p>
+                    </div>
                   </div>
+
+                  <div>{getStatusBadge(booking.status)}</div>
+                </div>
+
+                {/* Event Metadata Grid */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-paper p-3 border border-line text-xs">
                   <div>
-                    <h4 className="text-sm font-bold text-ink">
-                      {booking.client_profile?.full_name || 'Client Request'}
-                    </h4>
-                    <p className="text-[11px] text-ink-500">
-                      Requested on {new Date(booking.created_at).toLocaleDateString()}
+                    <p className="text-[10px] uppercase font-semibold text-ink-400 flex items-center gap-1">
+                      <Calendar className="w-3 h-3" /> Date
+                    </p>
+                    <p className="font-semibold text-ink mt-0.5">{booking.event_date}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold text-ink-400 flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Time & Duration
+                    </p>
+                    <p className="font-semibold text-ink mt-0.5">
+                      {booking.start_time} ({booking.duration_hours} hr{booking.duration_hours > 1 ? 's' : ''})
                     </p>
                   </div>
+
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold text-ink-400 flex items-center gap-1">
+                      <MapPin className="w-3 h-3" /> Venue
+                    </p>
+                    <p className="font-semibold text-ink mt-0.5 truncate">{booking.location}</p>
+                  </div>
+
+                  <div>
+                    <p className="text-[10px] uppercase font-semibold text-ink-400">Total Payout</p>
+                    <p className="font-bold text-ink mt-0.5">R{Number(booking.total_price).toFixed(2)}</p>
+                  </div>
                 </div>
 
-                <div>{getStatusBadge(booking.status)}</div>
-              </div>
-
-              {/* Event Metadata Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 bg-paper p-3 border border-line text-xs">
-                <div>
-                  <p className="text-[10px] uppercase font-semibold text-ink-400 flex items-center gap-1">
-                    <Calendar className="w-3 h-3" /> Date
-                  </p>
-                  <p className="font-semibold text-ink mt-0.5">{booking.event_date}</p>
-                </div>
-
-                <div>
-                  <p className="text-[10px] uppercase font-semibold text-ink-400 flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> Time & Duration
-                  </p>
-                  <p className="font-semibold text-ink mt-0.5">
-                    {booking.start_time} ({booking.duration_hours} hr{booking.duration_hours > 1 ? 's' : ''})
-                  </p>
-                </div>
-
-                <div>
-                  <p className="text-[10px] uppercase font-semibold text-ink-400 flex items-center gap-1">
-                    <MapPin className="w-3 h-3" /> Venue
-                  </p>
-                  <p className="font-semibold text-ink mt-0.5 truncate">{booking.location}</p>
-                </div>
-
-                <div>
-                  <p className="text-[10px] uppercase font-semibold text-ink-400">Total Payout</p>
-                  <p className="font-bold text-ink mt-0.5">R{Number(booking.total_price).toFixed(2)}</p>
-                </div>
-              </div>
-
-              {booking.notes && (
-                <p className="text-xs text-ink-600 bg-paper-200/50 p-2.5 border border-line italic">
-                  "{booking.notes}"
-                </p>
-              )}
-
-              {/* Action Buttons for Pending Requests */}
-              {booking.status === 'pending' && (
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <button
-                    type="button"
-                    disabled={updatingId === booking.id}
-                    onClick={() => handleUpdateStatus(booking.id, 'declined')}
-                    className="flex items-center gap-1.5 px-4 py-2 border border-red-300 text-red-700 hover:bg-red-50 text-xs font-semibold uppercase tracking-wide disabled:opacity-50 transition-colors"
-                  >
-                    {updatingId === booking.id ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <X className="w-3.5 h-3.5" />
+                {displayNote && (
+                  <div className="bg-paper-200/50 p-2.5 border border-line text-xs space-y-1">
+                    <p className="text-ink-600 italic">
+                      "{displayNote}"
+                    </p>
+                    {!isPaid && (
+                      <p className="text-[10px] text-amber-700 flex items-center gap-1 font-sans not-italic pt-1 border-t border-line/50">
+                        <ShieldCheck className="w-3 h-3 shrink-0" />
+                        Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
+                      </p>
                     )}
-                    Decline
-                  </button>
+                  </div>
+                )}
 
-                  <button
-                    type="button"
-                    disabled={updatingId === booking.id}
-                    onClick={() => handleUpdateStatus(booking.id, 'accepted')}
-                    className="flex items-center gap-1.5 px-5 py-2 bg-ink text-paper hover:bg-ink-800 text-xs font-semibold uppercase tracking-wide disabled:opacity-50 transition-colors"
-                  >
-                    {updatingId === booking.id ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Check className="w-3.5 h-3.5" />
-                    )}
-                    Accept Booking
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
+                {/* Action Buttons for Pending Requests */}
+                {booking.status === 'pending' && (
+                  <div className="flex items-center justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      disabled={updatingId === booking.id}
+                      onClick={() => handleUpdateStatus(booking.id, 'declined')}
+                      className="flex items-center gap-1.5 px-4 py-2 border border-red-300 text-red-700 hover:bg-red-50 text-xs font-semibold uppercase tracking-wide disabled:opacity-50 transition-colors"
+                    >
+                      {updatingId === booking.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <X className="w-3.5 h-3.5" />
+                      )}
+                      Decline
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={updatingId === booking.id}
+                      onClick={() => handleUpdateStatus(booking.id, 'accepted')}
+                      className="flex items-center gap-1.5 px-5 py-2 bg-ink text-paper hover:bg-ink-800 text-xs font-semibold uppercase tracking-wide disabled:opacity-50 transition-colors"
+                    >
+                      {updatingId === booking.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      Accept Booking
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
