@@ -64,12 +64,6 @@ export default function ArtistDashboard() {
   const [activeVerifyBooking, setActiveVerifyBooking] = useState<{ id: string; eventName: string } | null>(null);
   const [activeCheckoutBooking, setActiveCheckoutBooking] = useState<{ id: string; eventName: string } | null>(null);
 
-  // Issue Reporting Form State
-  const [issueCategory, setIssueCategory] = useState<string>('safety');
-  const [issueDescription, setIssueDescription] = useState<string>('');
-  const [isUrgent, setIsUrgent] = useState<boolean>(false);
-  const [submittingReport, setSubmittingReport] = useState<boolean>(false);
-
   const loadDashboardData = useCallback(async (isInitialLoad = false) => {
     if (!profile?.id) {
       setLoading(false);
@@ -115,7 +109,7 @@ export default function ArtistDashboard() {
         return;
       }
 
-      // 3. Populate Host information for cards & apply automatic contact masking security checks on incoming inquiry notes
+      // 3. Populate Host information for cards & apply automatic contact masking security checks
       let processedBookings = rawBookings;
       const hostIds = Array.from(
         new Set(rawBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
@@ -133,11 +127,10 @@ export default function ArtistDashboard() {
           const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
           const isPaid = b.deposit_paid || b.balance_paid || b.status === 'confirmed' || b.status === 'fully_paid';
 
-          // Ensure notes are masked unless deposit is confirmed
+          // Apply dynamic masking if unpaid
           const rawNotes = b.special_requests || b.notes || '';
           const sanitizedNotes = isPaid ? rawNotes : maskContactInfo(rawNotes);
           
-          // Mask host email unless deposit is confirmed
           const rawHostEmail = p?.email || '';
           const sanitizedHostEmail = isPaid ? rawHostEmail : (rawHostEmail ? maskContactInfo(rawHostEmail) : '');
 
@@ -531,7 +524,7 @@ export default function ArtistDashboard() {
           </div>
         )}
 
-        {/* Modal: Details (With Dynamic Masking Applied) */}
+        {/* Modal: Details (With Explicit Dynamic Masking Applied) */}
         {selectedBooking && (() => {
           const isPaid = selectedBooking.deposit_paid || selectedBooking.balance_paid || selectedBooking.status === 'confirmed' || selectedBooking.status === 'fully_paid';
           const rawNote = selectedBooking.special_requests || selectedBooking.notes || '';
@@ -551,7 +544,7 @@ export default function ArtistDashboard() {
                   <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
                 </div>
 
-                <h2 className="font-display text-2xl font-bold text-ink mb-4">{selectedBooking.event_name || 'Event Details'}</h2>
+                <h2 className="font-display text-2xl font-bold text-ink mb-4">{selectedBooking.event_name || 'Untitled Event'}</h2>
 
                 {/* Host Info Box */}
                 <div className="p-4 bg-paper-200/50 border border-line rounded mb-4">
@@ -564,8 +557,11 @@ export default function ArtistDashboard() {
                       </div>
                     )}
                     <div>
-                      <div className="font-bold text-sm text-ink">{selectedBooking.host?.full_name || 'Host'}</div>
-                      {displayEmail && <div className="text-xs text-ink-500">{displayEmail}</div>}
+                      <div className="flex items-center gap-2">
+                        <span className="font-bold text-sm text-ink">{selectedBooking.host?.full_name || 'Host'}</span>
+                        <HostStatusBadge isVerified={true} verificationStatus="approved" />
+                      </div>
+                      {displayEmail && <div className="text-xs text-ink-500 font-mono mt-0.5">{displayEmail}</div>}
                     </div>
                   </div>
                 </div>
@@ -590,17 +586,17 @@ export default function ArtistDashboard() {
                   </div>
                 </div>
 
-                {/* Host Notes Box */}
+                {/* Host Notes / Yoco Box */}
                 {displayNote && (
                   <div className="mb-6">
                     <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-400 mb-2">
-                      Host Notes & Submitted Details
+                      Host Notes & Submitted Yoco Reference
                     </label>
                     <div className="p-3 bg-white border border-line text-xs font-mono rounded leading-relaxed text-ink">
                       {displayNote}
                     </div>
                     {!isPaid && (
-                      <p className="text-[11px] text-amber-700 mt-1.5 flex items-center gap-1">
+                      <p className="text-[11px] text-amber-700 mt-1.5 flex items-center gap-1 font-sans">
                         🛡️ Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
                       </p>
                     )}
