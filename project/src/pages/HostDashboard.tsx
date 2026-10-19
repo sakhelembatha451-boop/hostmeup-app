@@ -19,11 +19,13 @@ import {
   Clock3,
   MapPinCheck,
   PartyPopper,
-  LogOut
+  LogOut,
+  Star
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
+import ReviewModal from '@/components/ReviewModal';
 
 type BookingWithArtist = Booking & {
   balance_paid?: boolean;
@@ -33,6 +35,7 @@ type BookingWithArtist = Booking & {
   is_arrival_verified?: boolean;
   arrival_verified_at?: string;
   completed_at?: string;
+  has_reviewed?: boolean;
   artist?: { id: string; full_name: string; avatar_url: string | null; location: string };
 };
 
@@ -58,6 +61,10 @@ export default function HostDashboard() {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [selectedBooking, setSelectedBooking] = useState<BookingWithArtist | null>(null);
+
+  // Review Modal State
+  const [reviewBookingTarget, setReviewBookingTarget] = useState<BookingWithArtist | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -90,20 +97,37 @@ export default function HostDashboard() {
 
       if (rawBookings.length > 0) {
         const artistIds = Array.from(new Set(rawBookings.map((b) => b?.artist_id || b?.client_id).filter(Boolean)));
+        const bookingIds = rawBookings.map((b) => b.id);
         
+        // Fetch artist profiles
+        let profileMap = new Map();
         if (artistIds.length > 0) {
           const { data: artistProfiles } = await supabase
             .from('profiles')
             .select('id, full_name, avatar_url, location')
             .in('id', artistIds);
 
-          const profileMap = new Map((artistProfiles || []).map((p) => [p.id, p]));
-
-          rawBookings = rawBookings.map((b) => ({
-            ...b,
-            artist: profileMap.get(b?.artist_id) || profileMap.get(b?.client_id) || null,
-          }));
+          profileMap = new Map((artistProfiles || []).map((p) => [p.id, p]));
         }
+
+        // Fetch existing reviews to know which bookings are already reviewed
+        let reviewedBookingIds = new Set<string>();
+        if (bookingIds.length > 0) {
+          const { data: existingReviews } = await supabase
+            .from('reviews')
+            .select('booking_id')
+            .in('booking_id', bookingIds);
+
+          if (existingReviews) {
+            reviewedBookingIds = new Set(existingReviews.map((r) => r.booking_id));
+          }
+        }
+
+        rawBookings = rawBookings.map((b) => ({
+          ...b,
+          artist: profileMap.get(b?.artist_id) || profileMap.get(b?.client_id) || null,
+          has_reviewed: reviewedBookingIds.has(b.id),
+        }));
       }
 
       setBookings(rawBookings as BookingWithArtist[]);
@@ -591,11 +615,33 @@ export default function HostDashboard() {
                               </div>
                             )}
 
-                            {/* Option D: Fully Paid Badge (Shown when balance is paid OR when event is completed and balance is verified/paid) */}
-                            {isBalancePaid && (
+                            {/* Option D: Fully Paid Badge */}
+                            {isBalancePaid && !isCompleted && (
                               <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-semibold uppercase tracking-wide-sm rounded inline-flex items-center gap-1.5 w-fit">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Fully Paid
                               </span>
+                            )}
+
+                            {/* Option E: Completed Booking — Rate Artist Flow */}
+                            {isCompleted && (
+                              <div className="flex items-center gap-3 pt-2">
+                                {booking.has_reviewed ? (
+                                  <span className="px-3 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 text-xs font-semibold uppercase tracking-wide-sm rounded inline-flex items-center gap-1.5">
+                                    <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Reviewed
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setReviewBookingTarget(booking);
+                                      setIsReviewModalOpen(true);
+                                    }}
+                                    className="px-4 py-2 bg-ink text-paper border border-ink text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/90 flex items-center gap-1.5 transition-colors shadow-sm"
+                                  >
+                                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Rate Artist
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
                         )}
@@ -690,7 +736,6 @@ export default function HostDashboard() {
                     <span className="font-medium text-ink">{formatCurrency(selectedBooking.deposit_amount)}</span>
                   </div>
 
-                  {/* Show Remaining Paid only if balance_paid is true or status is fully_paid/completed */}
                   {(
                     selectedBooking.balance_paid || 
                     selectedBooking.status === 'fully_paid' || 
@@ -729,6 +774,21 @@ export default function HostDashboard() {
               </div>
             </div>
           </div>
+        )}
+
+        {/* Review Modal Trigger */}
+        {reviewBookingTarget && (
+          <ReviewModal
+            isOpen={isReviewModalOpen}
+            onClose={() => {
+              setIsReviewModalOpen(false);
+              setReviewBookingTarget(null);
+            }}
+            bookingId={reviewBookingTarget.id}
+            artistId={reviewBookingTarget.artist_id || reviewBookingTarget.client_id || ''}
+            artistName={reviewBookingTarget.artist?.full_name || 'Talent'}
+            onSuccess={() => loadData()}
+          />
         )}
 
       </div>
