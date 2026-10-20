@@ -16,7 +16,8 @@ import {
   Shield, 
   Save,
   MessageSquare,
-  Star
+  Star,
+  Trash2
 } from 'lucide-react';
 import ReviewModal from '@/components/ReviewModal';
 
@@ -415,7 +416,11 @@ export default function ArtistProfilePage() {
             const existingUserReview = reviewData.find((r) => r.reviewer_id === user.id);
             if (existingUserReview) {
               setUserReview(existingUserReview);
+            } else {
+              setUserReview(null);
             }
+          } else {
+            setUserReview(null);
           }
         }
       }
@@ -426,6 +431,24 @@ export default function ArtistProfilePage() {
       setError('Could not load artist profile.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteReview = async (reviewId: string) => {
+    if (!window.confirm('Are you sure you want to delete your review? You will be able to write a new one afterward.')) return;
+    try {
+      const { error: deleteError } = await supabase
+        .from('reviews')
+        .delete()
+        .eq('id', reviewId);
+
+      if (deleteError) throw deleteError;
+
+      alert('Review deleted successfully.');
+      setUserReview(null);
+      fetchArtistProfile();
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete review.');
     }
   };
 
@@ -670,17 +693,31 @@ export default function ArtistProfilePage() {
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-1">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <Star
-                              key={star}
-                              className={`w-3.5 h-3.5 ${
-                                star <= rev.rating
-                                  ? 'fill-amber-500 text-amber-500'
-                                  : 'text-ink-300'
-                              }`}
-                            />
-                          ))}
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                className={`w-3.5 h-3.5 ${
+                                  star <= rev.rating
+                                    ? 'fill-amber-500 text-amber-500'
+                                    : 'text-ink-300'
+                                }`}
+                              />
+                            ))}
+                          </div>
+
+                          {/* Delete Button for Current User's Review */}
+                          {rev.reviewer_id === currentUserId && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteReview(rev.id)}
+                              title="Delete Review"
+                              className="p-1.5 text-ink-400 hover:text-red-600 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
 
