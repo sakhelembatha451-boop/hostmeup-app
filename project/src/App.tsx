@@ -15,6 +15,7 @@ import BookingRequestPage from '@/pages/BookingRequestPage';
 import HostDashboard from '@/pages/HostDashboard';
 import ArtistDashboard from '@/pages/ArtistDashboard';
 import HostSettingsPage from '@/pages/HostSettingsPage';
+import HostProfileView from '@/pages/HostProfileView';
 import { InboxPage } from '@/pages/InboxPage';
 import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminDashboard from '@/pages/AdminDashboard';
@@ -168,6 +169,7 @@ function AppRoutes() {
         <Route path="/" element={<LandingPage />} />
         <Route path="/artists" element={<ArtistBrowsePage />} />
         <Route path="/artists/:id" element={<ArtistProfilePage />} />
+        <Route path="/hosts/:id" element={<HostProfileView />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
