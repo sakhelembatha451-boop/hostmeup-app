@@ -37,43 +37,56 @@ export default function ReviewModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('You must be logged in to leave a review.');
 
-      // 1. Insert review record
-      const { error: reviewErr } = await supabase.from('reviews').insert({
-        booking_id: bookingId,
-        artist_id: artistId,
-        reviewer_id: user.id,
-        rating: rating,
-        comment: comment.trim(),
-      });
+      // 1. Resolve exact artist profile record to ensure both profile_id and user_id match
+      const { data: targetArtist } = await supabase
+        .from('artist_profiles')
+        .select('id, user_id')
+        .or(`id.eq.${artistId},user_id.eq.${artistId}`)
+        .maybeSingle();
+
+      const resolvedArtistId = targetArtist?.user_id || targetArtist?.id || artistId;
+      const profileDbId = targetArtist?.id;
+
+      // 2. Upsert review record (supports both new submission & editing existing review)
+      const { error: reviewErr } = await supabase.from('reviews').upsert(
+        {
+          booking_id: bookingId,
+          artist_id: resolvedArtistId,
+          reviewer_id: user.id,
+          rating: rating,
+          comment: comment.trim(),
+        },
+        { onConflict: 'booking_id' }
+      );
 
       if (reviewErr) throw reviewErr;
 
-      // 2. Fetch all reviews for this artist to recalculate average
+      // 3. Fetch all reviews for this artist (matching either user_id or profile_id)
       const { data: reviews, error: fetchErr } = await supabase
         .from('reviews')
         .select('rating')
-        .eq('artist_id', artistId);
+        .or(`artist_id.eq.${resolvedArtistId}${profileDbId ? `,artist_id.eq.${profileDbId}` : ''}`);
 
-      if (!fetchErr && reviews) {
+      if (!fetchErr && reviews && reviews.length > 0) {
         const totalCount = reviews.length;
         const avgRating =
           reviews.reduce((acc, curr) => acc + curr.rating, 0) / totalCount;
 
-        // 3. Update aggregate metrics on artist_profiles
+        // 4. Update aggregate metrics on artist_profiles
         await supabase
           .from('artist_profiles')
           .update({
             rating: Number(avgRating.toFixed(2)),
             review_count: totalCount,
           })
-          .eq('id', artistId);
+          .or(`id.eq.${resolvedArtistId},user_id.eq.${resolvedArtistId}`);
       }
 
       setSubmitted(true);
       setTimeout(() => {
         if (onSuccess) onSuccess();
         onClose();
-      }, 1500);
+      }, 1200);
     } catch (err: any) {
       console.error('Error submitting review:', err);
       setError(err.message || 'Failed to submit review. Please try again.');
@@ -170,7 +183,7 @@ export default function ReviewModal({
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
                   placeholder="How was their punctuality, performance, and communication?"
-                  className="input-field w-full p-3 text-xs bg-paper-100 border border-line focus:border-ink focus:bg-paper focus:outline-none"
+                  className="input-field w-full p-3 text-xs bg-paper-100 border border-line focus:border-ink focus:bg-paper focus:outline-none text-ink"
                 />
               </div>
 
