@@ -7,13 +7,14 @@ import {
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
   MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
   Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText, Clock3,
-  PartyPopper
+  PartyPopper, Star
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
+import ReviewModal from '@/components/ReviewModal';
 import { maskContactInfo } from '@/utils/masking';
 
 type BookingWithHost = Booking & {
@@ -27,6 +28,7 @@ type BookingWithHost = Booking & {
   notes?: string | null;
   special_requests?: string | null;
   verification_pin?: string | null;
+  has_reviewed?: boolean;
   host?: {
     id: string;
     full_name: string;
@@ -65,6 +67,10 @@ export default function ArtistDashboard() {
   const [selectedBooking, setSelectedBooking] = useState<BookingWithHost | null>(null);
   const [activeVerifyBooking, setActiveVerifyBooking] = useState<{ id: string; eventName: string } | null>(null);
   const [activeCheckoutBooking, setActiveCheckoutBooking] = useState<{ id: string; eventName: string } | null>(null);
+
+  // Review Modal State (For rating hosts)
+  const [reviewBookingTarget, setReviewBookingTarget] = useState<BookingWithHost | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
   const loadDashboardData = useCallback(async (isInitialLoad = false) => {
     if (!profile?.id) {
@@ -117,6 +123,21 @@ export default function ArtistDashboard() {
       const hostIds = Array.from(
         new Set(activeBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
       );
+      const bookingIds = activeBookings.map((b) => b.id);
+
+      // Fetch existing reviews to know which bookings are already reviewed by this artist
+      let reviewedBookingIds = new Set<string>();
+      if (bookingIds.length > 0) {
+        const { data: existingReviews } = await supabase
+          .from('reviews')
+          .select('booking_id')
+          .in('booking_id', bookingIds)
+          .eq('reviewer_id', authUserId);
+
+        if (existingReviews) {
+          reviewedBookingIds = new Set(existingReviews.map((r) => r.booking_id));
+        }
+      }
 
       if (hostIds.length > 0) {
         const { data: profileRecords } = await supabase
@@ -131,6 +152,7 @@ export default function ArtistDashboard() {
 
           return {
             ...b,
+            has_reviewed: reviewedBookingIds.has(b.id),
             host: {
               id: p?.id || b.host_id || b.client_id,
               full_name: p?.full_name || 'Host',
@@ -523,7 +545,31 @@ export default function ArtistDashboard() {
                     <div className="flex-1">
                       <div className="flex items-center justify-between gap-3 mb-4">
                         <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name || 'Untitled Event'}</h3>
-                        {renderCustomStatusBadge(booking)}
+                        <div className="flex items-center gap-2">
+                          {renderCustomStatusBadge(booking)}
+
+                          {/* Rate Host Button for Completed Bookings */}
+                          {isCompleted && (
+                            <div onClick={(e) => e.stopPropagation()}>
+                              {booking.has_reviewed ? (
+                                <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold uppercase tracking-wider rounded-sm inline-flex items-center gap-1">
+                                  <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Host Reviewed
+                                </span>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReviewBookingTarget(booking);
+                                    setIsReviewModalOpen(true);
+                                  }}
+                                  className="px-3 py-1 bg-ink text-paper border border-ink text-[11px] font-bold uppercase tracking-wider rounded-sm hover:bg-ink/90 inline-flex items-center gap-1 shadow-xs transition-colors"
+                                >
+                                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Rate Host
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
@@ -786,6 +832,21 @@ export default function ArtistDashboard() {
               setActiveCheckoutBooking(null);
               loadDashboardData(false);
             }}
+          />
+        )}
+
+        {/* Review Modal Trigger (For rating the host) */}
+        {reviewBookingTarget && (
+          <ReviewModal
+            isOpen={isReviewModalOpen}
+            onClose={() => {
+              setIsReviewModalOpen(false);
+              setReviewBookingTarget(null);
+            }}
+            bookingId={reviewBookingTarget.id}
+            targetHostId={reviewBookingTarget.host_id || reviewBookingTarget.client_id}
+            hostName={reviewBookingTarget.host?.full_name || 'Event Host'}
+            onSuccess={() => loadDashboardData(false)}
           />
         )}
 
