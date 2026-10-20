@@ -844,6 +844,7 @@ export default function ArtistDashboard() {
               setReviewBookingTarget(null);
             }}
             bookingId={reviewBookingTarget.id}
+            artistId={reviewBookingTarget.artist_id || profile?.id}
             targetHostId={reviewBookingTarget.host_id || reviewBookingTarget.client_id}
             hostName={reviewBookingTarget.host?.full_name || 'Event Host'}
             onSuccess={() => loadDashboardData(false)}
