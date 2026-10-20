@@ -493,6 +493,7 @@ export default function ArtistDashboard() {
               const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
               const rawHostEmail = booking.host?.email || '';
               const displayHostEmail = isPaid ? rawHostEmail : (rawHostEmail ? maskContactInfo(rawHostEmail) : '');
+              const hostId = booking.host?.id || booking.host_id || booking.client_id;
 
               return (
                 <div 
@@ -524,16 +525,18 @@ export default function ArtistDashboard() {
 
                   <div className="flex flex-col sm:flex-row sm:items-start gap-6 pr-16">
                     <div className="flex items-center gap-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                      {booking.host?.avatar_url ? (
-                        <img src={booking.host.avatar_url} alt="" width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
-                      ) : (
-                        <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
-                      )}
+                      <Link to={`/hosts/${hostId}`} className="group">
+                        {booking.host?.avatar_url ? (
+                          <img src={booking.host.avatar_url} alt="" width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line group-hover:opacity-90 transition-opacity" />
+                        ) : (
+                          <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold group-hover:bg-ink-300 transition-colors">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
+                        )}
+                      </Link>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-display font-semibold text-ink">
+                          <Link to={`/hosts/${hostId}`} className="font-display font-semibold text-ink hover:underline">
                             {booking.host?.full_name || 'Host'}
-                          </span>
+                          </Link>
                           <HostStatusBadge isVerified={true} verificationStatus="approved" />
                         </div>
                         {displayHostEmail && (
@@ -671,6 +674,7 @@ export default function ArtistDashboard() {
           const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
           const rawHostEmail = selectedBooking.host?.email || '';
           const displayHostEmail = isPaid ? rawHostEmail : (rawHostEmail ? maskContactInfo(rawHostEmail) : '');
+          const selectedHostId = selectedBooking.host?.id || selectedBooking.host_id || selectedBooking.client_id;
 
           return (
             <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
@@ -690,16 +694,20 @@ export default function ArtistDashboard() {
 
                 {/* Host Info */}
                 <div className="p-4 border border-line bg-paper-100 flex items-center gap-4">
-                  {selectedBooking.host?.avatar_url ? (
-                    <img src={selectedBooking.host.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-line" />
-                  ) : (
-                    <div className="w-12 h-12 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display font-bold">
-                      {selectedBooking.host?.full_name?.[0]?.toUpperCase() || '?'}
-                    </div>
-                  )}
+                  <Link to={`/hosts/${selectedHostId}`} className="group">
+                    {selectedBooking.host?.avatar_url ? (
+                      <img src={selectedBooking.host.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-line group-hover:opacity-90 transition-opacity" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display font-bold group-hover:bg-ink-300 transition-colors">
+                        {selectedBooking.host?.full_name?.[0]?.toUpperCase() || '?'}
+                      </div>
+                    )}
+                  </Link>
                   <div>
                     <div className="font-display font-semibold text-ink text-sm flex items-center gap-2">
-                      {selectedBooking.host?.full_name || 'Host'}
+                      <Link to={`/hosts/${selectedHostId}`} className="hover:underline">
+                        {selectedBooking.host?.full_name || 'Host'}
+                      </Link>
                       <HostStatusBadge isVerified={true} verificationStatus="approved" />
                     </div>
                     {displayHostEmail && (
