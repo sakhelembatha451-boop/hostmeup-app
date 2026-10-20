@@ -364,7 +364,15 @@ export default function ArtistProfilePage() {
 
         setServices(serviceData || []);
 
-        // Fetch all reviews matching profile_id, user_id, or URL id parameter
+        // 1. Fetch bookings for this artist first to capture all valid booking IDs
+        const { data: artistBookings } = await supabase
+          .from('bookings')
+          .select('id')
+          .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id}`);
+
+        const bookingIds = artistBookings?.map(b => b.id) || [];
+
+        // 2. Fetch all reviews matching artist IDs OR any associated booking IDs
         const { data: reviewData } = await supabase
           .from('reviews')
           .select(`
@@ -376,7 +384,7 @@ export default function ArtistProfilePage() {
             reviewer_id,
             reviewer:reviewer_id (full_name, avatar_url)
           `)
-          .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id}`)
+          .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id}${bookingIds.length > 0 ? `,booking_id.in.(${bookingIds.join(',')})` : ''}`)
           .order('created_at', { ascending: false });
 
         setReviews(reviewData || []);
