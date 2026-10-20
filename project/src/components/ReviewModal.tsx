@@ -45,15 +45,29 @@ export default function ReviewModal({
 
       if (targetHostId) {
         // --- 1. HOST REVIEW FLOW ---
+        // Automatically resolve or fallback artist_id so it never violates any NOT NULL constraint
+        let resolvedArtistId = artistId;
+        if (!resolvedArtistId) {
+          const { data: artistProfile } = await supabase
+            .from('artist_profiles')
+            .select('id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+          resolvedArtistId = artistProfile?.id || user.id;
+        }
+
+        const reviewPayload: any = {
+          booking_id: bookingId,
+          target_host_id: targetHostId,
+          artist_id: resolvedArtistId,
+          reviewer_id: user.id,
+          reviewer_role: 'artist',
+          rating: rating,
+          comment: comment.trim(),
+        };
+
         const { error: hostReviewErr } = await supabase.from('reviews').upsert(
-          {
-            booking_id: bookingId,
-            target_host_id: targetHostId,
-            reviewer_id: user.id,
-            reviewer_role: 'artist',
-            rating: rating,
-            comment: comment.trim(),
-          },
+          reviewPayload,
           { onConflict: 'booking_id' }
         );
 
