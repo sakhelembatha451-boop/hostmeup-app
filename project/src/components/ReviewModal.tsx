@@ -37,7 +37,7 @@ export default function ReviewModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('You must be logged in to leave a review.');
 
-      // 1. Resolve exact artist profile record to ensure both profile_id and user_id match
+      // 1. Resolve exact artist profile record to get both profile_id and user_id
       const { data: targetArtist } = await supabase
         .from('artist_profiles')
         .select('id, user_id')
@@ -47,7 +47,7 @@ export default function ReviewModal({
       const resolvedArtistId = targetArtist?.user_id || targetArtist?.id || artistId;
       const profileDbId = targetArtist?.id;
 
-      // 2. Upsert review record (supports both new submission & editing existing review)
+      // 2. Upsert review record using the booking_id unique constraint
       const { error: reviewErr } = await supabase.from('reviews').upsert(
         {
           booking_id: bookingId,
@@ -61,7 +61,7 @@ export default function ReviewModal({
 
       if (reviewErr) throw reviewErr;
 
-      // 3. Fetch all reviews for this artist (matching either user_id or profile_id)
+      // 3. Fetch all reviews for this artist to recalculate metrics
       const { data: reviews, error: fetchErr } = await supabase
         .from('reviews')
         .select('rating')
