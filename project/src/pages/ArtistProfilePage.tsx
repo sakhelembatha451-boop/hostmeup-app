@@ -435,20 +435,28 @@ export default function ArtistProfilePage() {
   };
 
   const handleDeleteReview = async (reviewId: string) => {
-    if (!window.confirm('Are you sure you want to delete your review? You will be able to write a new one afterward.')) return;
+    if (!window.confirm('Are you sure you want to delete your review? You will be able to submit a new one.')) return;
+
+    // Optimistically update UI immediately
+    setReviews((prev) => prev.filter((r) => r.id !== reviewId));
+    setUserReview(null);
+
     try {
       const { error: deleteError } = await supabase
         .from('reviews')
         .delete()
         .eq('id', reviewId);
 
-      if (deleteError) throw deleteError;
+      if (deleteError) {
+        throw deleteError;
+      }
 
-      alert('Review deleted successfully.');
-      setUserReview(null);
+      alert('Review removed successfully.');
       fetchArtistProfile();
     } catch (err: any) {
-      alert(err.message || 'Failed to delete review.');
+      console.error('Delete review error:', err);
+      alert(err.message || 'Failed to delete review. Please check database permissions.');
+      fetchArtistProfile(); // Re-sync if failed
     }
   };
 
