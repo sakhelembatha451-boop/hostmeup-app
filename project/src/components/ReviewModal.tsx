@@ -6,8 +6,10 @@ interface ReviewModalProps {
   isOpen: boolean;
   onClose: () => void;
   bookingId: string;
-  artistId: string;
-  artistName: string;
+  artistId?: string;
+  artistName?: string;
+  targetHostId?: string;
+  hostName?: string;
   onSuccess?: () => void;
 }
 
@@ -17,6 +19,8 @@ export default function ReviewModal({
   bookingId,
   artistId,
   artistName,
+  targetHostId,
+  hostName,
   onSuccess,
 }: ReviewModalProps) {
   const [rating, setRating] = useState<number>(5);
@@ -28,6 +32,8 @@ export default function ReviewModal({
 
   if (!isOpen) return null;
 
+  const displayName = artistName || hostName || 'User';
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -37,50 +43,85 @@ export default function ReviewModal({
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('You must be logged in to leave a review.');
 
-      // 1. Resolve exact artist profile record to get both profile_id and user_id
-      const { data: targetArtist } = await supabase
-        .from('artist_profiles')
-        .select('id, user_id')
-        .or(`id.eq.${artistId},user_id.eq.${artistId}`)
-        .maybeSingle();
+      if (targetHostId) {
+        // --- 1. HOST REVIEW FLOW ---
+        const { error: hostReviewErr } = await supabase.from('reviews').upsert(
+          {
+            booking_id: bookingId,
+            target_host_id: targetHostId,
+            reviewer_id: user.id,
+            reviewer_role: 'artist',
+            rating: rating,
+            comment: comment.trim(),
+          },
+          { onConflict: 'booking_id' }
+        );
 
-      const resolvedArtistId = artistId || targetArtist?.id || targetArtist?.user_id;
-      const profileDbId = targetArtist?.id;
-      const userAuthId = targetArtist?.user_id;
+        if (hostReviewErr) throw hostReviewErr;
 
-      // 2. Upsert review record using the booking_id unique constraint with the exact URL/profile artistId
-      const { error: reviewErr } = await supabase.from('reviews').upsert(
-        {
-          booking_id: bookingId,
-          artist_id: resolvedArtistId,
-          reviewer_id: user.id,
-          rating: rating,
-          comment: comment.trim(),
-        },
-        { onConflict: 'booking_id' }
-      );
+        // Recalculate metrics on host_profiles if aggregate columns exist
+        const { data: hostReviews } = await supabase
+          .from('reviews')
+          .select('rating')
+          .eq('target_host_id', targetHostId);
 
-      if (reviewErr) throw reviewErr;
+        if (hostReviews && hostReviews.length > 0) {
+          const totalCount = hostReviews.length;
+          const avgRating = hostReviews.reduce((acc, curr) => acc + curr.rating, 0) / totalCount;
 
-      // 3. Fetch all reviews for this artist to recalculate metrics across all ID variants
-      const { data: reviews, error: fetchErr } = await supabase
-        .from('reviews')
-        .select('rating')
-        .or(`artist_id.eq.${resolvedArtistId}${profileDbId ? `,artist_id.eq.${profileDbId}` : ''}${userAuthId ? `,artist_id.eq.${userAuthId}` : ''}`);
-
-      if (!fetchErr && reviews && reviews.length > 0) {
-        const totalCount = reviews.length;
-        const avgRating =
-          reviews.reduce((acc, curr) => acc + curr.rating, 0) / totalCount;
-
-        // 4. Update aggregate metrics on artist_profiles
-        await supabase
+          await supabase
+            .from('host_profiles')
+            .update({
+              rating: Number(avgRating.toFixed(2)),
+              review_count: totalCount,
+            })
+            .or(`id.eq.${targetHostId},user_id.eq.${targetHostId}`);
+        }
+      } else if (artistId) {
+        // --- 2. ARTIST REVIEW FLOW ---
+        const { data: targetArtist } = await supabase
           .from('artist_profiles')
-          .update({
-            rating: Number(avgRating.toFixed(2)),
-            review_count: totalCount,
-          })
-          .or(`id.eq.${resolvedArtistId},user_id.eq.${resolvedArtistId}${profileDbId ? `,id.eq.${profileDbId}` : ''}`);
+          .select('id, user_id')
+          .or(`id.eq.${artistId},user_id.eq.${artistId}`)
+          .maybeSingle();
+
+        const resolvedArtistId = artistId || targetArtist?.id || targetArtist?.user_id;
+        const profileDbId = targetArtist?.id;
+        const userAuthId = targetArtist?.user_id;
+
+        const { error: reviewErr } = await supabase.from('reviews').upsert(
+          {
+            booking_id: bookingId,
+            artist_id: resolvedArtistId,
+            reviewer_id: user.id,
+            reviewer_role: 'host',
+            rating: rating,
+            comment: comment.trim(),
+          },
+          { onConflict: 'booking_id' }
+        );
+
+        if (reviewErr) throw reviewErr;
+
+        const { data: reviews, error: fetchErr } = await supabase
+          .from('reviews')
+          .select('rating')
+          .or(`artist_id.eq.${resolvedArtistId}${profileDbId ? `,artist_id.eq.${profileDbId}` : ''}${userAuthId ? `,artist_id.eq.${userAuthId}` : ''}`);
+
+        if (!fetchErr && reviews && reviews.length > 0) {
+          const totalCount = reviews.length;
+          const avgRating = reviews.reduce((acc, curr) => acc + curr.rating, 0) / totalCount;
+
+          await supabase
+            .from('artist_profiles')
+            .update({
+              rating: Number(avgRating.toFixed(2)),
+              review_count: totalCount,
+            })
+            .or(`id.eq.${resolvedArtistId},user_id.eq.${resolvedArtistId}${profileDbId ? `,id.eq.${profileDbId}` : ''}`);
+        }
+      } else {
+        throw new Error('Target profile recipient ID is missing.');
       }
 
       setSubmitted(true);
@@ -119,7 +160,7 @@ export default function ReviewModal({
               <CheckCircle2 className="w-8 h-8" />
             </div>
             <h3 className="font-display text-2xl font-bold text-ink">Review Submitted!</h3>
-            <p className="text-xs text-ink-500">Thank you for rating {artistName}.</p>
+            <p className="text-xs text-ink-500">Thank you for rating {displayName}.</p>
           </div>
         ) : (
           <>
@@ -128,7 +169,7 @@ export default function ReviewModal({
                 Post-Gig Feedback
               </p>
               <h2 className="font-display text-2xl font-bold text-ink tracking-tight">
-                Rate {artistName}
+                Rate {displayName}
               </h2>
               <p className="text-xs text-ink-500 mt-1">
                 Share your feedback to help the HostMeUp community build trust.
@@ -183,7 +224,7 @@ export default function ReviewModal({
                   rows={4}
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
-                  placeholder="How was their punctuality, performance, and communication?"
+                  placeholder="How was their punctuality, professionalism, and communication?"
                   className="input-field w-full p-3 text-xs bg-paper-100 border border-line focus:border-ink focus:bg-paper focus:outline-none text-ink"
                 />
               </div>
