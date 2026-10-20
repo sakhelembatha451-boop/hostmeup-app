@@ -476,3 +476,334 @@ export default function ArtistProfilePage() {
   const isOwner = currentUserId && targetAuthId === currentUserId;
   const isVerified = artist.is_verified || artist.verification_status === 'verified';
   const rating = artist.rating || (reviews.length > 0 ? reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length : 0);
+  const reviewCount = artist.review_count || reviews.length;
+
+  const galleryImages: string[] = Array.isArray(artist.gallery_urls) && artist.gallery_urls.length > 0
+    ? artist.gallery_urls
+    : Array.isArray(artist.gallery) && artist.gallery.length > 0
+    ? artist.gallery
+    : Array.isArray(artist.portfolio_urls) && artist.portfolio_urls.length > 0
+    ? artist.portfolio_urls
+    : Array.isArray(artist.media_urls) && artist.media_urls.length > 0
+    ? artist.media_urls
+    : [];
+
+  return (
+    <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
+      <div className="max-w-6xl mx-auto">
+        <Link to="/artists" className="inline-flex items-center gap-2 text-xs uppercase tracking-wide-sm text-ink-500 hover:text-ink mb-8">
+          <ArrowLeft className="w-4 h-4" />
+          Back to Browse
+        </Link>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+          <div className="lg:col-span-2 space-y-8">
+            <div className="aspect-[16/9] bg-paper-200 border border-line overflow-hidden relative">
+              {artist.cover_url || artist.avatar_url ? (
+                <img
+                  src={artist.cover_url || artist.avatar_url}
+                  alt={artist.stage_name || 'Artist Image'}
+                  className="w-full h-full object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                  onClick={() => setActiveImage(artist.cover_url || artist.avatar_url)}
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-ink-400">
+                  <Music2 className="w-12 h-12" />
+                </div>
+              )}
+
+              {/* Verified Badge on Cover Top-Left */}
+              {isVerified && (
+                <div className="absolute top-4 left-4 bg-emerald-700 text-white text-xs uppercase font-bold px-3 py-1 flex items-center gap-1.5 shadow-md">
+                  <ShieldCheck className="w-4 h-4" /> Verified Creator
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="flex items-center gap-3">
+                    <h1 className="font-display text-3xl font-bold text-ink">{artist.stage_name || 'Unnamed Artist'}</h1>
+                  </div>
+
+                  <p className="text-xs text-ink-500 mt-2 flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4" />
+                    {artist.location_city ? `${artist.location_city}, ${artist.location_province || 'ZA'}` : artist.location || 'Location not specified'}
+                  </p>
+                </div>
+
+                <div className="flex flex-col items-end gap-1">
+                  <div className="text-xl font-bold text-ink">{renderPricingBadge()}</div>
+                  {reviewCount > 0 && (
+                    <div className="flex items-center gap-1.5 text-xs font-semibold text-ink bg-paper-100 border border-line px-2.5 py-1">
+                      <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                      <span>{Number(rating).toFixed(1)}</span>
+                      <span className="text-ink-400 font-normal">({reviewCount} {reviewCount === 1 ? 'review' : 'reviews'})</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {artist.categories && artist.categories.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-4">
+                  {artist.categories.map((cat: string) => (
+                    <span key={cat} className="text-[10px] uppercase tracking-wide-sm bg-paper-200 border border-line px-2.5 py-1 text-ink-600 font-medium">
+                      {cat}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-line pt-6">
+              <h3 className="font-display text-lg font-bold text-ink mb-3">About</h3>
+              <p className="text-sm text-ink-600 leading-relaxed whitespace-pre-line">
+                {artist.bio || 'No biography provided yet.'}
+              </p>
+            </div>
+
+            {services.length > 0 && (
+              <div className="border-t border-line pt-6">
+                <h3 className="font-display text-lg font-bold text-ink mb-4">Services & Rates Menu</h3>
+                <div className="divide-y divide-line border border-line bg-paper-100">
+                  {services.map((service) => (
+                    <div key={service.id} className="p-4 flex items-center justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-ink">{service.service_name}</p>
+                        {service.duration_minutes && (
+                          <p className="text-xs text-ink-500 mt-0.5">Est. Duration: {service.duration_minutes} mins</p>
+                        )}
+                      </div>
+                      <p className="font-bold text-ink text-base">R{service.price}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Portfolio / Media Gallery Grid */}
+            {galleryImages.length > 0 && (
+              <div className="border-t border-line pt-8">
+                <h3 className="font-display text-lg font-bold text-ink mb-4">Portfolio Gallery</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                  {galleryImages.map((url: string, index: number) => (
+                    <div 
+                      key={index} 
+                      className="aspect-square bg-paper-200 border border-line overflow-hidden rounded-xs cursor-pointer group relative"
+                      onClick={() => setActiveImage(url)}
+                    >
+                      <img 
+                        src={url} 
+                        alt={`Portfolio item ${index + 1}`} 
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Host Reviews & Rating Breakdown Section */}
+            <div className="border-t border-line pt-8">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+                <div>
+                  <h3 className="font-display text-xl font-bold text-ink">Host Reviews & Feedback</h3>
+                  <p className="text-xs text-ink-500 mt-0.5">Verified feedback from past event hosts</p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {/* Rate / Edit Review Button for Logged-In Hosts */}
+                  {userHostBooking && !isOwner && (
+                    <button
+                      type="button"
+                      onClick={() => setIsReviewModalOpen(true)}
+                      className="px-3.5 py-1.5 bg-ink text-paper text-xs uppercase font-semibold tracking-wide-sm border border-ink hover:bg-ink/90 flex items-center gap-1.5 transition-colors shadow-xs"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                      <span>{userReview ? '★ Edit My Review' : '★ Leave Review'}</span>
+                    </button>
+                  )}
+
+                  {reviewCount > 0 && (
+                    <div className="flex items-center gap-1.5 text-sm font-bold text-ink bg-paper-100 border border-line px-3 py-1.5">
+                      <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                      <span>{Number(rating).toFixed(1)} / 5.0</span>
+                      <span className="text-ink-400 font-normal text-xs">({reviewCount})</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {reviews.length === 0 ? (
+                <div className="border border-dashed border-line p-8 text-center bg-paper-100 space-y-3">
+                  <Star className="w-8 h-8 text-ink-300 mx-auto" />
+                  <div>
+                    <p className="text-xs text-ink-500 font-medium">No reviews submitted yet for this artist.</p>
+                    <p className="text-[11px] text-ink-400 mt-0.5">Completed gigs allow hosts to submit ratings and feedback.</p>
+                  </div>
+                  {userHostBooking && !isOwner && (
+                    <button
+                      type="button"
+                      onClick={() => setIsReviewModalOpen(true)}
+                      className="inline-flex items-center gap-1.5 px-4 py-2 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink/90 mt-2"
+                    >
+                      <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Leave First Review
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {reviews.map((rev) => (
+                    <div key={rev.id} className="border border-line bg-paper-100 p-5 space-y-3 relative">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {rev.reviewer?.avatar_url ? (
+                            <img src={rev.reviewer.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover border border-line" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-ink text-paper flex items-center justify-center font-bold text-xs">
+                              {rev.reviewer?.full_name?.[0]?.toUpperCase() || 'H'}
+                            </div>
+                          )}
+                          <div>
+                            <h4 className="font-display font-semibold text-ink text-sm flex items-center gap-2">
+                              <span>{rev.reviewer?.full_name || 'Event Host'}</span>
+                              {rev.reviewer_id === currentUserId && (
+                                <span className="text-[9px] uppercase font-bold tracking-wider text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">You</span>
+                              )}
+                            </h4>
+                            <p className="text-[10px] text-ink-400">
+                              {new Date(rev.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Star Rating Display */}
+                        <div className="flex items-center gap-1">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <Star
+                              key={star}
+                              className={`w-3.5 h-3.5 ${
+                                star <= rev.rating
+                                  ? 'fill-amber-500 text-amber-500'
+                                  : 'text-ink-300'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      {rev.comment && (
+                        <p className="text-xs text-ink-600 leading-relaxed bg-paper p-3 border border-line">
+                          "{rev.comment}"
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="space-y-6">
+            <div className="border border-line bg-paper-100 p-6 space-y-6 sticky top-6">
+              <h3 className="font-display text-lg font-bold text-ink">
+                {isOwner ? 'Your Artist Profile' : `Book ${artist.stage_name || 'Artist'}`}
+              </h3>
+              
+              <div className="space-y-3 text-xs text-ink-600">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-ink-400" />
+                  <span>Rate: {renderPricingBadge()}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <span>Verified HostMeUp Creator</span>
+                </div>
+                {reviewCount > 0 && (
+                  <div className="flex items-center gap-2">
+                    <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                    <span>{Number(rating).toFixed(1)} Star Rating ({reviewCount} reviews)</span>
+                  </div>
+                )}
+              </div>
+
+              {isOwner ? (
+                <Link
+                  to="/artist-profile/edit"
+                  className="w-full text-center flex items-center justify-center gap-2 py-3 bg-paper border border-ink text-ink text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink hover:text-paper transition-colors"
+                >
+                  <Edit3 className="w-4 h-4" />
+                  Edit Profile
+                </Link>
+              ) : (
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsBookingModalOpen(true)}
+                    className="w-full text-center flex items-center justify-center gap-2 py-3 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 transition-colors"
+                  >
+                    Request Booking
+                  </button>
+
+                  <Link
+                    to={`/inbox/${targetAuthId}`}
+                    className="w-full text-center flex items-center justify-center gap-2 py-2.5 border border-ink text-ink text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink hover:text-paper transition-colors"
+                  >
+                    <MessageSquare className="w-4 h-4" />
+                    Start Conversation
+                  </Link>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Render Booking Modal */}
+      <BookingModal
+        isOpen={isBookingModalOpen}
+        onClose={() => setIsBookingModalOpen(false)}
+        artistId={targetAuthId}
+        artistName={artist.stage_name || 'Artist'}
+        artistRate={artist.hourly_rate}
+        customRateDisplay={artist.custom_rate_display}
+        services={services}
+      />
+
+      {/* Render Review Modal for Host */}
+      {userHostBooking && (
+        <ReviewModal
+          isOpen={isReviewModalOpen}
+          onClose={() => setIsReviewModalOpen(false)}
+          bookingId={userHostBooking.id}
+          artistId={targetAuthId}
+          artistName={artist.stage_name || 'Artist'}
+          onSuccess={() => fetchArtistProfile()}
+        />
+      )}
+
+      {/* Image Lightbox Modal */}
+      {activeImage && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          onClick={() => setActiveImage(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            <button 
+              onClick={() => setActiveImage(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 p-2"
+            >
+              <X className="w-6 h-6" />
+            </button>
+            <img 
+              src={activeImage} 
+              alt="Enlarged view" 
+              className="max-w-full max-h-[85vh] object-contain border border-line"
+            />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
