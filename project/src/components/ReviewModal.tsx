@@ -44,10 +44,11 @@ export default function ReviewModal({
         .or(`id.eq.${artistId},user_id.eq.${artistId}`)
         .maybeSingle();
 
-      const resolvedArtistId = targetArtist?.user_id || targetArtist?.id || artistId;
+      const resolvedArtistId = artistId || targetArtist?.id || targetArtist?.user_id;
       const profileDbId = targetArtist?.id;
+      const userAuthId = targetArtist?.user_id;
 
-      // 2. Upsert review record using the booking_id unique constraint
+      // 2. Upsert review record using the booking_id unique constraint with the exact URL/profile artistId
       const { error: reviewErr } = await supabase.from('reviews').upsert(
         {
           booking_id: bookingId,
@@ -61,11 +62,11 @@ export default function ReviewModal({
 
       if (reviewErr) throw reviewErr;
 
-      // 3. Fetch all reviews for this artist to recalculate metrics
+      // 3. Fetch all reviews for this artist to recalculate metrics across all ID variants
       const { data: reviews, error: fetchErr } = await supabase
         .from('reviews')
         .select('rating')
-        .or(`artist_id.eq.${resolvedArtistId}${profileDbId ? `,artist_id.eq.${profileDbId}` : ''}`);
+        .or(`artist_id.eq.${resolvedArtistId}${profileDbId ? `,artist_id.eq.${profileDbId}` : ''}${userAuthId ? `,artist_id.eq.${userAuthId}` : ''}`);
 
       if (!fetchErr && reviews && reviews.length > 0) {
         const totalCount = reviews.length;
@@ -79,7 +80,7 @@ export default function ReviewModal({
             rating: Number(avgRating.toFixed(2)),
             review_count: totalCount,
           })
-          .or(`id.eq.${resolvedArtistId},user_id.eq.${resolvedArtistId}`);
+          .or(`id.eq.${resolvedArtistId},user_id.eq.${resolvedArtistId}${profileDbId ? `,id.eq.${profileDbId}` : ''}`);
       }
 
       setSubmitted(true);
