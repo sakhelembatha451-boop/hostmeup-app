@@ -39,6 +39,18 @@ type BookingWithArtist = Booking & {
   artist?: { id: string; full_name: string; avatar_url: string | null; location: string };
 };
 
+interface HostReviewItem {
+  id: string;
+  rating: number;
+  comment?: string;
+  created_at: string;
+  reviewer_id?: string;
+  reviewer?: {
+    full_name?: string;
+    avatar_url?: string;
+  };
+}
+
 function formatCurrency(n: number | null | undefined) {
   if (n == null) return '—';
   return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
@@ -62,9 +74,12 @@ export default function HostDashboard() {
   const [filter, setFilter] = useState<string>('all');
   const [selectedBooking, setSelectedBooking] = useState<BookingWithArtist | null>(null);
 
-  // Review Modal State
+  // Review Modal State (For rating artists)
   const [reviewBookingTarget, setReviewBookingTarget] = useState<BookingWithArtist | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+
+  // Host Reviews State (Feedback received from artists)
+  const [hostReviews, setHostReviews] = useState<HostReviewItem[]>([]);
 
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -145,6 +160,24 @@ export default function HostDashboard() {
 
       if (hostData) {
         setHostVerification(hostData);
+      }
+
+      // Fetch reviews targeting this host
+      const { data: reviewData, error: reviewErr } = await supabase
+        .from('reviews')
+        .select(`
+          id,
+          rating,
+          comment,
+          created_at,
+          reviewer_id,
+          reviewer:reviewer_id (full_name, avatar_url)
+        `)
+        .eq('target_host_id', profile.id)
+        .order('created_at', { ascending: false });
+
+      if (!reviewErr && reviewData) {
+        setHostReviews(reviewData as HostReviewItem[]);
       }
     } catch (err) {
       console.error('Error loading host dashboard bookings:', err);
@@ -369,6 +402,74 @@ export default function HostDashboard() {
               <div className="text-xs uppercase tracking-wide-sm text-ink-400">{stat.label}</div>
             </div>
           ))}
+        </div>
+
+        {/* Host Reviews & Feedback Section */}
+        <div className="border border-line bg-paper-100 p-6 space-y-4 mb-10">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-display text-lg font-bold text-ink">Reviews from Booked Talent</h3>
+              <p className="text-xs text-ink-500">Ratings and feedback submitted by artists you have booked</p>
+            </div>
+            {hostReviews.length > 0 && (
+              <div className="flex items-center gap-1.5 text-xs font-bold text-ink bg-paper border border-line px-3 py-1.5">
+                <Star className="w-4 h-4 fill-amber-500 text-amber-500" />
+                <span>
+                  {(
+                    hostReviews.reduce((acc, r) => acc + r.rating, 0) / hostReviews.length
+                  ).toFixed(1)} / 5.0
+                </span>
+                <span className="text-ink-400 font-normal">({hostReviews.length})</span>
+              </div>
+            )}
+          </div>
+
+          {hostReviews.length === 0 ? (
+            <div className="border border-dashed border-line p-6 text-center text-xs text-ink-500">
+              No reviews received from artists yet.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {hostReviews.map((rev) => (
+                <div key={rev.id} className="border border-line bg-paper p-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      {rev.reviewer?.avatar_url ? (
+                        <img src={rev.reviewer.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover border border-line" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-ink text-paper flex items-center justify-center font-bold text-xs">
+                          {rev.reviewer?.full_name?.[0]?.toUpperCase() || 'A'}
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs font-bold text-ink">
+                          {rev.reviewer?.full_name || 'Talent Provider'}
+                        </p>
+                        <p className="text-[10px] text-ink-400">
+                          {new Date(rev.created_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star
+                          key={star}
+                          className={`w-3.5 h-3.5 ${
+                            star <= rev.rating ? 'fill-amber-500 text-amber-500' : 'text-ink-300'
+                          }`}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  {rev.comment && (
+                    <p className="text-xs text-ink-600 bg-paper-100 p-2.5 border border-line">
+                      "{rev.comment}"
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8 pb-4 border-b border-line">
