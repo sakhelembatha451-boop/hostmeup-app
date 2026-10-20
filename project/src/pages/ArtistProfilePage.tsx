@@ -372,7 +372,7 @@ export default function ArtistProfilePage() {
 
         const bookingIds = artistBookings?.map(b => b.id) || [];
 
-        // 2. Safer fallback query to fetch all reviews matching artist IDs or booking IDs cleanly
+        // 2. Fetch reviews cleanly without rigid foreign key constraint names
         let reviewQuery = supabase
           .from('reviews')
           .select(`
@@ -382,7 +382,7 @@ export default function ArtistProfilePage() {
             created_at,
             booking_id,
             reviewer_id,
-            reviewer:profiles!reviews_reviewer_id_fkey (full_name, avatar_url)
+            reviewer:reviewer_id (full_name, avatar_url)
           `)
           .order('created_at', { ascending: false });
 
@@ -393,11 +393,19 @@ export default function ArtistProfilePage() {
         }
 
         const { data: reviewData, error: revErr } = await reviewQuery;
+        
         if (revErr) {
-          console.error("Error fetching reviews:", revErr);
+          console.error("Error fetching reviews with join, attempting fallback:", revErr);
+          // Fallback query without the relation join if foreign key naming differs
+          const { data: fallbackReviews } = await supabase
+            .from('reviews')
+            .select('*')
+            .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id}`);
+          
+          setReviews(fallbackReviews || []);
+        } else {
+          setReviews(reviewData || []);
         }
-
-        setReviews(reviewData || []);
 
         // Check if current logged-in host has booked this artist
         const { data: { user } } = await supabase.auth.getUser();
@@ -775,35 +783,4 @@ export default function ArtistProfilePage() {
       {userHostBooking && (
         <ReviewModal
           isOpen={isReviewModalOpen}
-          onClose={() => setIsReviewModalOpen(false)}
-          bookingId={userHostBooking.id}
-          artistId={targetAuthId}
-          artistName={artist.stage_name || 'Artist'}
-          onSuccess={() => fetchArtistProfile()}
-        />
-      )}
-
-      {/* Image Lightbox Modal */}
-      {activeImage && (
-        <div 
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
-          onClick={() => setActiveImage(null)}
-        >
-          <div className="relative max-w-4xl max-h-[90vh] w-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
-            <button 
-              onClick={() => setActiveImage(null)}
-              className="absolute -top-10 right-0 text-white hover:text-gray-300 p-2"
-            >
-              <X className="w-6 h-6" />
-            </button>
-            <img 
-              src={activeImage} 
-              alt="Enlarged view" 
-              className="max-w-full max-h-[85vh] object-contain border border-line"
-            />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
+          onClose={() =>
