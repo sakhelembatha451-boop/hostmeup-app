@@ -364,7 +364,7 @@ export default function ArtistProfilePage() {
 
         setServices(serviceData || []);
 
-        // Fetch all reviews matching artist's profile_id OR user_id
+        // Fetch all reviews matching profile_id, user_id, or URL id parameter
         const { data: reviewData } = await supabase
           .from('reviews')
           .select(`
@@ -376,7 +376,7 @@ export default function ArtistProfilePage() {
             reviewer_id,
             reviewer:reviewer_id (full_name, avatar_url)
           `)
-          .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId}`)
+          .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id}`)
           .order('created_at', { ascending: false });
 
         setReviews(reviewData || []);
