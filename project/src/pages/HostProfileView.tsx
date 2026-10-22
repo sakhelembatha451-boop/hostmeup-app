@@ -62,7 +62,7 @@ export default function HostProfileView() {
 
       setHost(profileData);
 
-      // 2. Fetch Reviews strictly targeted to this host (target_host_id = id)
+      // 2. Fetch Reviews targeting this host
       const { data: reviewData } = await supabase
         .from('reviews')
         .select('id, rating, comment, created_at, reviewer_id')
@@ -137,6 +137,7 @@ export default function HostProfileView() {
       if (error) throw error;
 
       setReviews((prev) => prev.filter((r) => r.id !== reviewId));
+      alert('Review deleted successfully! You can now rate this host again.');
     } catch (err: any) {
       console.error('Error deleting review:', err);
       alert(`Could not delete review: ${err.message || 'Permission denied'}`);
@@ -203,7 +204,7 @@ export default function HostProfileView() {
           </div>
         </div>
 
-        {/* Tab Switcher: Reviews vs Past Hosted Events */}
+        {/* Tab Switcher */}
         <div className="flex border-b border-line">
           <button
             onClick={() => setActiveTab('reviews')}
@@ -233,7 +234,8 @@ export default function HostProfileView() {
             ) : (
               <div className="space-y-4">
                 {reviews.map((review) => {
-                  const isAuthor = user?.id && review.reviewer_id === user.id;
+                  // Robust check: matches logged-in user id
+                  const isAuthor = Boolean(user?.id && review.reviewer_id === user.id);
 
                   return (
                     <div key={review.id} className="border border-line bg-white p-6 space-y-3 shadow-xs">
@@ -247,7 +249,12 @@ export default function HostProfileView() {
                             </div>
                           )}
                           <div>
-                            <h4 className="font-display font-semibold text-ink text-sm">{review.reviewer?.full_name || 'Talent Provider'}</h4>
+                            <div className="flex items-center gap-2">
+                              <h4 className="font-display font-semibold text-ink text-sm">{review.reviewer?.full_name || 'Talent Provider'}</h4>
+                              {isAuthor && (
+                                <span className="text-[9px] uppercase font-bold tracking-wider text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">You</span>
+                              )}
+                            </div>
                             <span className="text-[10px] text-ink-400">
                               {new Date(review.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                             </span>
