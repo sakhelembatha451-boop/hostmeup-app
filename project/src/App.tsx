@@ -16,7 +16,7 @@ import HostDashboard from '@/pages/HostDashboard';
 import ArtistDashboard from '@/pages/ArtistDashboard';
 import HostSettingsPage from '@/pages/HostSettingsPage';
 import HostProfileView from '@/pages/HostProfileView';
-import GigFeedPage from '@/pages/GigFeedPage';
+import GigFeedPage from '@/pages/GigFeedPage.tsx';
 import { InboxPage } from '@/pages/InboxPage';
 import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminDashboard from '@/pages/AdminDashboard';
