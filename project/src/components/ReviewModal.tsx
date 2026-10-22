@@ -44,8 +44,7 @@ export default function ReviewModal({
       if (!user) throw new Error('You must be logged in to leave a review.');
 
       if (targetHostId) {
-        // --- 1. HOST REVIEW FLOW ---
-        // Automatically resolve or fallback artist_id so it never violates any NOT NULL constraint
+        // --- 1. HOST REVIEW FLOW (Artist reviewing Host) ---
         let resolvedArtistId = artistId;
         if (!resolvedArtistId) {
           const { data: artistProfile } = await supabase
@@ -59,6 +58,7 @@ export default function ReviewModal({
         const reviewPayload: any = {
           booking_id: bookingId,
           target_host_id: targetHostId,
+          target_artist_id: null,
           artist_id: resolvedArtistId,
           reviewer_id: user.id,
           reviewer_role: 'artist',
@@ -73,7 +73,7 @@ export default function ReviewModal({
 
         if (hostReviewErr) throw hostReviewErr;
 
-        // Recalculate metrics on host_profiles if aggregate columns exist
+        // Recalculate metrics on host_profiles
         const { data: hostReviews } = await supabase
           .from('reviews')
           .select('rating')
@@ -92,7 +92,7 @@ export default function ReviewModal({
             .or(`id.eq.${targetHostId},user_id.eq.${targetHostId}`);
         }
       } else if (artistId) {
-        // --- 2. ARTIST REVIEW FLOW ---
+        // --- 2. ARTIST REVIEW FLOW (Host reviewing Artist) ---
         const { data: targetArtist } = await supabase
           .from('artist_profiles')
           .select('id, user_id')
@@ -103,15 +103,19 @@ export default function ReviewModal({
         const profileDbId = targetArtist?.id;
         const userAuthId = targetArtist?.user_id;
 
+        const reviewPayload: any = {
+          booking_id: bookingId,
+          target_artist_id: resolvedArtistId,
+          target_host_id: null,
+          artist_id: resolvedArtistId,
+          reviewer_id: user.id,
+          reviewer_role: 'host',
+          rating: rating,
+          comment: comment.trim(),
+        };
+
         const { error: reviewErr } = await supabase.from('reviews').upsert(
-          {
-            booking_id: bookingId,
-            artist_id: resolvedArtistId,
-            reviewer_id: user.id,
-            reviewer_role: 'host',
-            rating: rating,
-            comment: comment.trim(),
-          },
+          reviewPayload,
           { onConflict: 'booking_id' }
         );
 
@@ -120,7 +124,7 @@ export default function ReviewModal({
         const { data: reviews, error: fetchErr } = await supabase
           .from('reviews')
           .select('rating')
-          .or(`artist_id.eq.${resolvedArtistId}${profileDbId ? `,artist_id.eq.${profileDbId}` : ''}${userAuthId ? `,artist_id.eq.${userAuthId}` : ''}`);
+          .or(`target_artist_id.eq.${resolvedArtistId}${profileDbId ? `,target_artist_id.eq.${profileDbId}` : ''}${userAuthId ? `,target_artist_id.eq.${userAuthId}` : ''}`);
 
         if (!fetchErr && reviews && reviews.length > 0) {
           const totalCount = reviews.length;
