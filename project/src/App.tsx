@@ -16,6 +16,7 @@ import HostDashboard from '@/pages/HostDashboard';
 import ArtistDashboard from '@/pages/ArtistDashboard';
 import HostSettingsPage from '@/pages/HostSettingsPage';
 import HostProfileView from '@/pages/HostProfileView';
+import GigFeedPage from '@/pages/GigFeedPage';
 import { InboxPage } from '@/pages/InboxPage';
 import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminDashboard from '@/pages/AdminDashboard';
@@ -43,12 +44,10 @@ function BookingSuccessPage() {
         return;
       }
 
-      // Clean and extract valid UUID from raw parameter (handles accidental markdown/URL suffix pollution)
       const uuidMatch = rawBookingId.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
       const bookingId = uuidMatch ? uuidMatch[0] : rawBookingId;
 
       try {
-        // Call the secure backend RPC function
         const { error } = await supabaseClient.rpc('confirm_booking_payment', {
           target_booking_id: bookingId
         });
@@ -170,6 +169,7 @@ function AppRoutes() {
         <Route path="/artists" element={<ArtistBrowsePage />} />
         <Route path="/artists/:id" element={<ArtistProfilePage />} />
         <Route path="/hosts/:id" element={<HostProfileView />} />
+        <Route path="/gigs" element={<GigFeedPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
         <Route path="/dashboard" element={<DashboardRedirect />} />
