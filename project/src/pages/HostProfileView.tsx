@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
-import { Star, MapPin, ArrowLeft, Loader2, Image as ImageIcon, Video, Calendar, PartyPopper } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { Star, MapPin, ArrowLeft, Loader2, Image as ImageIcon, Calendar, PartyPopper, Trash2 } from 'lucide-react';
 
 interface ReviewItem {
   id: string;
   rating: number;
   comment: string;
   created_at: string;
+  reviewer_id: string;
   reviewer?: {
     full_name: string;
     avatar_url: string | null;
@@ -32,90 +34,116 @@ interface HostProfileData {
 
 export default function HostProfileView() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
   const [host, setHost] = useState<HostProfileData | null>(null);
   const [reviews, setReviews] = useState<ReviewItem[]>([]);
   const [pastEvents, setPastEvents] = useState<EventPost[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'reviews' | 'events'>('reviews');
 
-  useEffect(() => {
-    async function loadHostData() {
-      if (!id) return;
-      setLoading(true);
+  async function loadHostData() {
+    if (!id) return;
+    setLoading(true);
 
-      try {
-        // 1. Fetch Host Picture & Basic Info
-        const { data: profileData, error: profileErr } = await supabase
-          .from('profiles')
-          .select('id, full_name, avatar_url, location')
-          .eq('id', id)
-          .maybeSingle();
+    try {
+      // 1. Fetch Host Profile
+      const { data: profileData, error: profileErr } = await supabase
+        .from('profiles')
+        .select('id, full_name, avatar_url, location')
+        .eq('id', id)
+        .maybeSingle();
 
-        if (profileErr || !profileData) {
-          console.error('Error loading host profile:', profileErr);
-          setLoading(false);
-          return;
-        }
-
-        setHost(profileData);
-
-        // 2. Fetch Reviews Left by Booked Talent Providers
-        const { data: reviewData } = await supabase
-          .from('reviews')
-          .select('id, rating, comment, created_at, reviewer_id')
-          .eq('target_host_id', id)
-          .order('created_at', { ascending: false });
-
-        if (reviewData) {
-          const reviewerIds = Array.from(new Set(reviewData.map((r) => r.reviewer_id).filter(Boolean)));
-          
-          let reviewerMap = new Map();
-          if (reviewerIds.length > 0) {
-            const { data: reviewers } = await supabase
-              .from('profiles')
-              .select('id, full_name, avatar_url')
-              .in('id', reviewerIds);
-
-            if (reviewers) {
-              reviewerMap = new Map(reviewers.map((rev) => [rev.id, rev]));
-            }
-          }
-
-          setReviews(reviewData.map((r) => ({
-            id: r.id,
-            rating: r.rating,
-            comment: r.comment,
-            created_at: r.created_at,
-            reviewer: reviewerMap.get(r.reviewer_id) || { full_name: 'Talent Provider', avatar_url: null },
-          })));
-        }
-
-        // 3. Fetch Past Events Hosted by this Host
-        const { data: eventsData } = await supabase
-          .from('bookings')
-          .select('id, event_name, event_date, notes')
-          .or(`host_id.eq.${id},client_id.eq.${id}`)
-          .or('status.eq.completed,completed_at.not.is.null')
-          .order('event_date', { ascending: false });
-
-        if (eventsData) {
-          setPastEvents(eventsData.map((e) => ({
-            id: e.id,
-            title: e.event_name || 'Past Hosted Event',
-            event_date: e.event_date || '',
-            description: e.notes || undefined,
-          })));
-        }
-
-      } catch (err) {
-        console.error('Error loading host view:', err);
-      } finally {
+      if (profileErr || !profileData) {
+        console.error('Error loading host profile:', profileErr);
         setLoading(false);
+        return;
       }
-    }
 
+      setHost(profileData);
+
+      // 2. Fetch Reviews strictly targeted to this host (target_host_id = id)
+      const { data: reviewData } = await supabase
+        .from('reviews')
+        .select('id, rating, comment, created_at, reviewer_id')
+        .eq('target_host_id', id)
+        .order('created_at', { ascending: false });
+
+      if (reviewData) {
+        const reviewerIds = Array.from(new Set(reviewData.map((r) => r.reviewer_id).filter(Boolean)));
+        
+        let reviewerMap = new Map();
+        if (reviewerIds.length > 0) {
+          const { data: reviewers } = await supabase
+            .from('profiles')
+            .select('id, full_name, avatar_url')
+            .in('id', reviewerIds);
+
+          if (reviewers) {
+            reviewerMap = new Map(reviewers.map((rev) => [rev.id, rev]));
+          }
+        }
+
+        setReviews(reviewData.map((r) => ({
+          id: r.id,
+          rating: r.rating,
+          comment: r.comment,
+          created_at: r.created_at,
+          reviewer_id: r.reviewer_id,
+          reviewer: reviewerMap.get(r.reviewer_id) || { full_name: 'Talent Provider', avatar_url: null },
+        })));
+      }
+
+      // 3. Fetch Past Events Hosted by this host
+      const { data: eventsData } = await supabase
+        .from('bookings')
+        .select('id, event_name, event_date, notes')
+        .or(`host_id.eq.${id},client_id.eq.${id}`)
+        .or('status.eq.completed,completed_at.not.is.null')
+        .order('event_date', { ascending: false });
+
+      if (eventsData) {
+        setPastEvents(eventsData.map((e) => ({
+          id: e.id,
+          title: e.event_name || 'Past Hosted Event',
+          event_date: e.event_date || '',
+          description: e.notes || undefined,
+        })));
+      }
+
+    } catch (err) {
+      console.error('Error loading host view:', err);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
     loadHostData();
   }, [id]);
+
+  const handleDeleteReview = async (reviewId: string) => {
+    if (!window.confirm('Are you sure you want to delete your review? You will be able to submit a new one afterwards.')) {
+      return;
+    }
+
+    setDeletingId(reviewId);
+    try {
+      const { error } = await supabase
+        .from('reviews')
+        .delete()
+        .eq('id', reviewId);
+
+      if (error) throw error;
+
+      setReviews((prev) => prev.filter((r) => r.id !== reviewId));
+    } catch (err: any) {
+      console.error('Error deleting review:', err);
+      alert(`Could not delete review: ${err.message || 'Permission denied'}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -129,7 +157,7 @@ export default function HostProfileView() {
     return (
       <div className="min-h-screen bg-paper flex flex-col items-center justify-center p-6 text-center">
         <h2 className="font-display text-2xl font-bold text-ink mb-2">Host Not Found</h2>
-        <Link to="/browse" className="btn-primary px-5 py-2.5 text-xs uppercase tracking-wide-sm">
+        <Link to="/artists" className="btn-primary px-5 py-2.5 text-xs uppercase tracking-wide-sm">
           Back to Browse
         </Link>
       </div>
@@ -195,7 +223,7 @@ export default function HostProfileView() {
           </button>
         </div>
 
-        {/* TAB 1: Talent Provider Reviews */}
+        {/* TAB 1: Talent Reviews */}
         {activeTab === 'reviews' && (
           <div className="space-y-4">
             {reviews.length === 0 ? (
@@ -204,50 +232,72 @@ export default function HostProfileView() {
               </div>
             ) : (
               <div className="space-y-4">
-                {reviews.map((review) => (
-                  <div key={review.id} className="border border-line bg-white p-6 space-y-3 shadow-xs">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        {review.reviewer?.avatar_url ? (
-                          <img src={review.reviewer.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover border border-line" />
-                        ) : (
-                          <div className="w-10 h-10 rounded-full bg-ink-200 text-ink-600 flex items-center justify-center font-display font-bold text-sm">
-                            {review.reviewer?.full_name?.[0]?.toUpperCase() || 'A'}
+                {reviews.map((review) => {
+                  const isAuthor = user?.id && review.reviewer_id === user.id;
+
+                  return (
+                    <div key={review.id} className="border border-line bg-white p-6 space-y-3 shadow-xs">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          {review.reviewer?.avatar_url ? (
+                            <img src={review.reviewer.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover border border-line" />
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-ink-200 text-ink-600 flex items-center justify-center font-display font-bold text-sm">
+                              {review.reviewer?.full_name?.[0]?.toUpperCase() || 'A'}
+                            </div>
+                          )}
+                          <div>
+                            <h4 className="font-display font-semibold text-ink text-sm">{review.reviewer?.full_name || 'Talent Provider'}</h4>
+                            <span className="text-[10px] text-ink-400">
+                              {new Date(review.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
                           </div>
-                        )}
-                        <div>
-                          <h4 className="font-display font-semibold text-ink text-sm">{review.reviewer?.full_name || 'Talent Provider'}</h4>
-                          <span className="text-[10px] text-ink-400">
-                            {new Date(review.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1">
+                            {[1, 2, 3, 4, 5].map((star) => (
+                              <Star
+                                key={star}
+                                className={`w-3.5 h-3.5 ${
+                                  star <= review.rating ? 'fill-amber-500 text-amber-500' : 'text-ink-300'
+                                }`}
+                              />
+                            ))}
+                          </div>
+
+                          {/* Delete Review Button for Author */}
+                          {isAuthor && (
+                            <button
+                              onClick={() => handleDeleteReview(review.id)}
+                              disabled={deletingId === review.id}
+                              title="Delete your review"
+                              className="p-1.5 text-ink-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            >
+                              {deletingId === review.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-red-600" />
+                              ) : (
+                                <Trash2 className="w-4 h-4" />
+                              )}
+                            </button>
+                          )}
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1">
-                        {[1, 2, 3, 4, 5].map((star) => (
-                          <Star
-                            key={star}
-                            className={`w-3.5 h-3.5 ${
-                              star <= review.rating ? 'fill-amber-500 text-amber-500' : 'text-ink-300'
-                            }`}
-                          />
-                        ))}
-                      </div>
+                      {review.comment && (
+                        <p className="text-xs text-ink-600 italic bg-paper-100 p-3 border border-line">
+                          "{review.comment}"
+                        </p>
+                      )}
                     </div>
-
-                    {review.comment && (
-                      <p className="text-xs text-ink-600 italic bg-paper-100 p-3 border border-line">
-                        "{review.comment}"
-                      </p>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
         )}
 
-        {/* TAB 2: Past Events Gallery & Posts */}
+        {/* TAB 2: Past Events Gallery */}
         {activeTab === 'events' && (
           <div className="space-y-4">
             {pastEvents.length === 0 ? (
@@ -272,7 +322,6 @@ export default function HostProfileView() {
 
                     <h3 className="font-display font-semibold text-ink text-base">{evt.title}</h3>
 
-                    {/* Media Post Preview (if image or video is attached) */}
                     {evt.media_url ? (
                       evt.media_type === 'video' ? (
                         <video src={evt.media_url} controls className="w-full h-48 object-cover border border-line" />
