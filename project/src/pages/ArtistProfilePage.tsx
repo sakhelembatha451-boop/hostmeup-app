@@ -36,6 +36,7 @@ interface ReviewItem {
   booking_id?: string;
   reviewer_id?: string;
   target_artist_id?: string;
+  target_host_id?: string;
   reviewer?: {
     full_name?: string;
     avatar_url?: string;
@@ -358,7 +359,7 @@ export default function ArtistProfilePage() {
 
         setServices(serviceData || []);
 
-        // Fetch bookings for this artist to double-check against target_artist_id
+        // Fetch bookings for this artist
         const { data: artistBookings } = await supabase
           .from('bookings')
           .select('id')
@@ -366,8 +367,8 @@ export default function ArtistProfilePage() {
 
         const bookingIds = (artistBookings || []).map((b) => b.id);
 
-        // QUERY REVIEWS: Fetch reviews where target_artist_id matches OR where booking_id belongs to this artist AND target_host_id IS NULL
-        let reviewQuery = supabase
+        // FOOLPROOF REVIEW QUERY: Fetch all reviews and filter in code to guarantee accuracy
+        const { data: rawReviews, error: revErr } = await supabase
           .from('reviews')
           .select(`
             id,
@@ -381,19 +382,15 @@ export default function ArtistProfilePage() {
           `)
           .order('created_at', { ascending: false });
 
-        if (bookingIds.length > 0) {
-          reviewQuery = reviewQuery.or(
-            `target_artist_id.eq.${targetUserId},target_artist_id.eq.${profileDbId},and(booking_id.in.(${bookingIds.join(',')}),target_host_id.is.null)`
+        if (!revErr && rawReviews) {
+          const filteredReviews = rawReviews.filter((r) => 
+            r.target_artist_id === targetUserId || 
+            r.target_artist_id === profileDbId || 
+            r.target_artist_id === id ||
+            (r.booking_id && bookingIds.includes(r.booking_id) && !r.target_host_id)
           );
-        } else {
-          reviewQuery = reviewQuery.or(`target_artist_id.eq.${targetUserId},target_artist_id.eq.${profileDbId}`);
-        }
 
-        const { data: rawReviews, error: revErr } = await reviewQuery;
-
-        if (!revErr && rawReviews && rawReviews.length > 0) {
-          // Fetch reviewer profiles manually to avoid missing foreign key relation errors
-          const reviewerIds = Array.from(new Set(rawReviews.map((r) => r.reviewer_id).filter(Boolean)));
+          const reviewerIds = Array.from(new Set(filteredReviews.map((r) => r.reviewer_id).filter(Boolean)));
           
           let reviewerMap = new Map();
           if (reviewerIds.length > 0) {
@@ -407,12 +404,18 @@ export default function ArtistProfilePage() {
             }
           }
 
-          const processedReviews = rawReviews.map((r) => ({
+          const processedReviews = filteredReviews.map((r) => ({
             ...r,
             reviewer: reviewerMap.get(r.reviewer_id) || { full_name: 'Event Host', avatar_url: null },
           }));
 
           setReviews(processedReviews);
+
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const existingUserReview = processedReviews.find((r) => r.reviewer_id === user.id);
+            setUserReview(existingUserReview || null);
+          }
         } else {
           setReviews([]);
         }
