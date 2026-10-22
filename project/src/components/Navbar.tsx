@@ -1,6 +1,6 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { LogOut, LayoutDashboard, User, Menu, X, Bell, Mail, Shield, ShieldCheck, AlertTriangle } from 'lucide-react';
+import { LogOut, LayoutDashboard, User, Menu, X, Bell, Mail, Shield, ShieldCheck, AlertTriangle, Radio } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { markNotificationRead, markAllNotificationsRead } from '@/lib/messaging';
@@ -9,6 +9,7 @@ import type { Notification } from '@/types';
 export default function Navbar() {
   const { profile, signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -148,19 +149,35 @@ export default function Navbar() {
 
           {/* Desktop nav */}
           <div className="hidden md:flex items-center gap-3 lg:gap-5">
+            <Link
+              to="/artists"
+              className={`text-xs font-medium transition-colors uppercase tracking-wide-sm ${
+                location.pathname === '/artists' ? 'text-ink font-bold' : 'text-ink-500 hover:text-ink'
+              }`}
+              aria-label="Browse all talent"
+            >
+              Browse
+            </Link>
+
+            {/* Gig Board Navigation Link */}
+            <Link
+              to="/gigs"
+              aria-label="Browse open gigs"
+              className={`flex items-center gap-1 text-xs font-bold uppercase tracking-wide-sm transition-colors ${
+                location.pathname === '/gigs' ? 'text-purple-900 border-b-2 border-purple-900 pb-0.5' : 'text-purple-800 hover:text-purple-950'
+              }`}
+            >
+              <Radio className="w-3.5 h-3.5 text-purple-700 animate-pulse" /> Gig Board
+            </Link>
+
             {profile ? (
               <>
                 <Link
-                  to="/artists"
-                  className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
-                  aria-label="Browse all talent"
-                >
-                  Browse
-                </Link>
-                <Link
                   to={dashboardPath}
                   aria-label="Go to your dashboard"
-                  className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
+                  className={`flex items-center gap-1 text-xs font-medium transition-colors uppercase tracking-wide-sm ${
+                    location.pathname === dashboardPath ? 'text-ink font-bold' : 'text-ink-500 hover:text-ink'
+                  }`}
                 >
                   <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
                 </Link>
@@ -169,7 +186,9 @@ export default function Navbar() {
                 <Link
                   to={profileEditPath}
                   aria-label="View or edit your profile"
-                  className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
+                  className={`flex items-center gap-1 text-xs font-medium transition-colors uppercase tracking-wide-sm ${
+                    location.pathname === profileEditPath ? 'text-ink font-bold' : 'text-ink-500 hover:text-ink'
+                  }`}
                 >
                   <User className="w-3.5 h-3.5" /> Profile
                 </Link>
@@ -196,7 +215,9 @@ export default function Navbar() {
                 <Link
                   to={inboxPath}
                   aria-label={profile.is_admin ? 'Go to admin inbox' : 'Go to your inbox'}
-                  className="flex items-center gap-1 text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
+                  className={`flex items-center gap-1 text-xs font-medium transition-colors uppercase tracking-wide-sm ${
+                    location.pathname.startsWith('/inbox') ? 'text-ink font-bold' : 'text-ink-500 hover:text-ink'
+                  }`}
                 >
                   <Mail className="w-3.5 h-3.5" /> {profile.is_admin ? 'Admin Inbox' : 'Inbox'}
                 </Link>
@@ -332,13 +353,6 @@ export default function Navbar() {
             ) : (
               <>
                 <Link
-                  to="/artists"
-                  aria-label="Browse all talent"
-                  className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
-                >
-                  Browse
-                </Link>
-                <Link
                   to="/legal"
                   className="text-xs font-medium text-ink-500 hover:text-ink transition-colors uppercase tracking-wide-sm"
                 >
@@ -378,15 +392,24 @@ export default function Navbar() {
       {menuOpen && (
         <div className="md:hidden border-t border-line bg-paper animate-fade-in">
           <div className="px-6 py-4 space-y-1">
+            <Link
+              to="/artists"
+              onClick={() => setMenuOpen(false)}
+              className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm"
+            >
+              Browse
+            </Link>
+
+            <Link
+              to="/gigs"
+              onClick={() => setMenuOpen(false)}
+              className="block py-2.5 text-sm font-bold text-purple-900 hover:text-purple-950 uppercase tracking-wide-sm flex items-center gap-2"
+            >
+              <Radio className="w-4 h-4 text-purple-700 animate-pulse" /> Gig Board
+            </Link>
+
             {profile ? (
               <>
-                <Link
-                  to="/artists"
-                  onClick={() => setMenuOpen(false)}
-                  className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm"
-                >
-                  Browse
-                </Link>
                 <Link
                   to={dashboardPath}
                   onClick={() => setMenuOpen(false)}
@@ -459,13 +482,6 @@ export default function Navbar() {
               </>
             ) : (
               <>
-                <Link
-                  to="/artists"
-                  onClick={() => setMenuOpen(false)}
-                  className="block py-2.5 text-sm font-medium text-ink-600 hover:text-ink uppercase tracking-wide-sm"
-                >
-                  Browse
-                </Link>
                 <Link
                   to="/legal"
                   onClick={() => setMenuOpen(false)}
