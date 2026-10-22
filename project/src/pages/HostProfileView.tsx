@@ -42,12 +42,13 @@ export default function HostProfileView() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'reviews' | 'events'>('reviews');
 
+  console.log('DEBUG AUTH USER ID:', user?.id);
+
   async function loadHostData() {
     if (!id) return;
     setLoading(true);
 
     try {
-      // 1. Fetch Host Profile
       const { data: profileData, error: profileErr } = await supabase
         .from('profiles')
         .select('id, full_name, avatar_url, location')
@@ -55,14 +56,12 @@ export default function HostProfileView() {
         .maybeSingle();
 
       if (profileErr || !profileData) {
-        console.error('Error loading host profile:', profileErr);
         setLoading(false);
         return;
       }
 
       setHost(profileData);
 
-      // 2. Fetch Reviews targeting this host
       const { data: reviewData } = await supabase
         .from('reviews')
         .select('id, rating, comment, created_at, reviewer_id')
@@ -84,17 +83,19 @@ export default function HostProfileView() {
           }
         }
 
-        setReviews(reviewData.map((r) => ({
-          id: r.id,
-          rating: r.rating,
-          comment: r.comment,
-          created_at: r.created_at,
-          reviewer_id: r.reviewer_id,
-          reviewer: reviewerMap.get(r.reviewer_id) || { full_name: 'Talent Provider', avatar_url: null },
-        })));
+        setReviews(reviewData.map((r) => {
+          console.log('DEBUG REVIEW ITEM:', r.id, 'Reviewer ID:', r.reviewer_id);
+          return {
+            id: r.id,
+            rating: r.rating,
+            comment: r.comment,
+            created_at: r.created_at,
+            reviewer_id: r.reviewer_id,
+            reviewer: reviewerMap.get(r.reviewer_id) || { full_name: 'Talent Provider', avatar_url: null },
+          };
+        }));
       }
 
-      // 3. Fetch Past Events Hosted by this host
       const { data: eventsData } = await supabase
         .from('bookings')
         .select('id, event_name, event_date, notes')
@@ -173,12 +174,10 @@ export default function HostProfileView() {
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
       <div className="max-w-4xl mx-auto space-y-8 animate-fade-in">
         
-        {/* Back Button */}
         <Link to={-1 as any} className="inline-flex items-center gap-2 text-xs font-semibold text-ink-500 hover:text-ink transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
 
-        {/* Minimalist Host Profile Header */}
         <div className="border border-line bg-white p-8 shadow-sm flex flex-col items-center text-center space-y-4">
           {host.avatar_url ? (
             <img src={host.avatar_url} alt={host.full_name} className="w-28 h-28 rounded-full object-cover border border-line shadow-xs" />
@@ -204,7 +203,6 @@ export default function HostProfileView() {
           </div>
         </div>
 
-        {/* Tab Switcher */}
         <div className="flex border-b border-line">
           <button
             onClick={() => setActiveTab('reviews')}
@@ -224,7 +222,6 @@ export default function HostProfileView() {
           </button>
         </div>
 
-        {/* TAB 1: Talent Reviews */}
         {activeTab === 'reviews' && (
           <div className="space-y-4">
             {reviews.length === 0 ? (
@@ -234,8 +231,8 @@ export default function HostProfileView() {
             ) : (
               <div className="space-y-4">
                 {reviews.map((review) => {
-                  // Robust check: matches logged-in user id
-                  const isAuthor = Boolean(user?.id && review.reviewer_id === user.id);
+                  // FORCED TRUE FOR TESTING: This will make the trash icon appear immediately on all reviews
+                  const isAuthor = true; 
 
                   return (
                     <div key={review.id} className="border border-line bg-white p-6 space-y-3 shadow-xs">
@@ -251,9 +248,7 @@ export default function HostProfileView() {
                           <div>
                             <div className="flex items-center gap-2">
                               <h4 className="font-display font-semibold text-ink text-sm">{review.reviewer?.full_name || 'Talent Provider'}</h4>
-                              {isAuthor && (
-                                <span className="text-[9px] uppercase font-bold tracking-wider text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">You</span>
-                              )}
+                              <span className="text-[9px] uppercase font-bold tracking-wider text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">You</span>
                             </div>
                             <span className="text-[10px] text-ink-400">
                               {new Date(review.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -273,7 +268,7 @@ export default function HostProfileView() {
                             ))}
                           </div>
 
-                          {/* Delete Review Button for Author */}
+                          {/* Delete Button (Forced visible for testing) */}
                           {isAuthor && (
                             <button
                               onClick={() => handleDeleteReview(review.id)}
@@ -304,7 +299,6 @@ export default function HostProfileView() {
           </div>
         )}
 
-        {/* TAB 2: Past Events Gallery */}
         {activeTab === 'events' && (
           <div className="space-y-4">
             {pastEvents.length === 0 ? (
