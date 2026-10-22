@@ -20,7 +20,8 @@ import {
   MapPinCheck,
   PartyPopper,
   LogOut,
-  Star
+  Star,
+  Plus
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState } from '@/components/UI';
@@ -385,9 +386,24 @@ export default function HostDashboard() {
             </div>
             <p className="text-ink-400">Track your booking requests and payment status.</p>
           </div>
-          <Link to="/artists" aria-label="Browse and book talent" className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm">
-            <CalendarPlus className="w-3.5 h-3.5" /> Book Talent
-          </Link>
+          
+          <div className="flex items-center gap-3">
+            <Link 
+              to="/gigs" 
+              aria-label="Post an open gig call" 
+              className="px-4 py-3 bg-purple-900 text-white text-xs uppercase font-semibold tracking-wide-sm hover:bg-purple-950 transition-colors shadow-xs flex items-center gap-1.5 rounded-none"
+            >
+              <Plus className="w-4 h-4" /> Post a Gig
+            </Link>
+
+            <Link 
+              to="/artists" 
+              aria-label="Browse and book talent" 
+              className="btn-primary inline-flex items-center gap-2 px-5 py-3 text-xs uppercase tracking-wide-sm"
+            >
+              <CalendarPlus className="w-3.5 h-3.5" /> Book Talent
+            </Link>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10 border-y border-line py-6">
