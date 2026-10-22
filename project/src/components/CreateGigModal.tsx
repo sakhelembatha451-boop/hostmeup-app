@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/context/AuthContext';
-import { X, Loader2, PartyPopper, Calendar, MapPin, DollarSign } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 
 interface CreateGigModalProps {
   isOpen: boolean;
@@ -10,7 +9,6 @@ interface CreateGigModalProps {
 }
 
 export default function CreateGigModal({ isOpen, onClose, onSuccess }: CreateGigModalProps) {
-  const { user } = useAuth();
   const [title, setTitle] = useState('');
   const [category, setCategory] = useState('DJ');
   const [location, setLocation] = useState('');
@@ -26,15 +24,17 @@ export default function CreateGigModal({ isOpen, onClose, onSuccess }: CreateGig
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!user) {
-      setError('You must be logged in to post a gig.');
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
     try {
+      // Get the currently authenticated user directly from Supabase session
+      const { data: { user }, error: authErr } = await supabase.auth.getUser();
+      
+      if (authErr || !user) {
+        throw new Error('You must be logged in to post a gig. Please sign in again.');
+      }
+
       const { error: insertErr } = await supabase.from('gigs').insert([
         {
           host_id: user.id,
