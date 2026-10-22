@@ -358,8 +358,16 @@ export default function ArtistProfilePage() {
 
         setServices(serviceData || []);
 
-        // STRICT REVIEWS QUERY: Filter exclusively by target_artist_id matching profile or user ID
-        const { data: reviewData, error: revErr } = await supabase
+        // Fetch bookings for this artist to double-check against target_artist_id
+        const { data: artistBookings } = await supabase
+          .from('bookings')
+          .select('id')
+          .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id}`);
+
+        const bookingIds = (artistBookings || []).map((b) => b.id);
+
+        // QUERY REVIEWS: Fetch reviews where target_artist_id matches OR where booking_id belongs to this artist AND target_host_id IS NULL
+        let reviewQuery = supabase
           .from('reviews')
           .select(`
             id,
@@ -369,21 +377,44 @@ export default function ArtistProfilePage() {
             booking_id,
             reviewer_id,
             target_artist_id,
-            reviewer:reviewer_id (full_name, avatar_url)
+            target_host_id
           `)
-          .or(`target_artist_id.eq.${targetUserId},target_artist_id.eq.${profileDbId}`)
           .order('created_at', { ascending: false });
 
-        if (revErr) {
-          console.error("Error fetching reviews with join, attempting fallback:", revErr);
-          const { data: fallbackReviews } = await supabase
-            .from('reviews')
-            .select('*')
-            .or(`target_artist_id.eq.${targetUserId},target_artist_id.eq.${profileDbId}`);
-          
-          setReviews(fallbackReviews || []);
+        if (bookingIds.length > 0) {
+          reviewQuery = reviewQuery.or(
+            `target_artist_id.eq.${targetUserId},target_artist_id.eq.${profileDbId},and(booking_id.in.(${bookingIds.join(',')}),target_host_id.is.null)`
+          );
         } else {
-          setReviews(reviewData || []);
+          reviewQuery = reviewQuery.or(`target_artist_id.eq.${targetUserId},target_artist_id.eq.${profileDbId}`);
+        }
+
+        const { data: rawReviews, error: revErr } = await reviewQuery;
+
+        if (!revErr && rawReviews && rawReviews.length > 0) {
+          // Fetch reviewer profiles manually to avoid missing foreign key relation errors
+          const reviewerIds = Array.from(new Set(rawReviews.map((r) => r.reviewer_id).filter(Boolean)));
+          
+          let reviewerMap = new Map();
+          if (reviewerIds.length > 0) {
+            const { data: reviewers } = await supabase
+              .from('profiles')
+              .select('id, full_name, avatar_url')
+              .in('id', reviewerIds);
+
+            if (reviewers) {
+              reviewerMap = new Map(reviewers.map((rev) => [rev.id, rev]));
+            }
+          }
+
+          const processedReviews = rawReviews.map((r) => ({
+            ...r,
+            reviewer: reviewerMap.get(r.reviewer_id) || { full_name: 'Event Host', avatar_url: null },
+          }));
+
+          setReviews(processedReviews);
+        } else {
+          setReviews([]);
         }
 
         const { data: { user } } = await supabase.auth.getUser();
@@ -399,17 +430,6 @@ export default function ArtistProfilePage() {
 
           if (hostBooking) {
             setUserHostBooking(hostBooking);
-          }
-
-          if (reviewData) {
-            const existingUserReview = reviewData.find((r) => r.reviewer_id === user.id);
-            if (existingUserReview) {
-              setUserReview(existingUserReview);
-            } else {
-              setUserReview(null);
-            }
-          } else {
-            setUserReview(null);
           }
         }
       }
@@ -443,7 +463,7 @@ export default function ArtistProfilePage() {
       fetchArtistProfile();
     } catch (err: any) {
       console.error('Delete review error:', err);
-      alert(err.message || 'Failed to delete review. Please check database permissions.');
+      alert(err.message || 'Failed to delete review.');
       fetchArtistProfile();
     }
   };
