@@ -35,6 +35,7 @@ interface ReviewItem {
   created_at: string;
   booking_id?: string;
   reviewer_id?: string;
+  target_artist_id?: string;
   reviewer?: {
     full_name?: string;
     avatar_url?: string;
@@ -357,14 +358,8 @@ export default function ArtistProfilePage() {
 
         setServices(serviceData || []);
 
-        const { data: artistBookings } = await supabase
-          .from('bookings')
-          .select('id')
-          .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id}`);
-
-        const bookingIds = artistBookings?.map(b => b.id) || [];
-
-        let reviewQuery = supabase
+        // STRICT REVIEWS QUERY: Filter exclusively by target_artist_id matching profile or user ID
+        const { data: reviewData, error: revErr } = await supabase
           .from('reviews')
           .select(`
             id,
@@ -373,24 +368,18 @@ export default function ArtistProfilePage() {
             created_at,
             booking_id,
             reviewer_id,
+            target_artist_id,
             reviewer:reviewer_id (full_name, avatar_url)
           `)
+          .or(`target_artist_id.eq.${targetUserId},target_artist_id.eq.${profileDbId}`)
           .order('created_at', { ascending: false });
 
-        if (bookingIds.length > 0) {
-          reviewQuery = reviewQuery.or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id},booking_id.in.(${bookingIds.join(',')})`);
-        } else {
-          reviewQuery = reviewQuery.or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id}`);
-        }
-
-        const { data: reviewData, error: revErr } = await reviewQuery;
-        
         if (revErr) {
           console.error("Error fetching reviews with join, attempting fallback:", revErr);
           const { data: fallbackReviews } = await supabase
             .from('reviews')
             .select('*')
-            .or(`artist_id.eq.${profileDbId},artist_id.eq.${targetUserId},artist_id.eq.${id}`);
+            .or(`target_artist_id.eq.${targetUserId},target_artist_id.eq.${profileDbId}`);
           
           setReviews(fallbackReviews || []);
         } else {
@@ -437,7 +426,6 @@ export default function ArtistProfilePage() {
   const handleDeleteReview = async (reviewId: string) => {
     if (!window.confirm('Are you sure you want to delete your review? You will be able to submit a new one.')) return;
 
-    // Optimistically update UI immediately
     setReviews((prev) => prev.filter((r) => r.id !== reviewId));
     setUserReview(null);
 
@@ -456,7 +444,7 @@ export default function ArtistProfilePage() {
     } catch (err: any) {
       console.error('Delete review error:', err);
       alert(err.message || 'Failed to delete review. Please check database permissions.');
-      fetchArtistProfile(); // Re-sync if failed
+      fetchArtistProfile();
     }
   };
 
@@ -715,7 +703,6 @@ export default function ArtistProfilePage() {
                             ))}
                           </div>
 
-                          {/* Delete Button for Current User's Review */}
                           {rev.reviewer_id === currentUserId && (
                             <button
                               type="button"
