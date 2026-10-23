@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { Calendar, MapPin, Loader2, PartyPopper, Plus, Filter, Send } from 'lucide-react';
 import CreateGigModal from '@/components/CreateGigModal';
+import PitchGigModal from '@/components/PitchGigModal';
 
 interface Gig {
   id: string;
@@ -29,6 +29,10 @@ export default function GigFeedPage() {
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+
+  // Pitch Modal State
+  const [selectedGigForPitch, setSelectedGigForPitch] = useState<Gig | null>(null);
+  const [isPitchModalOpen, setIsPitchModalOpen] = useState(false);
 
   const fetchGigs = async () => {
     setLoading(true);
@@ -75,6 +79,15 @@ export default function GigFeedPage() {
   const filteredGigs = selectedCategory === 'all'
     ? gigs
     : gigs.filter((g) => g.category.toLowerCase() === selectedCategory.toLowerCase());
+
+  const handleOpenPitchModal = (gig: Gig) => {
+    if (!profile) {
+      alert('Please log in to pitch for this gig.');
+      return;
+    }
+    setSelectedGigForPitch(gig);
+    setIsPitchModalOpen(true);
+  };
 
   return (
     <div className="min-h-screen bg-paper py-12 px-6 lg:px-12">
@@ -171,12 +184,12 @@ export default function GigFeedPage() {
                     <span className="text-xs font-semibold text-ink">{gig.host?.full_name || 'Host'}</span>
                   </div>
 
-                  <Link
-                    to={`/inbox/${gig.host_id}`}
-                    className="px-3.5 py-1.5 bg-ink text-paper text-[11px] font-semibold uppercase tracking-wide-sm inline-flex items-center gap-1.5 hover:bg-ink-800 transition-colors"
+                  <button
+                    onClick={() => handleOpenPitchModal(gig)}
+                    className="px-3.5 py-1.5 bg-ink text-paper text-[11px] font-semibold uppercase tracking-wide-sm inline-flex items-center gap-1.5 hover:bg-ink-800 transition-colors cursor-pointer"
                   >
-                    <Send className="w-3 h-3" /> Pitch Talent
-                  </Link>
+                    <Send className="w-3 h-3" /> Pitch for Gig
+                  </button>
                 </div>
               </div>
             ))}
@@ -188,6 +201,21 @@ export default function GigFeedPage() {
           onClose={() => setIsCreateModalOpen(false)}
           onSuccess={fetchGigs}
         />
+
+        {selectedGigForPitch && (
+          <PitchGigModal
+            isOpen={isPitchModalOpen}
+            onClose={() => {
+              setIsPitchModalOpen(false);
+              setSelectedGigForPitch(null);
+            }}
+            gigId={selectedGigForPitch.id}
+            gigTitle={selectedGigForPitch.title}
+            hostName={selectedGigForPitch.host?.full_name}
+            suggestedBudget={selectedGigForPitch.budget}
+            onSuccess={fetchGigs}
+          />
+        )}
 
       </div>
     </div>
