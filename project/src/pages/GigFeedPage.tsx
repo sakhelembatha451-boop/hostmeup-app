@@ -274,7 +274,9 @@ export default function GigFeedPage() {
             }}
             gigId={selectedGigForPitch.id}
             gigTitle={selectedGigForPitch.title}
+            hostId={selectedGigForPitch.host_id}
             hostName={selectedGigForPitch.host?.full_name}
+            hostAvatar={selectedGigForPitch.host?.avatar_url}
             suggestedBudget={selectedGigForPitch.budget}
             onSuccess={fetchGigsAndPitches}
           />
