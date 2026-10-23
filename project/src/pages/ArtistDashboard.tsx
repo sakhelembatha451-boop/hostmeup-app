@@ -7,7 +7,7 @@ import {
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
   MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
   Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText, Clock3,
-  PartyPopper, Star
+  PartyPopper, Star, Radio, Send, Music2
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
@@ -15,6 +15,7 @@ import HostStatusBadge from '@/components/HostStatusBadge';
 import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
 import ReviewModal from '@/components/ReviewModal';
+import PitchGigModal from '@/components/PitchGigModal';
 import { maskContactInfo } from '@/utils/masking';
 
 type BookingWithHost = Booking & {
@@ -46,6 +47,21 @@ type BookingWithHost = Booking & {
   };
 };
 
+interface Gig {
+  id: string;
+  title: string;
+  category: string;
+  location: string;
+  event_date: string;
+  budget: number;
+  description?: string;
+  host_id: string;
+  host?: {
+    full_name: string;
+    avatar_url: string | null;
+  };
+}
+
 function formatCurrency(n: number | null) {
   if (n == null) return 'R0';
   return `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -55,6 +71,7 @@ export default function ArtistDashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
+  const [openGigs, setOpenGigs] = useState<Gig[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -71,6 +88,10 @@ export default function ArtistDashboard() {
   // Review Modal State (For rating hosts)
   const [reviewBookingTarget, setReviewBookingTarget] = useState<BookingWithHost | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+
+  // Pitch Modal State
+  const [selectedGigForPitch, setSelectedGigForPitch] = useState<Gig | null>(null);
+  const [isPitchModalOpen, setIsPitchModalOpen] = useState(false);
 
   const loadDashboardData = useCallback(async (isInitialLoad = false) => {
     if (!profile?.id) {
@@ -104,77 +125,85 @@ export default function ArtistDashboard() {
       if (bookingsErr) {
         console.error('Error fetching bookings:', bookingsErr);
         setBookings([]);
-        return;
-      }
+      } else if (rawBookings) {
+        const activeBookings = rawBookings.filter((b) => !b.is_deleted);
+        let processedBookings = activeBookings;
+        const hostIds = Array.from(
+          new Set(activeBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
+        );
+        const bookingIds = activeBookings.map((b) => b.id);
 
-      if (!rawBookings || rawBookings.length === 0) {
-        setBookings([]);
-        return;
-      }
+        let reviewedBookingIds = new Set<string>();
+        if (bookingIds.length > 0) {
+          const { data: existingReviews } = await supabase
+            .from('reviews')
+            .select('booking_id')
+            .in('booking_id', bookingIds)
+            .eq('reviewer_id', authUserId);
 
-      const activeBookings = rawBookings.filter((b) => !b.is_deleted);
-
-      if (activeBookings.length === 0) {
-        setBookings([]);
-        return;
-      }
-
-      let processedBookings = activeBookings;
-      const hostIds = Array.from(
-        new Set(activeBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
-      );
-      const bookingIds = activeBookings.map((b) => b.id);
-
-      // Fetch existing reviews to know which bookings are already reviewed by this artist
-      let reviewedBookingIds = new Set<string>();
-      if (bookingIds.length > 0) {
-        const { data: existingReviews } = await supabase
-          .from('reviews')
-          .select('booking_id')
-          .in('booking_id', bookingIds)
-          .eq('reviewer_id', authUserId);
-
-        if (existingReviews) {
-          reviewedBookingIds = new Set(existingReviews.map((r) => r.booking_id));
+          if (existingReviews) {
+            reviewedBookingIds = new Set(existingReviews.map((r) => r.booking_id));
+          }
         }
+
+        if (hostIds.length > 0) {
+          const { data: profileRecords } = await supabase
+            .from('profiles')
+            .select('id, full_name, email, avatar_url, location')
+            .in('id', hostIds);
+
+          const profileMap = new Map((profileRecords || []).map((p) => [p.id, p]));
+
+          processedBookings = activeBookings.map((b) => {
+            const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
+
+            return {
+              ...b,
+              has_reviewed: reviewedBookingIds.has(b.id),
+              host: {
+                id: p?.id || b.host_id || b.client_id,
+                full_name: p?.full_name || 'Host',
+                avatar_url: p?.avatar_url || null,
+                location: p?.location || '',
+                email: p?.email || '',
+                is_verified: true,
+                verified: true,
+                host_profile: null,
+              },
+            };
+          });
+        }
+
+        setBookings(processedBookings as BookingWithHost[]);
       }
 
-      if (hostIds.length > 0) {
-        const { data: profileRecords } = await supabase
+      // Fetch Open Gigs for Talent Dashboard Feed
+      const { data: gigData } = await supabase
+        .from('gigs')
+        .select('*')
+        .eq('status', 'open')
+        .order('event_date', { ascending: true })
+        .limit(6);
+
+      if (gigData && gigData.length > 0) {
+        const gigHostIds = Array.from(new Set(gigData.map((g) => g.host_id)));
+        const { data: gigHosts } = await supabase
           .from('profiles')
-          .select('id, full_name, email, avatar_url, location')
-          .in('id', hostIds);
+          .select('id, full_name, avatar_url')
+          .in('id', gigHostIds);
 
-        const profileMap = new Map((profileRecords || []).map((p) => [p.id, p]));
+        const gigHostMap = new Map((gigHosts || []).map((h) => [h.id, h]));
 
-        processedBookings = activeBookings.map((b) => {
-          const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
-
-          return {
-            ...b,
-            has_reviewed: reviewedBookingIds.has(b.id),
-            host: {
-              id: p?.id || b.host_id || b.client_id,
-              full_name: p?.full_name || 'Host',
-              avatar_url: p?.avatar_url || null,
-              location: p?.location || '',
-              email: p?.email || '',
-              is_verified: true,
-              verified: true,
-              host_profile: null,
-            },
-          };
-        });
+        setOpenGigs(
+          gigData.map((g) => ({
+            ...g,
+            host: gigHostMap.get(g.host_id) || { full_name: 'Event Host', avatar_url: null },
+          }))
+        );
+      } else {
+        setOpenGigs([]);
       }
 
-      const formattedBookings = processedBookings as BookingWithHost[];
-      setBookings(formattedBookings);
-
-      setSelectedBooking((prevSelected) => {
-        if (!prevSelected) return null;
-        const updatedSelected = formattedBookings.find((b) => b.id === prevSelected.id);
-        return updatedSelected || prevSelected;
-      });
     } catch (err) {
       console.error('Error loading artist dashboard data:', err);
       setBookings([]);
@@ -220,7 +249,7 @@ export default function ArtistDashboard() {
     setIsDeleting(true);
     try {
       setBookings((prev) => prev.filter((b) => !idsToDelete.includes(b.id)));
-      setSelectedBookingIds((prev) => prev.filter((id) => id !== id));
+      setSelectedBookingIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
 
       if (selectedBooking && idsToDelete.includes(selectedBooking.id)) {
         setSelectedBooking(null);
@@ -311,11 +340,7 @@ export default function ArtistDashboard() {
         .update(payload)
         .eq('id', id);
 
-      if (error) {
-        console.error('Supabase update status error:', error);
-        throw error;
-      }
-
+      if (error) throw error;
       await loadDashboardData(false);
     } catch (err: any) {
       console.error('Error updating status:', err);
@@ -376,6 +401,11 @@ export default function ArtistDashboard() {
     }
   };
 
+  const handleOpenPitchModal = (gig: Gig) => {
+    setSelectedGigForPitch(gig);
+    setIsPitchModalOpen(true);
+  };
+
   const counts = {
     all: bookings.length,
     pending: bookings.filter((b) => b.status === 'pending').length,
@@ -400,24 +430,87 @@ export default function ArtistDashboard() {
 
   return (
     <div className="min-h-screen bg-paper">
-      <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12">
+      <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12 space-y-10">
         
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-10">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Talent Dashboard</p>
-            <h1 className="font-display text-4xl font-bold text-ink mb-1 tracking-tight">Incoming Requests</h1>
-            <p className="text-ink-400">View, manage, check into events, and monitor safety features.</p>
+            <h1 className="font-display text-4xl font-bold text-ink mb-1 tracking-tight">Incoming Requests & Gigs</h1>
+            <p className="text-ink-400">View bookings, pitch for live open gigs, and monitor escrow safety.</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            <Link to="/gigs" className="px-4 py-2.5 bg-purple-900 text-white text-xs uppercase font-semibold tracking-wide-sm hover:bg-purple-950 transition-colors flex items-center gap-1.5 shadow-xs">
+              <Radio className="w-3.5 h-3.5 text-purple-300 animate-pulse" /> Browse Gig Board
+            </Link>
             <Link to={`/artists/${profile?.id}`} aria-label="View public profile" className="btn-outline inline-flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wide-sm">
               <ExternalLink className="w-3.5 h-3.5" /> View Profile
             </Link>
           </div>
         </div>
 
+        {/* Live Open Gig Calls Section for Talent */}
+        <div className="border border-line bg-purple-50/40 p-6 space-y-4 shadow-xs">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Radio className="w-5 h-5 text-purple-700 animate-pulse" />
+              <div>
+                <h3 className="font-display text-lg font-bold text-ink">Open Gig Calls & Set Proposals</h3>
+                <p className="text-xs text-ink-500">Pitch directly with your rate quote, gear specs, and sample media links</p>
+              </div>
+            </div>
+
+            <Link to="/gigs" className="text-xs font-bold uppercase tracking-wide-sm text-purple-900 hover:underline">
+              Explore All Gigs →
+            </Link>
+          </div>
+
+          {openGigs.length === 0 ? (
+            <div className="border border-dashed border-line bg-paper p-6 text-center text-xs text-ink-400">
+              No open gig calls posted at the moment. Check back soon!
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {openGigs.map((gig) => (
+                <div key={gig.id} className="border border-line bg-paper p-4 space-y-3 flex flex-col justify-between shadow-xs">
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 px-2 py-0.5 border border-purple-200">
+                        {gig.category}
+                      </span>
+                      <span className="font-bold text-emerald-800 text-xs">
+                        R{gig.budget.toLocaleString()}
+                      </span>
+                    </div>
+
+                    <h4 className="font-display font-bold text-ink text-sm leading-snug line-clamp-1">{gig.title}</h4>
+
+                    <div className="space-y-1 text-[11px] text-ink-500">
+                      <div className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-ink-400" />
+                        <span>{new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-ink-400" />
+                        <span className="truncate">{gig.location}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleOpenPitchModal(gig)}
+                    className="w-full text-center py-2 bg-ink text-paper text-[10px] font-bold uppercase tracking-wide-sm flex items-center justify-center gap-1.5 hover:bg-ink-800 transition-colors cursor-pointer shadow-xs"
+                  >
+                    <Send className="w-3 h-3" /> Pitch for Gig
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         {/* Earnings & Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10 border-y border-line py-6">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 border-y border-line py-6">
           <div>
             <div className="font-display text-4xl font-bold text-ink mb-1">{counts.all}</div>
             <div className="text-xs uppercase tracking-wide-sm text-ink-400">Total Requests</div>
@@ -437,7 +530,7 @@ export default function ArtistDashboard() {
         </div>
 
         {/* Filters and Selection Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex flex-wrap gap-2">
             {['all', 'pending', 'pending_verification', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
               <button key={f} onClick={() => setFilter(f)}
@@ -487,7 +580,6 @@ export default function ArtistDashboard() {
               const isPendingVerification = booking.status === 'pending_verification';
               const isCompleted = booking.status === 'completed' || !!booking.completed_at;
 
-              // Strict boolean evaluation for escrow masking
               const isPaid = booking.deposit_paid === true;
               const rawNote = booking.notes || booking.special_requests || '';
               const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
@@ -551,7 +643,6 @@ export default function ArtistDashboard() {
                         <div className="flex items-center gap-2">
                           {renderCustomStatusBadge(booking)}
 
-                          {/* Rate Host Button for Completed Bookings */}
                           {isCompleted && (
                             <div onClick={(e) => e.stopPropagation()}>
                               {booking.has_reviewed ? (
@@ -692,7 +783,6 @@ export default function ArtistDashboard() {
                   <h2 className="font-display text-2xl font-bold text-ink">{selectedBooking.event_name || 'Untitled Event'}</h2>
                 </div>
 
-                {/* Host Info */}
                 <div className="p-4 border border-line bg-paper-100 flex items-center gap-4">
                   <Link to={`/hosts/${selectedHostId}`} className="group">
                     {selectedBooking.host?.avatar_url ? (
@@ -718,7 +808,6 @@ export default function ArtistDashboard() {
                   </div>
                 </div>
 
-                {/* Event Schedule & Location */}
                 <div className="grid grid-cols-2 gap-4 border-y border-line py-4 text-xs">
                   <div>
                     <span className="text-ink-400 uppercase tracking-wide-sm block mb-1">Date & Time</span>
@@ -742,7 +831,6 @@ export default function ArtistDashboard() {
                   </div>
                 </div>
 
-                {/* Pricing Breakdown */}
                 <div className="space-y-2 text-xs">
                   <span className="text-ink-400 uppercase tracking-wide-sm block">Payment Details</span>
                   <div className="flex justify-between py-1 border-b border-line">
@@ -757,7 +845,6 @@ export default function ArtistDashboard() {
                   )}
                 </div>
 
-                {/* Notes / Special Requests / Submitted Reference */}
                 {displayNote && (
                   <div className="space-y-1 text-xs">
                     <span className="text-ink-400 uppercase tracking-wide-sm block">Host Notes & Submitted Yoco Reference</span>
@@ -772,12 +859,11 @@ export default function ArtistDashboard() {
                   </div>
                 )}
 
-                {/* Modal Confirmation Action for Pending Verification */}
                 {selectedBooking.status === 'pending_verification' && (
                   <div className="p-4 bg-amber-50 border border-amber-200 rounded space-y-3">
                     <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
                       <Clock3 className="w-4 h-4 text-amber-600 animate-pulse" />
-                      <span>Host has submitted a payment reference. Please check your Resend email invoice or Yoco notification before confirming.</span>
+                      <span>Host has submitted a payment reference. Please check your email or Yoco notification before confirming.</span>
                     </div>
                     <button
                       onClick={() => {
@@ -790,7 +876,6 @@ export default function ArtistDashboard() {
                   </div>
                 )}
 
-                {/* Modal Actions */}
                 <div className="pt-4 flex items-center justify-between border-t border-line">
                   <button
                     onClick={() => {
@@ -855,6 +940,22 @@ export default function ArtistDashboard() {
             artistId={reviewBookingTarget.artist_id || profile?.id}
             targetHostId={reviewBookingTarget.host_id || reviewBookingTarget.client_id}
             hostName={reviewBookingTarget.host?.full_name || 'Event Host'}
+            onSuccess={() => loadDashboardData(false)}
+          />
+        )}
+
+        {/* Pitch Modal Trigger */}
+        {selectedGigForPitch && (
+          <PitchGigModal
+            isOpen={isPitchModalOpen}
+            onClose={() => {
+              setIsPitchModalOpen(false);
+              setSelectedGigForPitch(null);
+            }}
+            gigId={selectedGigForPitch.id}
+            gigTitle={selectedGigForPitch.title}
+            hostName={selectedGigForPitch.host?.full_name}
+            suggestedBudget={selectedGigForPitch.budget}
             onSuccess={() => loadDashboardData(false)}
           />
         )}
