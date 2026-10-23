@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Calendar, MapPin, Loader2, PartyPopper, Plus, Filter, Send } from 'lucide-react';
+import { Calendar, MapPin, Loader2, PartyPopper, Plus, Filter, Send, CheckCircle2, Clock, Sparkles } from 'lucide-react';
 import CreateGigModal from '@/components/CreateGigModal';
 import PitchGigModal from '@/components/PitchGigModal';
 
@@ -23,9 +23,16 @@ interface Gig {
   };
 }
 
+interface UserPitch {
+  gig_id: string;
+  status: 'pending' | 'shortlisted' | 'accepted' | 'declined';
+  proposed_rate: number;
+}
+
 export default function GigFeedPage() {
   const { profile } = useAuth();
   const [gigs, setGigs] = useState<Gig[]>([]);
+  const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -34,19 +41,20 @@ export default function GigFeedPage() {
   const [selectedGigForPitch, setSelectedGigForPitch] = useState<Gig | null>(null);
   const [isPitchModalOpen, setIsPitchModalOpen] = useState(false);
 
-  const fetchGigs = async () => {
+  const fetchGigsAndPitches = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      // 1. Fetch open gigs
+      const { data: gigData, error: gigErr } = await supabase
         .from('gigs')
         .select('*')
         .eq('status', 'open')
         .order('event_date', { ascending: true });
 
-      if (error) throw error;
+      if (gigErr) throw gigErr;
 
-      if (data && data.length > 0) {
-        const hostIds = Array.from(new Set(data.map((g) => g.host_id)));
+      if (gigData && gigData.length > 0) {
+        const hostIds = Array.from(new Set(gigData.map((g) => g.host_id)));
         const { data: hostProfiles } = await supabase
           .from('profiles')
           .select('id, full_name, avatar_url')
@@ -55,13 +63,29 @@ export default function GigFeedPage() {
         const hostMap = new Map((hostProfiles || []).map((hp) => [hp.id, hp]));
 
         setGigs(
-          data.map((g) => ({
+          gigData.map((g) => ({
             ...g,
             host: hostMap.get(g.host_id) || { full_name: 'Event Host', avatar_url: null },
           }))
         );
       } else {
         setGigs([]);
+      }
+
+      // 2. Fetch logged-in user's pitches to map status onto cards
+      if (profile?.id) {
+        const { data: pitchData } = await supabase
+          .from('gig_pitches')
+          .select('gig_id, status, proposed_rate')
+          .eq('artist_id', profile.id);
+
+        if (pitchData) {
+          const pitchMap = new Map<string, UserPitch>();
+          pitchData.forEach((p) => {
+            pitchMap.set(p.gig_id, p as UserPitch);
+          });
+          setUserPitches(pitchMap);
+        }
       }
     } catch (err) {
       console.error('Error fetching gigs:', err);
@@ -71,8 +95,8 @@ export default function GigFeedPage() {
   };
 
   useEffect(() => {
-    fetchGigs();
-  }, []);
+    fetchGigsAndPitches();
+  }, [profile?.id]);
 
   const categories = ['all', 'DJ', 'Live Band', 'MC', 'Photographer', 'Videographer', 'Dancer'];
 
@@ -87,6 +111,33 @@ export default function GigFeedPage() {
     }
     setSelectedGigForPitch(gig);
     setIsPitchModalOpen(true);
+  };
+
+  const renderPitchStatusBadge = (gig: Gig) => {
+    const pitch = userPitches.get(gig.id);
+    if (!pitch) return null;
+
+    if (pitch.status === 'accepted') {
+      return (
+        <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-xs inline-flex items-center gap-1">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Pitch Accepted
+        </span>
+      );
+    }
+
+    if (pitch.status === 'shortlisted') {
+      return (
+        <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-blue-800 border border-blue-300 rounded-xs inline-flex items-center gap-1">
+          <Sparkles className="w-3.5 h-3.5 text-blue-600" /> Shortlisted
+        </span>
+      );
+    }
+
+    return (
+      <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-900 border border-purple-200 rounded-xs inline-flex items-center gap-1">
+        <Clock className="w-3.5 h-3.5 text-purple-700 animate-pulse" /> Pitch Submitted
+      </span>
+    );
   };
 
   return (
@@ -140,66 +191,78 @@ export default function GigFeedPage() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {filteredGigs.map((gig) => (
-              <div key={gig.id} className="border border-line bg-paper-100 p-6 space-y-4 shadow-xs flex flex-col justify-between">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 border border-purple-200 rounded-xs">
-                      {gig.category}
-                    </span>
-                    <span className="font-display font-bold text-emerald-800 text-base">
-                      R{gig.budget.toLocaleString()}
-                    </span>
-                  </div>
+            {filteredGigs.map((gig) => {
+              const existingPitch = userPitches.get(gig.id);
 
-                  <h3 className="font-display text-xl font-bold text-ink">{gig.title}</h3>
-
-                  {gig.description && (
-                    <p className="text-xs text-ink-600 line-clamp-2 leading-relaxed bg-paper p-2.5 border border-line">
-                      "{gig.description}"
-                    </p>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-2 text-xs text-ink-500 pt-2 border-t border-line">
-                    <div className="flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-ink-400" />
-                      <span>{new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-ink-400" />
-                      <span className="truncate">{gig.location}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-4 border-t border-line flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    {gig.host?.avatar_url ? (
-                      <img src={gig.host.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover border border-line" />
-                    ) : (
-                      <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center font-bold text-[10px]">
-                        {gig.host?.full_name?.[0]?.toUpperCase() || 'H'}
+              return (
+                <div key={gig.id} className="border border-line bg-paper-100 p-6 space-y-4 shadow-xs flex flex-col justify-between">
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 border border-purple-200 rounded-xs">
+                          {gig.category}
+                        </span>
+                        {renderPitchStatusBadge(gig)}
                       </div>
+                      <span className="font-display font-bold text-emerald-800 text-base">
+                        R{gig.budget.toLocaleString()}
+                      </span>
+                    </div>
+
+                    <h3 className="font-display text-xl font-bold text-ink">{gig.title}</h3>
+
+                    {gig.description && (
+                      <p className="text-xs text-ink-600 line-clamp-2 leading-relaxed bg-paper p-2.5 border border-line">
+                        "{gig.description}"
+                      </p>
                     )}
-                    <span className="text-xs font-semibold text-ink">{gig.host?.full_name || 'Host'}</span>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs text-ink-500 pt-2 border-t border-line">
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-ink-400" />
+                        <span>{new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-ink-400" />
+                        <span className="truncate">{gig.location}</span>
+                      </div>
+                    </div>
                   </div>
 
-                  <button
-                    onClick={() => handleOpenPitchModal(gig)}
-                    className="px-3.5 py-1.5 bg-ink text-paper text-[11px] font-semibold uppercase tracking-wide-sm inline-flex items-center gap-1.5 hover:bg-ink-800 transition-colors cursor-pointer"
-                  >
-                    <Send className="w-3 h-3" /> Pitch for Gig
-                  </button>
+                  <div className="pt-4 border-t border-line flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      {gig.host?.avatar_url ? (
+                        <img src={gig.host.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover border border-line" />
+                      ) : (
+                        <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center font-bold text-[10px]">
+                          {gig.host?.full_name?.[0]?.toUpperCase() || 'H'}
+                        </div>
+                      )}
+                      <span className="text-xs font-semibold text-ink">{gig.host?.full_name || 'Host'}</span>
+                    </div>
+
+                    <button
+                      onClick={() => handleOpenPitchModal(gig)}
+                      className={`px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide-sm inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        existingPitch
+                          ? 'bg-purple-900 text-white hover:bg-purple-950'
+                          : 'bg-ink text-paper hover:bg-ink-800'
+                      }`}
+                    >
+                      <Send className="w-3 h-3" />
+                      {existingPitch ? 'Edit Submitted Pitch' : 'Pitch for Gig'}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
         <CreateGigModal
           isOpen={isCreateModalOpen}
           onClose={() => setIsCreateModalOpen(false)}
-          onSuccess={fetchGigs}
+          onSuccess={fetchGigsAndPitches}
         />
 
         {selectedGigForPitch && (
@@ -213,7 +276,7 @@ export default function GigFeedPage() {
             gigTitle={selectedGigForPitch.title}
             hostName={selectedGigForPitch.host?.full_name}
             suggestedBudget={selectedGigForPitch.budget}
-            onSuccess={fetchGigs}
+            onSuccess={fetchGigsAndPitches}
           />
         )}
 
