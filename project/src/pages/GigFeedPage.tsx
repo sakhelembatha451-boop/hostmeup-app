@@ -104,7 +104,8 @@ export default function GigFeedPage() {
     ? gigs
     : gigs.filter((g) => g.category.toLowerCase() === selectedCategory.toLowerCase());
 
-  const handleOpenPitchModal = (gig: Gig) => {
+  const handleOpenPitchModal = (gig: Gig, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!profile) {
       alert('Please log in to pitch for this gig.');
       return;
@@ -242,7 +243,8 @@ export default function GigFeedPage() {
                     </div>
 
                     <button
-                      onClick={() => handleOpenPitchModal(gig)}
+                      type="button"
+                      onClick={(e) => handleOpenPitchModal(gig, e)}
                       className={`px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide-sm inline-flex items-center gap-1.5 transition-colors cursor-pointer ${
                         existingPitch
                           ? 'bg-purple-900 text-white hover:bg-purple-950'
@@ -265,7 +267,7 @@ export default function GigFeedPage() {
           onSuccess={fetchGigsAndPitches}
         />
 
-        {selectedGigForPitch && (
+        {isPitchModalOpen && selectedGigForPitch && (
           <PitchGigModal
             isOpen={isPitchModalOpen}
             onClose={() => {
