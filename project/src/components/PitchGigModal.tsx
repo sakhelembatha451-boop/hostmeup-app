@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { X, Loader2, Send, Link as LinkIcon, Music2, Sparkles, Clock, ShieldCheck } from 'lucide-react';
+import { 
+  X, Loader2, Send, Upload, Trash2, FileAudio, FileVideo, Image as ImageIcon, Sparkles 
+} from 'lucide-react';
 
 interface PitchGigModalProps {
   isOpen: boolean;
@@ -10,6 +12,13 @@ interface PitchGigModalProps {
   hostName?: string;
   suggestedBudget?: number;
   onSuccess?: () => void;
+}
+
+interface UploadedFile {
+  name: string;
+  url: string;
+  path: string;
+  type: string;
 }
 
 export default function PitchGigModal({
@@ -25,25 +34,77 @@ export default function PitchGigModal({
   const [availableTimeSlot, setAvailableTimeSlot] = useState('');
   const [equipmentOffered, setEquipmentOffered] = useState('');
   const [pitchMessage, setPitchMessage] = useState('');
-  const [mediaUrlInput, setMediaUrlInput] = useState('');
-  const [mediaUrls, setMediaUrls] = useState<string[]>([]);
+  
+  // File Upload State
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleAddMediaUrl = () => {
-    if (!mediaUrlInput.trim()) return;
-    if (mediaUrls.length >= 3) {
-      alert('You can attach up to 3 showcase media links.');
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    if (uploadedFiles.length + files.length > 3) {
+      alert('You can upload a maximum of 3 media files per pitch.');
       return;
     }
-    setMediaUrls([...mediaUrls, mediaUrlInput.trim()]);
-    setMediaUrlInput('');
+
+    setIsUploading(true);
+    setError(null);
+
+    try {
+      const newUploadedFiles: UploadedFile[] = [];
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileExt = file.name.split('.').pop();
+        const fileName = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+        const filePath = `pitches/${gigId}/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from('pitch-media')
+          .upload(filePath, file, { cacheControl: '3600', upsert: true });
+
+        if (uploadError) throw uploadError;
+
+        const { data: publicUrlData } = supabase.storage
+          .from('pitch-media')
+          .getPublicUrl(filePath);
+
+        newUploadedFiles.push({
+          name: file.name,
+          url: publicUrlData.publicUrl,
+          path: filePath,
+          type: file.type,
+        });
+      }
+
+      setUploadedFiles((prev) => [...prev, ...newUploadedFiles]);
+    } catch (err: any) {
+      console.error('Error uploading file:', err);
+      setError(err.message || 'Failed to upload media file.');
+    } finally {
+      setIsUploading(false);
+      e.target.value = ''; // Reset file input
+    }
   };
 
-  const handleRemoveMediaUrl = (index: number) => {
-    setMediaUrls(mediaUrls.filter((_, i) => i !== index));
+  const handleRemoveFile = async (index: number) => {
+    const fileToRemove = uploadedFiles[index];
+    if (!fileToRemove) return;
+
+    try {
+      // Remove from state immediately
+      setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
+
+      // Delete from Supabase Storage
+      await supabase.storage.from('pitch-media').remove([fileToRemove.path]);
+    } catch (err) {
+      console.error('Error removing file from storage:', err);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -54,6 +115,8 @@ export default function PitchGigModal({
     try {
       const { data: { user }, error: authErr } = await supabase.auth.getUser();
       if (authErr || !user) throw new Error('You must be logged in as an artist to submit a pitch.');
+
+      const mediaUrls = uploadedFiles.map((f) => f.url);
 
       const pitchPayload = {
         gig_id: gigId,
@@ -84,6 +147,12 @@ export default function PitchGigModal({
     }
   };
 
+  const renderFileIcon = (fileType: string) => {
+    if (fileType.startsWith('audio/')) return <FileAudio className="w-4 h-4 text-purple-700 shrink-0" />;
+    if (fileType.startsWith('video/')) return <FileVideo className="w-4 h-4 text-blue-700 shrink-0" />;
+    return <ImageIcon className="w-4 h-4 text-emerald-700 shrink-0" />;
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-ink/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
       <div className="bg-paper border border-line p-6 max-w-xl w-full relative shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
@@ -101,7 +170,7 @@ export default function PitchGigModal({
           </div>
           <h2 className="font-display text-2xl font-bold text-ink">{gigTitle}</h2>
           <p className="text-xs text-ink-500 mt-0.5">
-            Submit your tailored set proposal, call-time availability, and media showcase directly to {hostName || 'the event host'}.
+            Submit your tailored set proposal, availability, equipment list, and media samples directly to {hostName || 'the host'}.
           </p>
         </div>
 
@@ -170,46 +239,61 @@ export default function PitchGigModal({
             />
           </div>
 
-          {/* Media Links Attachment */}
+          {/* Media File Upload Section */}
           <div className="space-y-2 border-t border-line pt-3">
             <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink">
-              Attach Audio / Video Showcase Links (Max 3)
+              Upload Audio / Video / Image Showcase (Max 3)
             </label>
             <p className="text-[11px] text-ink-400">
-              Paste SoundCloud set links, YouTube performances, Instagram reels, or Drive mix links so hosts can listen instantly.
+              Upload MP3 mixes, MP4 performance clips, or photos so hosts can listen/view directly.
             </p>
 
-            <div className="flex gap-2">
+            <div className="relative">
               <input
-                type="url"
-                placeholder="https://soundcloud.com/your-mix or YouTube link"
-                value={mediaUrlInput}
-                onChange={(e) => setMediaUrlInput(e.target.value)}
-                className="flex-1 bg-paper-100 border border-line p-2 text-xs text-ink focus:outline-none focus:border-ink"
+                type="file"
+                id="pitch-media-upload"
+                accept="audio/*,video/*,image/*"
+                multiple
+                onChange={handleFileUpload}
+                disabled={isUploading || uploadedFiles.length >= 3}
+                className="hidden"
               />
-              <button
-                type="button"
-                onClick={handleAddMediaUrl}
-                className="px-3 py-2 bg-ink text-paper text-xs uppercase font-semibold hover:bg-ink-800"
+              <label
+                htmlFor="pitch-media-upload"
+                className={`w-full py-3 px-4 border-2 border-dashed border-line bg-paper-100 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wide-sm cursor-pointer hover:border-ink transition-colors ${
+                  isUploading || uploadedFiles.length >= 3 ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
               >
-                Add Link
-              </button>
+                {isUploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-purple-700" />
+                    <span>Uploading Media...</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload className="w-4 h-4 text-purple-700" />
+                    <span>Choose Media File(s) to Upload</span>
+                  </>
+                )}
+              </label>
             </div>
 
-            {mediaUrls.length > 0 && (
-              <div className="space-y-1.5 pt-1">
-                {mediaUrls.map((url, index) => (
-                  <div key={index} className="flex items-center justify-between p-2 bg-paper-100 border border-line text-xs">
-                    <span className="truncate max-w-[320px] font-mono text-purple-900 flex items-center gap-1.5">
-                      <Music2 className="w-3.5 h-3.5 text-purple-700 shrink-0" />
-                      {url}
-                    </span>
+            {/* List of Uploaded Media */}
+            {uploadedFiles.length > 0 && (
+              <div className="space-y-2 pt-2">
+                {uploadedFiles.map((file, index) => (
+                  <div key={index} className="flex items-center justify-between p-2.5 bg-paper-100 border border-line text-xs">
+                    <div className="flex items-center gap-2 truncate pr-2">
+                      {renderFileIcon(file.type)}
+                      <span className="truncate font-medium text-ink">{file.name}</span>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => handleRemoveMediaUrl(index)}
-                      className="text-red-600 hover:text-red-800 text-[11px] font-bold"
+                      onClick={() => handleRemoveFile(index)}
+                      className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                      title="Delete media file"
                     >
-                      Remove
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
                 ))}
@@ -227,7 +311,7 @@ export default function PitchGigModal({
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || isUploading}
               className="px-6 py-2.5 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 disabled:opacity-50 flex items-center gap-2"
             >
               {loading ? (
