@@ -162,17 +162,19 @@ export default function HostPitchesSelectorModal({
   const updatePitchStatus = async (pitchId: string, newStatus: 'shortlisted' | 'accepted' | 'declined') => {
     setUpdatingId(pitchId);
     try {
-      const { error } = await supabase
+      // 1. Update gig_pitches status
+      const { error: updateErr } = await supabase
         .from('gig_pitches')
         .update({ status: newStatus })
         .eq('id', pitchId);
 
-      if (error) throw error;
+      if (updateErr) throw updateErr;
 
+      // 2. If accepted, create booking record
       if (newStatus === 'accepted') {
         const acceptedPitch = pitches.find((p) => p.id === pitchId);
         if (acceptedPitch && selectedGig) {
-          await supabase.from('bookings').insert({
+          const { error: bookingErr } = await supabase.from('bookings').insert({
             client_id: profile?.id,
             host_id: profile?.id,
             artist_id: acceptedPitch.artist_id,
@@ -183,18 +185,24 @@ export default function HostPitchesSelectorModal({
             status: 'pending',
             notes: `Accepted via Gig Pitch Dossier: ${acceptedPitch.pitch_message}`,
           });
+
+          if (bookingErr) {
+            console.error('Booking creation error (Check RLS policies):', bookingErr);
+            alert(`Pitch status updated, but booking record failed: ${bookingErr.message}`);
+          }
         }
-        alert('Pitch accepted successfully! Official booking created.');
       }
 
-      setPitches((prev) =>
-        prev.map((p) => (p.id === pitchId ? { ...p, status: newStatus } : p))
-      );
+      alert(`Pitch successfully marked as ${newStatus}!`);
 
+      // 3. Immediately re-fetch pitches to sync state
+      if (selectedGig) {
+        await fetchPitchesForGig(selectedGig);
+      }
       if (onSuccess) onSuccess();
     } catch (err: any) {
-      console.error('Error updating status:', err);
-      alert(`Could not update pitch status: ${err.message}`);
+      console.error('Error updating pitch status:', err);
+      alert(`Failed to update pitch: ${err.message || 'Check Supabase RLS policies.'}`);
     } finally {
       setUpdatingId(null);
     }
@@ -289,7 +297,7 @@ export default function HostPitchesSelectorModal({
                 <button
                   type="button"
                   onClick={() => setSelectedGig(null)}
-                  className="text-xs font-bold uppercase tracking-wide-sm text-purple-900 hover:underline mb-1 inline-flex items-center gap-1"
+                  className="text-xs font-bold uppercase tracking-wide-sm text-purple-900 hover:underline mb-1 inline-flex items-center gap-1 cursor-pointer"
                 >
                   ← Back to My Gigs
                 </button>
@@ -345,7 +353,6 @@ export default function HostPitchesSelectorModal({
                           </span>
                         </div>
 
-                        {/* CLEAR STATUS BADGE FOR HOST */}
                         {pitch.status === 'accepted' && (
                           <span className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xs inline-flex items-center gap-1 shadow-xs">
                             <CheckCircle2 className="w-4 h-4 text-emerald-700" /> Accepted & Booked
@@ -357,7 +364,7 @@ export default function HostPitchesSelectorModal({
                           </span>
                         )}
                         {pitch.status === 'declined' && (
-                          <span className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider bg-red-100 text-red-900 border border-red-300 rounded-xs inline-flex items-center gap-1 shadow-xs">
+                          <span className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider bg-red-100 text-red-900 border border-red-200 rounded-xs inline-flex items-center gap-1 shadow-xs">
                             <ShieldAlert className="w-4 h-4 text-red-700" /> Declined
                           </span>
                         )}
