@@ -1,7 +1,11 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Calendar, MapPin, Loader2, PartyPopper, Plus, Filter, Send, CheckCircle2, Clock, Sparkles } from 'lucide-react';
+import { 
+  Calendar, MapPin, Loader2, PartyPopper, Plus, Filter, Send, 
+  CheckCircle2, Clock, Sparkles, ExternalLink 
+} from 'lucide-react';
 import CreateGigModal from '@/components/CreateGigModal';
 import PitchGigModal from '@/components/PitchGigModal';
 
@@ -218,29 +222,50 @@ export default function GigFeedPage() {
                       </p>
                     )}
 
-                    <div className="grid grid-cols-2 gap-2 text-xs text-ink-500 pt-2 border-t border-line">
+                    {/* Schedule Details on Card */}
+                    <div className="grid grid-cols-2 gap-2 text-xs text-ink-600 pt-2 border-t border-line">
                       <div className="flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5 text-ink-400" />
+                        <Calendar className="w-3.5 h-3.5 text-purple-700 shrink-0" />
                         <span>{new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                       </div>
+
                       <div className="flex items-center gap-1.5">
-                        <MapPin className="w-3.5 h-3.5 text-ink-400" />
+                        <Clock className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                        <span>Start: {gig.start_time || 'Flexible'}</span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <MapPin className="w-3.5 h-3.5 text-purple-700 shrink-0" />
                         <span className="truncate">{gig.location}</span>
                       </div>
+
+                      {gig.duration_hours && (
+                        <div className="flex items-center gap-1.5 font-medium text-purple-900">
+                          <Sparkles className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                          <span>Duration: {gig.duration_hours} hrs</span>
+                        </div>
+                      )}
                     </div>
                   </div>
 
+                  {/* Card Footer with Host Link & Action Button */}
                   <div className="pt-4 border-t border-line flex items-center justify-between">
-                    <div className="flex items-center gap-2">
+                    <Link
+                      to={`/hosts/${gig.host_id}`}
+                      className="flex items-center gap-2 group"
+                    >
                       {gig.host?.avatar_url ? (
-                        <img src={gig.host.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover border border-line" />
+                        <img src={gig.host.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover border border-line group-hover:opacity-80 transition-opacity" />
                       ) : (
-                        <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center font-bold text-[10px]">
+                        <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center font-bold text-[10px] group-hover:bg-ink-800 transition-colors">
                           {gig.host?.full_name?.[0]?.toUpperCase() || 'H'}
                         </div>
                       )}
-                      <span className="text-xs font-semibold text-ink">{gig.host?.full_name || 'Host'}</span>
-                    </div>
+                      <span className="text-xs font-semibold text-ink group-hover:underline flex items-center gap-1">
+                        {gig.host?.full_name || 'Host'}
+                        <ExternalLink className="w-3 h-3 text-ink-400 group-hover:text-ink" />
+                      </span>
+                    </Link>
 
                     <button
                       type="button"
