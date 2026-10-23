@@ -34,10 +34,17 @@ interface UserPitch {
   proposed_rate: number;
 }
 
+interface HostGigStatusSummary {
+  hasAccepted: boolean;
+  hasShortlisted: boolean;
+  totalPitches: number;
+}
+
 export default function GigFeedPage() {
   const { profile } = useAuth();
   const [gigs, setGigs] = useState<Gig[]>([]);
   const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
+  const [hostGigStatuses, setHostGigStatuses] = useState<Map<string, HostGigStatusSummary>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
 
@@ -75,6 +82,26 @@ export default function GigFeedPage() {
             host: hostMap.get(g.host_id) || { full_name: 'Event Host', avatar_url: null },
           }))
         );
+
+        // Fetch all pitches to compute host gig statuses
+        const gigIds = gigData.map((g) => g.id);
+        const { data: allPitches } = await supabase
+          .from('gig_pitches')
+          .select('gig_id, status')
+          .in('gig_id', gigIds);
+
+        if (allPitches) {
+          const statusMap = new Map<string, HostGigStatusSummary>();
+          gigIds.forEach((id) => {
+            const pitchesForThisGig = allPitches.filter((p) => p.gig_id === id);
+            statusMap.set(id, {
+              hasAccepted: pitchesForThisGig.some((p) => p.status === 'accepted'),
+              hasShortlisted: pitchesForThisGig.some((p) => p.status === 'shortlisted'),
+              totalPitches: pitchesForThisGig.length,
+            });
+          });
+          setHostGigStatuses(statusMap);
+        }
       } else {
         setGigs([]);
       }
@@ -151,6 +178,39 @@ export default function GigFeedPage() {
     return (
       <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-purple-50 text-purple-900 border border-purple-200 rounded-xs inline-flex items-center gap-1">
         <Clock className="w-3.5 h-3.5 text-purple-700 animate-pulse" /> Pitch Submitted
+      </span>
+    );
+  };
+
+  const renderHostGigStatusBadge = (gigId: string) => {
+    const summary = hostGigStatuses.get(gigId);
+    if (!summary || summary.totalPitches === 0) {
+      return (
+        <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-paper-100 text-ink-500 border border-line rounded-xs">
+          No Pitches Yet
+        </span>
+      );
+    }
+
+    if (summary.hasAccepted) {
+      return (
+        <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xs inline-flex items-center gap-1 shadow-xs">
+          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" /> Talent Booked
+        </span>
+      );
+    }
+
+    if (summary.hasShortlisted) {
+      return (
+        <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-blue-100 text-blue-900 border border-blue-300 rounded-xs inline-flex items-center gap-1 shadow-xs">
+          <Sparkles className="w-3.5 h-3.5 text-blue-700" /> Talent Shortlisted
+        </span>
+      );
+    }
+
+    return (
+      <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 border border-purple-200 rounded-xs inline-flex items-center gap-1 shadow-xs">
+        <Users className="w-3.5 h-3.5 text-purple-700" /> {summary.totalPitches} {summary.totalPitches === 1 ? 'Pitch' : 'Pitches'} Pending
       </span>
     );
   };
@@ -240,11 +300,7 @@ export default function GigFeedPage() {
                           {gig.category}
                         </span>
                         {!isHostOfThisGig && renderPitchStatusBadge(gig)}
-                        {isHostOfThisGig && (
-                          <span className="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-300 rounded-xs">
-                            Your Posted Gig
-                          </span>
-                        )}
+                        {isHostOfThisGig && renderHostGigStatusBadge(gig.id)}
                       </div>
                       <span className="font-display font-bold text-emerald-800 text-base">
                         R{gig.budget.toLocaleString()}
@@ -302,14 +358,13 @@ export default function GigFeedPage() {
                       </span>
                     </Link>
 
-                    {/* Show "Manage Pitches" if host owns gig, otherwise show pitch button */}
                     {isHostOfThisGig ? (
                       <button
                         type="button"
                         onClick={() => setIsHostPitchesModalOpen(true)}
                         className="px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide-sm inline-flex items-center gap-1.5 bg-purple-900 text-white hover:bg-purple-950 transition-colors cursor-pointer"
                       >
-                        <Users className="w-3 h-3" /> Manage Pitches
+                        <Users className="w-3.5 h-3.5" /> Manage Pitches
                       </button>
                     ) : (
                       <button
@@ -321,7 +376,7 @@ export default function GigFeedPage() {
                             : 'bg-ink text-paper hover:bg-ink-800'
                         }`}
                       >
-                        <Send className="w-3 h-3" />
+                        <Send className="w-3.5 h-3.5" />
                         {existingPitch ? 'Edit Submitted Pitch' : 'Pitch for Gig'}
                       </button>
                     )}
