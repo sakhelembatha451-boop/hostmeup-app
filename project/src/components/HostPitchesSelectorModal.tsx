@@ -188,9 +188,11 @@ export default function HostPitchesSelectorModal({
         alert('Pitch accepted successfully! An official booking request has been created.');
       }
 
-      if (selectedGig) {
-        await fetchPitchesForGig(selectedGig);
-      }
+      // Update local state directly without full reload flash
+      setPitches((prev) =>
+        prev.map((p) => (p.id === pitchId ? { ...p, status: newStatus } : p))
+      );
+
       if (onSuccess) onSuccess();
     } catch (err: any) {
       console.error('Error updating status:', err);
@@ -416,9 +418,10 @@ export default function HostPitchesSelectorModal({
                       <div className="flex items-center gap-2">
                         {pitch.status !== 'declined' && (
                           <button
+                            type="button"
                             onClick={() => updatePitchStatus(pitch.id, 'declined')}
                             disabled={updatingId === pitch.id}
-                            className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-red-600 border border-red-200 hover:bg-red-50 transition-colors"
+                            className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-red-600 border border-red-200 hover:bg-red-50 transition-colors cursor-pointer"
                           >
                             Decline
                           </button>
@@ -426,9 +429,10 @@ export default function HostPitchesSelectorModal({
 
                         {pitch.status !== 'shortlisted' && pitch.status !== 'accepted' && (
                           <button
+                            type="button"
                             onClick={() => updatePitchStatus(pitch.id, 'shortlisted')}
                             disabled={updatingId === pitch.id}
-                            className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm bg-blue-100 text-blue-900 border border-blue-200 hover:bg-blue-200 transition-colors"
+                            className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm bg-blue-100 text-blue-900 border border-blue-200 hover:bg-blue-200 transition-colors cursor-pointer"
                           >
                             Shortlist
                           </button>
@@ -436,9 +440,10 @@ export default function HostPitchesSelectorModal({
 
                         {pitch.status !== 'accepted' && (
                           <button
+                            type="button"
                             onClick={() => updatePitchStatus(pitch.id, 'accepted')}
                             disabled={updatingId === pitch.id}
-                            className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide-sm bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs transition-colors inline-flex items-center gap-1.5"
+                            className="px-4 py-1.5 text-xs font-semibold uppercase tracking-wide-sm bg-emerald-700 hover:bg-emerald-800 text-white shadow-xs transition-colors inline-flex items-center gap-1.5 cursor-pointer"
                           >
                             {updatingId === pitch.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
                             Accept Pitch & Book
@@ -457,7 +462,7 @@ export default function HostPitchesSelectorModal({
           <button
             type="button"
             onClick={onClose}
-            className="px-5 py-2 bg-paper-100 border border-line text-ink text-xs font-semibold uppercase tracking-wide-sm hover:border-ink"
+            className="px-5 py-2 bg-paper-100 border border-line text-ink text-xs font-semibold uppercase tracking-wide-sm hover:border-ink cursor-pointer"
           >
             Close
           </button>
