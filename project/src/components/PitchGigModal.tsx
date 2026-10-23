@@ -1,15 +1,26 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { 
-  X, Loader2, Send, Upload, Trash2, FileAudio, FileVideo, Image as ImageIcon, Sparkles 
+  X, Loader2, Send, Upload, Trash2, FileAudio, FileVideo, Image as ImageIcon, Sparkles, Calendar, Clock, MapPin, ExternalLink 
 } from 'lucide-react';
+
+interface GigDetails {
+  event_date?: string;
+  start_time?: string;
+  duration_hours?: number;
+  location?: string;
+  description?: string;
+}
 
 interface PitchGigModalProps {
   isOpen: boolean;
   onClose: () => void;
   gigId: string;
   gigTitle: string;
+  hostId?: string;
   hostName?: string;
+  hostAvatar?: string | null;
   suggestedBudget?: number;
   onSuccess?: () => void;
 }
@@ -26,10 +37,13 @@ export default function PitchGigModal({
   onClose,
   gigId,
   gigTitle,
+  hostId,
   hostName,
+  hostAvatar,
   suggestedBudget,
   onSuccess,
 }: PitchGigModalProps) {
+  const [gigDetails, setGigDetails] = useState<GigDetails | null>(null);
   const [proposedRate, setProposedRate] = useState(suggestedBudget ? String(suggestedBudget) : '');
   const [availableTimeSlot, setAvailableTimeSlot] = useState('');
   const [equipmentOffered, setEquipmentOffered] = useState('');
@@ -42,67 +56,75 @@ export default function PitchGigModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch Existing Pitch Data when Modal Opens
+  // Fetch Gig Schedule Details & Existing Pitch Data when Modal Opens
   useEffect(() => {
     if (!isOpen || !gigId) return;
 
-    const loadExistingPitch = async () => {
+    const loadModalData = async () => {
       setFetchingExisting(true);
       try {
         const { data: { user } } = await supabase.auth.getUser();
-        if (!user) return;
 
-        const { data: pitch, error: pitchErr } = await supabase
-          .from('gig_pitches')
-          .select('*')
-          .eq('gig_id', gigId)
-          .eq('artist_id', user.id)
+        // 1. Fetch gig schedule info
+        const { data: gigData } = await supabase
+          .from('gigs')
+          .select('event_date, start_time, duration_hours, location, description')
+          .eq('id', gigId)
           .maybeSingle();
 
-        if (pitchErr) {
-          console.error('Error fetching existing pitch:', pitchErr);
-          return;
+        if (gigData) {
+          setGigDetails(gigData);
         }
 
-        if (pitch) {
-          if (pitch.proposed_rate) setProposedRate(String(pitch.proposed_rate));
-          if (pitch.available_time_slot) setAvailableTimeSlot(pitch.available_time_slot);
-          if (pitch.equipment_offered) setEquipmentOffered(pitch.equipment_offered);
-          if (pitch.pitch_message) setPitchMessage(pitch.pitch_message);
+        // 2. Fetch existing pitch if any
+        if (user) {
+          const { data: pitch, error: pitchErr } = await supabase
+            .from('gig_pitches')
+            .select('*')
+            .eq('gig_id', gigId)
+            .eq('artist_id', user.id)
+            .maybeSingle();
 
-          if (pitch.media_urls && Array.isArray(pitch.media_urls)) {
-            const formattedExistingFiles: UploadedFile[] = pitch.media_urls.map((url: string, index: number) => {
-              const urlParts = url.split('/');
-              const rawFileName = urlParts[urlParts.length - 1] || `Media File ${index + 1}`;
-              const decodedName = decodeURIComponent(rawFileName);
+          if (!pitchErr && pitch) {
+            if (pitch.proposed_rate) setProposedRate(String(pitch.proposed_rate));
+            if (pitch.available_time_slot) setAvailableTimeSlot(pitch.available_time_slot);
+            if (pitch.equipment_offered) setEquipmentOffered(pitch.equipment_offered);
+            if (pitch.pitch_message) setPitchMessage(pitch.pitch_message);
 
-              let fileType = 'image/jpeg';
-              const lower = decodedName.toLowerCase();
-              if (lower.endsWith('.mp3') || lower.endsWith('.wav') || lower.endsWith('.m4a')) {
-                fileType = 'audio/mpeg';
-              } else if (lower.endsWith('.mp4') || lower.endsWith('.mov') || lower.endsWith('.webm')) {
-                fileType = 'video/mp4';
-              }
+            if (pitch.media_urls && Array.isArray(pitch.media_urls)) {
+              const formattedExistingFiles: UploadedFile[] = pitch.media_urls.map((url: string, index: number) => {
+                const urlParts = url.split('/');
+                const rawFileName = urlParts[urlParts.length - 1] || `Media File ${index + 1}`;
+                const decodedName = decodeURIComponent(rawFileName);
 
-              return {
-                name: decodedName,
-                url: url,
-                path: url.includes('pitch-media/') ? url.split('pitch-media/')[1] : '',
-                type: fileType,
-              };
-            });
+                let fileType = 'image/jpeg';
+                const lower = decodedName.toLowerCase();
+                if (lower.endsWith('.mp3') || lower.endsWith('.wav') || lower.endsWith('.m4a')) {
+                  fileType = 'audio/mpeg';
+                } else if (lower.endsWith('.mp4') || lower.endsWith('.mov') || lower.endsWith('.webm')) {
+                  fileType = 'video/mp4';
+                }
 
-            setUploadedFiles(formattedExistingFiles);
+                return {
+                  name: decodedName,
+                  url: url,
+                  path: url.includes('pitch-media/') ? url.split('pitch-media/')[1] : '',
+                  type: fileType,
+                };
+              });
+
+              setUploadedFiles(formattedExistingFiles);
+            }
           }
         }
       } catch (err) {
-        console.error('Failed to load existing pitch:', err);
+        console.error('Failed to load modal data:', err);
       } finally {
         setFetchingExisting(false);
       }
     };
 
-    loadExistingPitch();
+    loadModalData();
   }, [isOpen, gigId]);
 
   if (!isOpen) return null;
@@ -200,7 +222,7 @@ export default function PitchGigModal({
 
       if (insertErr) throw insertErr;
 
-      alert('Pitch updated successfully! The host will review your proposal.');
+      alert('Pitch submitted successfully! The host will review your proposal.');
       if (onSuccess) onSuccess();
       onClose();
     } catch (err: any) {
@@ -233,18 +255,65 @@ export default function PitchGigModal({
             <Sparkles className="w-3 h-3 text-purple-700" /> Professional Pitch Sheet
           </div>
           <h2 className="font-display text-2xl font-bold text-ink">{gigTitle}</h2>
-          <p className="text-xs text-ink-500 mt-0.5">
-            Submit or update your set proposal, availability, equipment list, and media samples for {hostName || 'the host'}.
-          </p>
+          
+          {/* Host Profile Bar */}
+          {hostId && (
+            <div className="flex items-center justify-between mt-2 pt-2 pb-2 border-y border-line text-xs">
+              <div className="flex items-center gap-2">
+                {hostAvatar ? (
+                  <img src={hostAvatar} alt="" className="w-7 h-7 rounded-full object-cover border border-line" />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-ink text-paper flex items-center justify-center font-bold text-[10px]">
+                    {hostName?.[0]?.toUpperCase() || 'H'}
+                  </div>
+                )}
+                <span className="text-ink-600 font-medium">Posted by <strong className="text-ink">{hostName || 'Event Host'}</strong></span>
+              </div>
+              <Link
+                to={`/hosts/${hostId}`}
+                onClick={onClose}
+                className="text-purple-900 font-semibold hover:underline inline-flex items-center gap-1"
+              >
+                <ExternalLink className="w-3.5 h-3.5" /> View Host Profile
+              </Link>
+            </div>
+          )}
         </div>
 
         {fetchingExisting ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 text-purple-800 animate-spin" />
-            <span className="text-xs text-ink-500 ml-2">Loading your pitch details...</span>
+            <span className="text-xs text-ink-500 ml-2">Loading gig schedule & your pitch details...</span>
           </div>
         ) : (
           <>
+            {/* Event Time & Schedule Info Box */}
+            {gigDetails && (
+              <div className="bg-purple-50/60 border border-purple-200 p-3.5 rounded-sm space-y-2 text-xs">
+                <span className="font-bold uppercase tracking-wide-sm text-purple-900 block">Event Schedule & Time Slot</span>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-ink-600">
+                  <div className="flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-purple-700 shrink-0" />
+                    <span>{gigDetails.event_date ? new Date(gigDetails.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-purple-700 shrink-0" />
+                    <span>Start: {gigDetails.start_time || 'Flexible'}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-purple-700 shrink-0" />
+                    <span>Duration: {gigDetails.duration_hours ? `${gigDetails.duration_hours} Hours` : '—'}</span>
+                  </div>
+                </div>
+                {gigDetails.location && (
+                  <div className="flex items-center gap-1.5 text-ink-500 pt-1 border-t border-purple-200/50">
+                    <MapPin className="w-3.5 h-3.5 text-purple-700 shrink-0" />
+                    <span className="truncate">Location: {gigDetails.location}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {error && (
               <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs">
                 {error}
