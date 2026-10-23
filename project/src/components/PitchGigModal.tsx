@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   X, Loader2, Send, Upload, Trash2, FileAudio, FileVideo, Image as ImageIcon, Sparkles 
@@ -38,8 +38,72 @@ export default function PitchGigModal({
   // File Upload State
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [fetchingExisting, setFetchingExisting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fetch Existing Pitch Data when Modal Opens
+  useEffect(() => {
+    if (!isOpen || !gigId) return;
+
+    const loadExistingPitch = async () => {
+      setFetchingExisting(true);
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+
+        const { data: pitch, error: pitchErr } = await supabase
+          .from('gig_pitches')
+          .select('*')
+          .eq('gig_id', gigId)
+          .eq('artist_id', user.id)
+          .maybeSingle();
+
+        if (pitchErr) {
+          console.error('Error fetching existing pitch:', pitchErr);
+          return;
+        }
+
+        if (pitch) {
+          if (pitch.proposed_rate) setProposedRate(String(pitch.proposed_rate));
+          if (pitch.available_time_slot) setAvailableTimeSlot(pitch.available_time_slot);
+          if (pitch.equipment_offered) setEquipmentOffered(pitch.equipment_offered);
+          if (pitch.pitch_message) setPitchMessage(pitch.pitch_message);
+
+          if (pitch.media_urls && Array.isArray(pitch.media_urls)) {
+            const formattedExistingFiles: UploadedFile[] = pitch.media_urls.map((url: string, index: number) => {
+              const urlParts = url.split('/');
+              const rawFileName = urlParts[urlParts.length - 1] || `Media File ${index + 1}`;
+              const decodedName = decodeURIComponent(rawFileName);
+
+              let fileType = 'image/jpeg';
+              const lower = decodedName.toLowerCase();
+              if (lower.endsWith('.mp3') || lower.endsWith('.wav') || lower.endsWith('.m4a')) {
+                fileType = 'audio/mpeg';
+              } else if (lower.endsWith('.mp4') || lower.endsWith('.mov') || lower.endsWith('.webm')) {
+                fileType = 'video/mp4';
+              }
+
+              return {
+                name: decodedName,
+                url: url,
+                path: url.includes('pitch-media/') ? url.split('pitch-media/')[1] : '',
+                type: fileType,
+              };
+            });
+
+            setUploadedFiles(formattedExistingFiles);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load existing pitch:', err);
+      } finally {
+        setFetchingExisting(false);
+      }
+    };
+
+    loadExistingPitch();
+  }, [isOpen, gigId]);
 
   if (!isOpen) return null;
 
@@ -88,7 +152,7 @@ export default function PitchGigModal({
       setError(err.message || 'Failed to upload media file.');
     } finally {
       setIsUploading(false);
-      e.target.value = ''; // Reset file input
+      e.target.value = '';
     }
   };
 
@@ -97,11 +161,11 @@ export default function PitchGigModal({
     if (!fileToRemove) return;
 
     try {
-      // Remove from state immediately
       setUploadedFiles((prev) => prev.filter((_, i) => i !== index));
 
-      // Delete from Supabase Storage
-      await supabase.storage.from('pitch-media').remove([fileToRemove.path]);
+      if (fileToRemove.path) {
+        await supabase.storage.from('pitch-media').remove([fileToRemove.path]);
+      }
     } catch (err) {
       console.error('Error removing file from storage:', err);
     }
@@ -136,7 +200,7 @@ export default function PitchGigModal({
 
       if (insertErr) throw insertErr;
 
-      alert('Pitch submitted successfully! The host will review your proposal.');
+      alert('Pitch updated successfully! The host will review your proposal.');
       if (onSuccess) onSuccess();
       onClose();
     } catch (err: any) {
@@ -170,162 +234,171 @@ export default function PitchGigModal({
           </div>
           <h2 className="font-display text-2xl font-bold text-ink">{gigTitle}</h2>
           <p className="text-xs text-ink-500 mt-0.5">
-            Submit your tailored set proposal, availability, equipment list, and media samples directly to {hostName || 'the host'}.
+            Submit or update your set proposal, availability, equipment list, and media samples for {hostName || 'the host'}.
           </p>
         </div>
 
-        {error && (
-          <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs">
-            {error}
+        {fetchingExisting ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 text-purple-800 animate-spin" />
+            <span className="text-xs text-ink-500 ml-2">Loading your pitch details...</span>
           </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink mb-1">
-                Your Rate Quote (ZAR)
-              </label>
-              <input
-                type="number"
-                required
-                min="0"
-                placeholder="e.g. 2500"
-                value={proposedRate}
-                onChange={(e) => setProposedRate(e.target.value)}
-                className="w-full bg-paper-100 border border-line p-2.5 text-xs text-ink focus:outline-none focus:border-ink font-bold text-emerald-800"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink mb-1">
-                Call-Time / Availability Slot
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Available 18:00 - 22:00"
-                value={availableTimeSlot}
-                onChange={(e) => setAvailableTimeSlot(e.target.value)}
-                className="w-full bg-paper-100 border border-line p-2.5 text-xs text-ink focus:outline-none focus:border-ink"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink mb-1">
-              Gear & Sound Equipment You Provide
-            </label>
-            <input
-              type="text"
-              placeholder="e.g. Pioneer RX3 Controller, Wireless Mic & PA Speakers"
-              value={equipmentOffered}
-              onChange={(e) => setEquipmentOffered(e.target.value)}
-              className="w-full bg-paper-100 border border-line p-2.5 text-xs text-ink focus:outline-none focus:border-ink"
-            />
-          </div>
-
-          <div>
-            <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink mb-1">
-              Set Hook & Pitch Message
-            </label>
-            <textarea
-              rows={3}
-              required
-              placeholder="Pitch your style, genres, experience, and why you are the ideal fit for this event..."
-              value={pitchMessage}
-              onChange={(e) => setPitchMessage(e.target.value)}
-              className="w-full bg-paper-100 border border-line p-2.5 text-xs text-ink focus:outline-none focus:border-ink"
-            />
-          </div>
-
-          {/* Media File Upload Section */}
-          <div className="space-y-2 border-t border-line pt-3">
-            <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink">
-              Upload Audio / Video / Image Showcase (Max 3)
-            </label>
-            <p className="text-[11px] text-ink-400">
-              Upload MP3 mixes, MP4 performance clips, or photos so hosts can listen/view directly.
-            </p>
-
-            <div className="relative">
-              <input
-                type="file"
-                id="pitch-media-upload"
-                accept="audio/*,video/*,image/*"
-                multiple
-                onChange={handleFileUpload}
-                disabled={isUploading || uploadedFiles.length >= 3}
-                className="hidden"
-              />
-              <label
-                htmlFor="pitch-media-upload"
-                className={`w-full py-3 px-4 border-2 border-dashed border-line bg-paper-100 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wide-sm cursor-pointer hover:border-ink transition-colors ${
-                  isUploading || uploadedFiles.length >= 3 ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
-              >
-                {isUploading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-purple-700" />
-                    <span>Uploading Media...</span>
-                  </>
-                ) : (
-                  <>
-                    <Upload className="w-4 h-4 text-purple-700" />
-                    <span>Choose Media File(s) to Upload</span>
-                  </>
-                )}
-              </label>
-            </div>
-
-            {/* List of Uploaded Media */}
-            {uploadedFiles.length > 0 && (
-              <div className="space-y-2 pt-2">
-                {uploadedFiles.map((file, index) => (
-                  <div key={index} className="flex items-center justify-between p-2.5 bg-paper-100 border border-line text-xs">
-                    <div className="flex items-center gap-2 truncate pr-2">
-                      {renderFileIcon(file.type)}
-                      <span className="truncate font-medium text-ink">{file.name}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveFile(index)}
-                      className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
-                      title="Delete media file"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+        ) : (
+          <>
+            {error && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs">
+                {error}
               </div>
             )}
-          </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t border-line">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 text-xs uppercase font-semibold text-ink-500 hover:text-ink"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={loading || isUploading}
-              className="px-6 py-2.5 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 disabled:opacity-50 flex items-center gap-2"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Submitting...
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5" /> Submit Pitch Sheet
-                </>
-              )}
-            </button>
-          </div>
-        </form>
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink mb-1">
+                    Your Rate Quote (ZAR)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min="0"
+                    placeholder="e.g. 2500"
+                    value={proposedRate}
+                    onChange={(e) => setProposedRate(e.target.value)}
+                    className="w-full bg-paper-100 border border-line p-2.5 text-xs text-ink focus:outline-none focus:border-ink font-bold text-emerald-800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink mb-1">
+                    Call-Time / Availability Slot
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Available 18:00 - 22:00"
+                    value={availableTimeSlot}
+                    onChange={(e) => setAvailableTimeSlot(e.target.value)}
+                    className="w-full bg-paper-100 border border-line p-2.5 text-xs text-ink focus:outline-none focus:border-ink"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink mb-1">
+                  Gear & Sound Equipment You Provide
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Pioneer RX3 Controller, Wireless Mic & PA Speakers"
+                  value={equipmentOffered}
+                  onChange={(e) => setEquipmentOffered(e.target.value)}
+                  className="w-full bg-paper-100 border border-line p-2.5 text-xs text-ink focus:outline-none focus:border-ink"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink mb-1">
+                  Set Hook & Pitch Message
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Pitch your style, genres, experience, and why you are the ideal fit for this event..."
+                  value={pitchMessage}
+                  onChange={(e) => setPitchMessage(e.target.value)}
+                  className="w-full bg-paper-100 border border-line p-2.5 text-xs text-ink focus:outline-none focus:border-ink"
+                />
+              </div>
+
+              {/* Media File Upload Section */}
+              <div className="space-y-2 border-t border-line pt-3">
+                <label className="block text-[10px] uppercase font-bold tracking-wide-sm text-ink">
+                  Upload Audio / Video / Image Showcase (Max 3)
+                </label>
+                <p className="text-[11px] text-ink-400">
+                  Upload MP3 mixes, MP4 performance clips, or photos so hosts can listen/view directly.
+                </p>
+
+                <div className="relative">
+                  <input
+                    type="file"
+                    id="pitch-media-upload"
+                    accept="audio/*,video/*,image/*"
+                    multiple
+                    onChange={handleFileUpload}
+                    disabled={isUploading || uploadedFiles.length >= 3}
+                    className="hidden"
+                  />
+                  <label
+                    htmlFor="pitch-media-upload"
+                    className={`w-full py-3 px-4 border-2 border-dashed border-line bg-paper-100 flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wide-sm cursor-pointer hover:border-ink transition-colors ${
+                      isUploading || uploadedFiles.length >= 3 ? 'opacity-50 cursor-not-allowed' : ''
+                    }`}
+                  >
+                    {isUploading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-purple-700" />
+                        <span>Uploading Media...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 text-purple-700" />
+                        <span>Choose Media File(s) to Upload</span>
+                      </>
+                    )}
+                  </label>
+                </div>
+
+                {/* List of Uploaded Media */}
+                {uploadedFiles.length > 0 && (
+                  <div className="space-y-2 pt-2">
+                    {uploadedFiles.map((file, index) => (
+                      <div key={index} className="flex items-center justify-between p-2.5 bg-paper-100 border border-line text-xs">
+                        <div className="flex items-center gap-2 truncate pr-2">
+                          {renderFileIcon(file.type)}
+                          <span className="truncate font-medium text-ink">{file.name}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveFile(index)}
+                          className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                          title="Delete media file"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-line">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2.5 text-xs uppercase font-semibold text-ink-500 hover:text-ink"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading || isUploading}
+                  className="px-6 py-2.5 bg-ink text-paper text-xs uppercase tracking-wide-sm font-semibold hover:bg-ink-800 disabled:opacity-50 flex items-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Updating...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-3.5 h-3.5" /> Save & Update Pitch Sheet
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </>
+        )}
       </div>
     </div>
   );
