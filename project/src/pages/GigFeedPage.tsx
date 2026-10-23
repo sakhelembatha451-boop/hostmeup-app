@@ -4,10 +4,11 @@ import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { 
   Calendar, MapPin, Loader2, PartyPopper, Plus, Filter, Send, 
-  CheckCircle2, Clock, Sparkles, ExternalLink 
+  CheckCircle2, Clock, Sparkles, ExternalLink, Users 
 } from 'lucide-react';
 import CreateGigModal from '@/components/CreateGigModal';
 import PitchGigModal from '@/components/PitchGigModal';
+import HostPitchesSelectorModal from '@/components/HostPitchesSelectorModal';
 
 interface Gig {
   id: string;
@@ -39,7 +40,10 @@ export default function GigFeedPage() {
   const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
+
+  // Modals State
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isHostPitchesModalOpen, setIsHostPitchesModalOpen] = useState(false);
 
   // Pitch Modal State
   const [selectedGigForPitch, setSelectedGigForPitch] = useState<Gig | null>(null);
@@ -157,12 +161,35 @@ export default function GigFeedPage() {
             <p className="text-xs text-ink-500 mt-1">Browse open gig calls posted by hosts or publish your own event opening.</p>
           </div>
 
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-ink text-paper text-xs uppercase font-semibold tracking-wide-sm hover:bg-ink-800 transition-colors shadow-xs"
-          >
-            <Plus className="w-4 h-4" /> Post a Gig
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Review Pitches Button for Hosts */}
+            <button
+              onClick={() => {
+                if (!profile) {
+                  alert('Please log in to review pitches for your gigs.');
+                  return;
+                }
+                setIsHostPitchesModalOpen(true);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-purple-900 text-white text-xs uppercase font-semibold tracking-wide-sm hover:bg-purple-950 transition-colors shadow-xs"
+            >
+              <Users className="w-4 h-4 text-purple-300" /> Review Pitches
+            </button>
+
+            {/* Post a Gig Button */}
+            <button
+              onClick={() => {
+                if (!profile) {
+                  alert('Please log in to post a gig.');
+                  return;
+                }
+                setIsCreateModalOpen(true);
+              }}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-ink text-paper text-xs uppercase font-semibold tracking-wide-sm hover:bg-ink-800 transition-colors shadow-xs"
+            >
+              <Plus className="w-4 h-4" /> Post a Gig
+            </button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -291,6 +318,14 @@ export default function GigFeedPage() {
           onClose={() => setIsCreateModalOpen(false)}
           onSuccess={fetchGigsAndPitches}
         />
+
+        {isHostPitchesModalOpen && (
+          <HostPitchesSelectorModal
+            isOpen={isHostPitchesModalOpen}
+            onClose={() => setIsHostPitchesModalOpen(false)}
+            onSuccess={fetchGigsAndPitches}
+          />
+        )}
 
         {isPitchModalOpen && selectedGigForPitch && (
           <PitchGigModal
