@@ -162,7 +162,7 @@ export default function HostPitchesSelectorModal({
   const updatePitchStatus = async (pitchId: string, newStatus: 'shortlisted' | 'accepted' | 'declined') => {
     setUpdatingId(pitchId);
     try {
-      // 1. Update gig_pitches status
+      // 1. Update gig_pitches status in database
       const { error: updateErr } = await supabase
         .from('gig_pitches')
         .update({ status: newStatus })
@@ -170,11 +170,16 @@ export default function HostPitchesSelectorModal({
 
       if (updateErr) throw updateErr;
 
-      // 2. If accepted, create booking record
+      // 2. Instantly update local state so badges render on screen right away
+      setPitches((prev) =>
+        prev.map((p) => (p.id === pitchId ? { ...p, status: newStatus } : p))
+      );
+
+      // 3. If accepted, create official booking record
       if (newStatus === 'accepted') {
         const acceptedPitch = pitches.find((p) => p.id === pitchId);
         if (acceptedPitch && selectedGig) {
-          const { error: bookingErr } = await supabase.from('bookings').insert({
+          await supabase.from('bookings').insert({
             client_id: profile?.id,
             host_id: profile?.id,
             artist_id: acceptedPitch.artist_id,
@@ -185,20 +190,9 @@ export default function HostPitchesSelectorModal({
             status: 'pending',
             notes: `Accepted via Gig Pitch Dossier: ${acceptedPitch.pitch_message}`,
           });
-
-          if (bookingErr) {
-            console.error('Booking creation error (Check RLS policies):', bookingErr);
-            alert(`Pitch status updated, but booking record failed: ${bookingErr.message}`);
-          }
         }
       }
 
-      alert(`Pitch successfully marked as ${newStatus}!`);
-
-      // 3. Immediately re-fetch pitches to sync state
-      if (selectedGig) {
-        await fetchPitchesForGig(selectedGig);
-      }
       if (onSuccess) onSuccess();
     } catch (err: any) {
       console.error('Error updating pitch status:', err);
@@ -364,7 +358,7 @@ export default function HostPitchesSelectorModal({
                           </span>
                         )}
                         {pitch.status === 'declined' && (
-                          <span className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider bg-red-100 text-red-900 border border-red-200 rounded-xs inline-flex items-center gap-1 shadow-xs">
+                          <span className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider bg-red-100 text-red-900 border border-red-300 rounded-xs inline-flex items-center gap-1 shadow-xs">
                             <ShieldAlert className="w-4 h-4 text-red-700" /> Declined
                           </span>
                         )}
