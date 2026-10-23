@@ -194,6 +194,11 @@ export default function HostPitchesSelectorModal({
       }
 
       if (onSuccess) onSuccess();
+
+      // If accepted, automatically close the modal to return to the updated feed
+      if (newStatus === 'accepted') {
+        onClose();
+      }
     } catch (err: any) {
       console.error('Error updating pitch status:', err);
       alert(`Failed to update pitch: ${err.message || 'Check Supabase RLS policies.'}`);
