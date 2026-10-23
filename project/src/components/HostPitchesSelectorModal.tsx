@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { X, Loader2, Sparkles, Calendar, MapPin, Users, ArrowRight, CheckCircle2, FileAudio, FileVideo, ExternalLink } from 'lucide-react';
+import { X, Loader2, Sparkles, Calendar, MapPin, Users, ArrowRight, CheckCircle2, FileAudio, ExternalLink, ShieldAlert, Clock } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 interface HostGig {
@@ -53,7 +53,6 @@ export default function HostPitchesSelectorModal({
   const [hostGigs, setHostGigs] = useState<HostGig[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Active Selected Gig for Pitch Review Dossier
   const [selectedGig, setSelectedGig] = useState<HostGig | null>(null);
   const [pitches, setPitches] = useState<PitchItem[]>([]);
   const [loadingPitches, setLoadingPitches] = useState(false);
@@ -185,10 +184,9 @@ export default function HostPitchesSelectorModal({
             notes: `Accepted via Gig Pitch Dossier: ${acceptedPitch.pitch_message}`,
           });
         }
-        alert('Pitch accepted successfully! An official booking request has been created.');
+        alert('Pitch accepted successfully! Official booking created.');
       }
 
-      // Update local state directly without full reload flash
       setPitches((prev) =>
         prev.map((p) => (p.id === pitchId ? { ...p, status: newStatus } : p))
       );
@@ -213,7 +211,6 @@ export default function HostPitchesSelectorModal({
           <X className="w-5 h-5" />
         </button>
 
-        {/* View Mode 1: List of Host Gigs */}
         {!selectedGig ? (
           <>
             <div>
@@ -222,7 +219,7 @@ export default function HostPitchesSelectorModal({
               </div>
               <h2 className="font-display text-2xl font-bold text-ink">Review Posted Gig Opportunities</h2>
               <p className="text-xs text-ink-500 mt-0.5">
-                Select one of your open gigs below to evaluate incoming talent pitch sheets, rate quotes, and media showcases.
+                Select one of your open gigs below to evaluate incoming talent pitch sheets and statuses.
               </p>
             </div>
 
@@ -233,7 +230,7 @@ export default function HostPitchesSelectorModal({
             ) : hostGigs.length === 0 ? (
               <div className="border border-dashed border-line bg-paper-100 p-10 text-center space-y-2">
                 <p className="font-display font-bold text-ink text-base">You haven't posted any gigs yet</p>
-                <p className="text-xs text-ink-500">Post an event opening using the "+ Post a Gig" button to start receiving talent pitch sheets!</p>
+                <p className="text-xs text-ink-500">Post an event opening using "+ Post a Gig" to receive talent pitches!</p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -286,7 +283,6 @@ export default function HostPitchesSelectorModal({
             )}
           </>
         ) : (
-          /* View Mode 2: Pitch Review Dossier for Selected Gig */
           <div className="space-y-6">
             <div className="flex items-center justify-between border-b border-line pb-4">
               <div>
@@ -298,7 +294,7 @@ export default function HostPitchesSelectorModal({
                   ← Back to My Gigs
                 </button>
                 <h2 className="font-display text-2xl font-bold text-ink">{selectedGig.title}</h2>
-                <p className="text-xs text-ink-500">Reviewing incoming artist submissions & media showcases.</p>
+                <p className="text-xs text-ink-500">Reviewing incoming artist submissions & statuses.</p>
               </div>
             </div>
 
@@ -349,17 +345,27 @@ export default function HostPitchesSelectorModal({
                           </span>
                         </div>
 
-                        <span className={`px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider border rounded-xs ${
-                          pitch.status === 'accepted'
-                            ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                            : pitch.status === 'shortlisted'
-                            ? 'bg-blue-50 text-blue-800 border-blue-300'
-                            : pitch.status === 'declined'
-                            ? 'bg-red-50 text-red-800 border-red-200'
-                            : 'bg-purple-50 text-purple-900 border-purple-200'
-                        }`}>
-                          {pitch.status}
-                        </span>
+                        {/* CLEAR STATUS BADGE FOR HOST */}
+                        {pitch.status === 'accepted' && (
+                          <span className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-xs inline-flex items-center gap-1 shadow-xs">
+                            <CheckCircle2 className="w-4 h-4 text-emerald-700" /> Accepted & Booked
+                          </span>
+                        )}
+                        {pitch.status === 'shortlisted' && (
+                          <span className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider bg-blue-100 text-blue-900 border border-blue-300 rounded-xs inline-flex items-center gap-1 shadow-xs">
+                            <Sparkles className="w-4 h-4 text-blue-700" /> Shortlisted
+                          </span>
+                        )}
+                        {pitch.status === 'declined' && (
+                          <span className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider bg-red-100 text-red-900 border border-red-300 rounded-xs inline-flex items-center gap-1 shadow-xs">
+                            <ShieldAlert className="w-4 h-4 text-red-700" /> Declined
+                          </span>
+                        )}
+                        {pitch.status === 'pending' && (
+                          <span className="px-3 py-1 text-[11px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 border border-purple-200 rounded-xs inline-flex items-center gap-1 shadow-xs">
+                            <Clock className="w-4 h-4 text-purple-700 animate-pulse" /> Pending Review
+                          </span>
+                        )}
                       </div>
                     </div>
 
