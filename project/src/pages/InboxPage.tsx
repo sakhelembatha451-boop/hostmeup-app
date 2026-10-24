@@ -81,10 +81,11 @@ export const InboxPage: React.FC<InboxPageProps> = ({
   const [searchParams] = useSearchParams();
   const { recipientId } = useParams<{ recipientId?: string }>();
 
-  // Read URL route params and search params as fallbacks
+  // Read URL route params, search params (including recipient_id), and props
   const effectiveUserId =
     propTargetUserId ||
     recipientId ||
+    searchParams.get('recipient_id') ||
     searchParams.get('userId') ||
     searchParams.get('targetUserId') ||
     searchParams.get('recipientId');
