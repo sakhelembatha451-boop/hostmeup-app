@@ -175,10 +175,11 @@ export default function HostPitchesSelectorModal({
         prev.map((p) => (p.id === pitchId ? { ...p, status: newStatus } : p))
       );
 
-      // 3. If accepted, create official booking record
+      // 3. If accepted, create official booking record AND automated notification for the artist
       if (newStatus === 'accepted') {
         const acceptedPitch = pitches.find((p) => p.id === pitchId);
         if (acceptedPitch && selectedGig) {
+          // Create Booking Record
           await supabase.from('bookings').insert({
             client_id: profile?.id,
             host_id: profile?.id,
@@ -190,14 +191,20 @@ export default function HostPitchesSelectorModal({
             status: 'pending',
             notes: `Accepted via Gig Pitch Dossier: ${acceptedPitch.pitch_message}`,
           });
+
+          // Insert Notification for the Artist
+          await supabase.from('notifications').insert({
+            user_id: acceptedPitch.artist_id,
+            title: 'Gig Booking Confirmed! 🎉',
+            message: `You have been booked for "${selectedGig.title}" with a proposed rate of R${acceptedPitch.proposed_rate.toLocaleString()}.`,
+            type: 'booking',
+          });
         }
       }
 
       if (onSuccess) onSuccess();
-
-      // If accepted, automatically close the modal to return to the updated feed
       if (newStatus === 'accepted') {
-        onClose();
+        onClose(); // Automatically close and return to feed
       }
     } catch (err: any) {
       console.error('Error updating pitch status:', err);
