@@ -53,6 +53,8 @@ interface Gig {
   category: string;
   location: string;
   event_date: string;
+  start_time?: string;
+  duration_hours?: number;
   budget: number;
   description?: string;
   host_id: string;
@@ -177,7 +179,7 @@ export default function ArtistDashboard() {
         setBookings(processedBookings as BookingWithHost[]);
       }
 
-      // Fetch Open Gigs for Talent Dashboard Feed (Sorted by creation date descending)
+      // Fetch Open Gigs for Talent Dashboard Feed
       const { data: gigData } = await supabase
         .from('gigs')
         .select('*')
@@ -954,7 +956,13 @@ export default function ArtistDashboard() {
             }}
             gigId={selectedGigForPitch.id}
             gigTitle={selectedGigForPitch.title}
+            eventDate={selectedGigForPitch.event_date}
+            startTime={selectedGigForPitch.start_time}
+            durationHours={selectedGigForPitch.duration_hours}
+            location={selectedGigForPitch.location}
+            hostId={selectedGigForPitch.host_id}
             hostName={selectedGigForPitch.host?.full_name}
+            hostAvatar={selectedGigForPitch.host?.avatar_url}
             suggestedBudget={selectedGigForPitch.budget}
             onSuccess={() => loadDashboardData(false)}
           />
