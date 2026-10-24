@@ -177,12 +177,12 @@ export default function ArtistDashboard() {
         setBookings(processedBookings as BookingWithHost[]);
       }
 
-      // Fetch Open Gigs for Talent Dashboard Feed
+      // Fetch Open Gigs for Talent Dashboard Feed (Sorted by creation date descending)
       const { data: gigData } = await supabase
         .from('gigs')
         .select('*')
         .eq('status', 'open')
-        .order('event_date', { ascending: true })
+        .order('created_at', { ascending: false })
         .limit(6);
 
       if (gigData && gigData.length > 0) {
