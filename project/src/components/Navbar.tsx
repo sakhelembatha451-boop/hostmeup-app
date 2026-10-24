@@ -120,7 +120,10 @@ export default function Navbar() {
     const notifTitle = notif.title?.toLowerCase() || '';
     const notifType = (notif as any).type || '';
 
-    if (notif.conversation_id) {
+    // If the notification has a custom link (like our new message link), use it!
+    if ((notif as any).link) {
+      navigate((notif as any).link);
+    } else if (notif.conversation_id) {
       navigate(inboxPath);
     } else if (notif.booking_id) {
       navigate(dashboardPath);
