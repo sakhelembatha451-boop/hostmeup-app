@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { useNavigate } from 'react-router-dom';
 import { X, Loader2, Sparkles, Calendar, MapPin, DollarSign, CheckCircle2, User, ExternalLink } from 'lucide-react';
 
 interface Pitch {
@@ -37,7 +36,6 @@ export default function HostPitchReviewModal({
   onSuccess,
 }: HostPitchReviewModalProps) {
   const { profile } = useAuth();
-  const navigate = useNavigate();
   const [pitches, setPitches] = useState<Pitch[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
@@ -84,7 +82,7 @@ export default function HostPitchReviewModal({
   };
 
   /**
-   * Accepts the talent pitch, creates the formal booking record, and redirects to escrow checkout.
+   * Accepts the talent pitch, creates the formal booking record, and performs a hard redirect to checkout.
    */
   const handleAcceptPitch = async (pitch: Pitch) => {
     if (!profile?.id) return;
@@ -102,7 +100,7 @@ export default function HostPitchReviewModal({
 
       const finalPrice = pitch.proposed_rate || gigData.budget || 0;
 
-      // 2. Insert into the bookings table (supporting both total_price & total_amount schema naming)
+      // 2. Insert into the bookings table
       const bookingPayload = {
         host_id: profile.id,
         artist_id: pitch.artist_id,
@@ -138,12 +136,12 @@ export default function HostPitchReviewModal({
 
       if (updateError) throw updateError;
 
-      // 4. Close modal and redirect directly to checkout/payment page
-      onClose();
+      // 4. Trigger success callbacks if needed
       if (onSuccess) onSuccess();
 
+      // 5. Hard browser redirect straight to the checkout page
       if (bookingData?.id) {
-        navigate(`/book/${bookingData.id}`);
+        window.location.href = `/book/${bookingData.id}`;
       } else {
         throw new Error('Booking created but ID was missing.');
       }
