@@ -47,7 +47,6 @@ export default function HostPitchReviewModal({
     setLoading(true);
 
     try {
-      // 1. Fetch pitches for this specific gig
       const { data: pitchData, error: pitchError } = await supabase
         .from('gig_pitches')
         .select('*')
@@ -57,7 +56,6 @@ export default function HostPitchReviewModal({
       if (pitchError) throw pitchError;
 
       if (pitchData && pitchData.length > 0) {
-        // 2. Fetch artist profiles for each pitch
         const artistIds = pitchData.map((p) => p.artist_id);
         const { data: profilesData } = await supabase
           .from('profiles')
@@ -93,7 +91,7 @@ export default function HostPitchReviewModal({
     setActionLoadingId(pitch.id);
 
     try {
-      // 1. Fetch gig details to populate the booking record accurately
+      // 1. Fetch gig details
       const { data: gigData, error: gigError } = await supabase
         .from('gigs')
         .select('*')
@@ -102,26 +100,35 @@ export default function HostPitchReviewModal({
 
       if (gigError) throw gigError;
 
-      // 2. Insert into the bookings table (triggers escrow pipeline)
+      const finalPrice = pitch.proposed_rate || gigData.budget || 0;
+
+      // 2. Insert into the bookings table (supporting both total_price & total_amount schema naming)
+      const bookingPayload = {
+        host_id: profile.id,
+        artist_id: pitch.artist_id,
+        gig_id: gigId,
+        event_date: gigData.event_date,
+        start_time: gigData.start_time || '18:00',
+        gig_duration: gigData.duration ? `${gigData.duration} hrs` : '2 hrs',
+        location: gigData.location,
+        total_price: finalPrice,
+        total_amount: finalPrice,
+        deposit_amount: finalPrice * 0.5,
+        status: 'pending_deposit',
+      };
+
+      console.log('Inserting booking record:', bookingPayload);
+
       const { data: bookingData, error: bookingError } = await supabase
         .from('bookings')
-        .insert([
-          {
-            host_id: profile.id,
-            artist_id: pitch.artist_id,
-            gig_id: gigId,
-            event_date: gigData.event_date,
-            start_time: gigData.start_time || '18:00',
-            duration: gigData.duration || 2,
-            location: gigData.location,
-            total_amount: pitch.proposed_rate || gigData.budget,
-            status: 'pending_deposit',
-          }
-        ])
+        .insert([bookingPayload])
         .select()
         .single();
 
-      if (bookingError) throw bookingError;
+      if (bookingError) {
+        console.error('Supabase Booking Insert Error:', bookingError);
+        throw bookingError;
+      }
 
       // 3. Update pitch status to 'accepted'
       const { error: updateError } = await supabase
@@ -137,10 +144,12 @@ export default function HostPitchReviewModal({
 
       if (bookingData?.id) {
         navigate(`/book/${bookingData.id}`);
+      } else {
+        throw new Error('Booking created but ID was missing.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error accepting pitch and creating booking:', err);
-      alert('Failed to convert pitch into booking. Please try again.');
+      alert(`Failed to convert pitch into booking: ${err?.message || 'Please check console.'}`);
     } finally {
       setActionLoadingId(null);
     }
