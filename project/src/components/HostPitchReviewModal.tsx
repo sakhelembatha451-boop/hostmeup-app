@@ -100,15 +100,12 @@ export default function HostPitchReviewModal({
 
       const finalPrice = pitch.proposed_rate || gigData.budget || 0;
 
-      // 2. Insert into the bookings table
+      // 2. Insert into the bookings table with minimal safe payload
       const bookingPayload = {
         host_id: profile.id,
         artist_id: pitch.artist_id,
         gig_id: gigId,
         event_date: gigData.event_date,
-        start_time: gigData.start_time || '18:00',
-        gig_duration: gigData.duration ? `${gigData.duration} hrs` : '2 hrs',
-        location: gigData.location,
         total_price: finalPrice,
         total_amount: finalPrice,
         deposit_amount: finalPrice * 0.5,
@@ -125,7 +122,8 @@ export default function HostPitchReviewModal({
 
       if (bookingError) {
         console.error('Supabase Booking Insert Error:', bookingError);
-        throw bookingError;
+        alert(`Database Insert Error: ${bookingError.message} (Code: ${bookingError.code})`);
+        return;
       }
 
       // 3. Update pitch status to 'accepted'
@@ -134,7 +132,9 @@ export default function HostPitchReviewModal({
         .update({ status: 'accepted' })
         .eq('id', pitch.id);
 
-      if (updateError) throw updateError;
+      if (updateError) {
+        console.error('Pitch Status Update Error:', updateError);
+      }
 
       // 4. Trigger success callbacks if needed
       if (onSuccess) onSuccess();
@@ -143,11 +143,11 @@ export default function HostPitchReviewModal({
       if (bookingData?.id) {
         window.location.href = `/book/${bookingData.id}`;
       } else {
-        throw new Error('Booking created but ID was missing.');
+        alert('Booking record was created, but no booking ID was returned.');
       }
     } catch (err: any) {
-      console.error('Error accepting pitch and creating booking:', err);
-      alert(`Failed to convert pitch into booking: ${err?.message || 'Please check console.'}`);
+      console.error('Unexpected error accepting pitch:', err);
+      alert(`Unexpected Error: ${err?.message || JSON.stringify(err)}`);
     } finally {
       setActionLoadingId(null);
     }
