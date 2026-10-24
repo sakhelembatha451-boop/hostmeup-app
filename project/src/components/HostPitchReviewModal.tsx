@@ -1,204 +1,269 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { X, Loader2, Sparkles, Calendar, MapPin, Users, ArrowRight } from 'lucide-react';
-import HostPitchReviewModal from '@/components/HostPitchReviewModal';
+import { useNavigate } from 'react-router-dom';
+import { X, Loader2, Sparkles, Calendar, MapPin, DollarSign, CheckCircle2, User, ExternalLink } from 'lucide-react';
 
-interface HostGig {
+interface Pitch {
   id: string;
-  title: string;
-  category: string;
-  location: string;
-  event_date: string;
-  budget: number;
-  pitch_count: number;
+  gig_id: string;
+  artist_id: string;
+  cover_message: string;
+  proposed_rate: number;
+  status: string;
+  created_at: string;
+  artist?: {
+    id: string;
+    full_name: string;
+    avatar_url: string;
+    category: string;
+    bio: string;
+  };
 }
 
-interface HostPitchesSelectorModalProps {
+interface HostPitchReviewModalProps {
   isOpen: boolean;
   onClose: () => void;
+  gigId: string;
+  gigTitle: string;
   onSuccess?: () => void;
 }
 
-export default function HostPitchesSelectorModal({
+export default function HostPitchReviewModal({
   isOpen,
   onClose,
+  gigId,
+  gigTitle,
   onSuccess,
-}: HostPitchesSelectorModalProps) {
+}: HostPitchReviewModalProps) {
   const { profile } = useAuth();
-  const [hostGigs, setHostGigs] = useState<HostGig[]>([]);
+  const navigate = useNavigate();
+  const [pitches, setPitches] = useState<Pitch[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
-  // Selected Gig for Pitch Review
-  const [selectedGig, setSelectedGig] = useState<HostGig | null>(null);
-  const [isReviewOpen, setIsReviewOpen] = useState(false);
-
-  const fetchHostGigs = async () => {
-    if (!profile?.id) return;
+  const fetchPitches = async () => {
+    if (!gigId) return;
     setLoading(true);
 
     try {
-      // 1. Fetch gigs posted by this host
-      const { data: gigs, error } = await supabase
-        .from('gigs')
+      // 1. Fetch pitches for this specific gig
+      const { data: pitchData, error: pitchError } = await supabase
+        .from('gig_pitches')
         .select('*')
-        .eq('host_id', profile.id)
-        .order('event_date', { ascending: true });
+        .eq('gig_id', gigId)
+        .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (pitchError) throw pitchError;
 
-      if (gigs && gigs.length > 0) {
-        const gigIds = gigs.map((g) => g.id);
+      if (pitchData && pitchData.length > 0) {
+        // 2. Fetch artist profiles for each pitch
+        const artistIds = pitchData.map((p) => p.artist_id);
+        const { data: profilesData } = await supabase
+          .from('profiles')
+          .select('id, full_name, avatar_url, category, bio')
+          .in('id', artistIds);
 
-        // 2. Fetch pitch count for each gig
-        const { data: pitchCounts } = await supabase
-          .from('gig_pitches')
-          .select('gig_id');
-
-        const pitchMap = new Map<string, number>();
-        (pitchCounts || []).forEach((p) => {
-          if (gigIds.includes(p.gig_id)) {
-            pitchMap.set(p.gig_id, (pitchMap.get(p.gig_id) || 0) + 1);
-          }
+        const profileMap = new Map();
+        (profilesData || []).forEach((prof) => {
+          profileMap.set(prof.id, prof);
         });
 
-        setHostGigs(
-          gigs.map((g) => ({
-            ...g,
-            pitch_count: pitchMap.get(g.id) || 0,
-          }))
-        );
+        const formattedPitches: Pitch[] = pitchData.map((p) => ({
+          ...p,
+          artist: profileMap.get(p.artist_id) || null,
+        }));
+
+        setPitches(formattedPitches);
       } else {
-        setHostGigs([]);
+        setPitches([]);
       }
     } catch (err) {
-      console.error('Error fetching host gigs:', err);
+      console.error('Error fetching pitches:', err);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    if (isOpen) {
-      fetchHostGigs();
+  /**
+   * Accepts the talent pitch, creates the formal booking record, and redirects to escrow checkout.
+   */
+  const handleAcceptPitch = async (pitch: Pitch) => {
+    if (!profile?.id) return;
+    setActionLoadingId(pitch.id);
+
+    try {
+      // 1. Fetch gig details to populate the booking record accurately
+      const { data: gigData, error: gigError } = await supabase
+        .from('gigs')
+        .select('*')
+        .eq('id', gigId)
+        .single();
+
+      if (gigError) throw gigError;
+
+      // 2. Insert into the bookings table (triggers escrow pipeline)
+      const { data: bookingData, error: bookingError } = await supabase
+        .from('bookings')
+        .insert([
+          {
+            host_id: profile.id,
+            artist_id: pitch.artist_id,
+            gig_id: gigId,
+            event_date: gigData.event_date,
+            start_time: gigData.start_time || '18:00',
+            duration: gigData.duration || 2,
+            location: gigData.location,
+            total_amount: pitch.proposed_rate || gigData.budget,
+            status: 'pending_deposit',
+          }
+        ])
+        .select()
+        .single();
+
+      if (bookingError) throw bookingError;
+
+      // 3. Update pitch status to 'accepted'
+      const { error: updateError } = await supabase
+        .from('gig_pitches')
+        .update({ status: 'accepted' })
+        .eq('id', pitch.id);
+
+      if (updateError) throw updateError;
+
+      // 4. Close modal and redirect directly to checkout/payment page
+      onClose();
+      if (onSuccess) onSuccess();
+
+      if (bookingData?.id) {
+        navigate(`/book/${bookingData.id}`);
+      }
+    } catch (err) {
+      console.error('Error accepting pitch and creating booking:', err);
+      alert('Failed to convert pitch into booking. Please try again.');
+    } finally {
+      setActionLoadingId(null);
     }
-  }, [isOpen, profile?.id]);
+  };
+
+  useEffect(() => {
+    if (isOpen && gigId) {
+      fetchPitches();
+    }
+  }, [isOpen, gigId]);
 
   if (!isOpen) return null;
 
   return (
-    <>
-      <div className="fixed inset-0 z-50 bg-ink/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
-        <div className="bg-paper border border-line p-6 max-w-2xl w-full relative shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto">
-          <button
-            onClick={onClose}
-            type="button"
-            className="absolute top-4 right-4 text-ink-400 hover:text-ink transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+    <div className="fixed inset-0 z-50 bg-ink/70 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in">
+      <div className="bg-paper border border-line p-6 max-w-3xl w-full relative shadow-2xl space-y-6 max-h-[85vh] overflow-y-auto">
+        <button
+          onClick={onClose}
+          type="button"
+          className="absolute top-4 right-4 text-ink-400 hover:text-ink transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
 
-          <div>
-            <div className="flex items-center gap-2 text-purple-900 bg-purple-100 border border-purple-200 px-2.5 py-1 w-fit text-[10px] font-bold uppercase tracking-wider mb-2">
-              <Sparkles className="w-3 h-3 text-purple-700" /> Host Dashboard — Incoming Pitches
-            </div>
-            <h2 className="font-display text-2xl font-bold text-ink">Review Posted Gig Opportunities</h2>
-            <p className="text-xs text-ink-500 mt-0.5">
-              Select one of your open gigs below to evaluate incoming talent pitch sheets, rate quotes, and media showcases.
-            </p>
+        <div>
+          <div className="flex items-center gap-2 text-purple-900 bg-purple-100 border border-purple-200 px-2.5 py-1 w-fit text-[10px] font-bold uppercase tracking-wider mb-2">
+            <Sparkles className="w-3 h-3 text-purple-700" /> Pitch Dossier Review
           </div>
+          <h2 className="font-display text-2xl font-bold text-ink">{gigTitle}</h2>
+          <p className="text-xs text-ink-500 mt-0.5">
+            Review incoming artist pitch sheets and rate proposals. Accepting a pitch instantly generates your secure escrow booking request.
+          </p>
+        </div>
 
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="w-6 h-6 text-purple-800 animate-spin" />
-            </div>
-          ) : hostGigs.length === 0 ? (
-            <div className="border border-dashed border-line bg-paper-100 p-10 text-center space-y-2">
-              <p className="font-display font-bold text-ink text-base">You haven't posted any gigs yet</p>
-              <p className="text-xs text-ink-500">Post an event opening using the "+ Post a Gig" button to start receiving talent pitch sheets!</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {hostGigs.map((gig) => (
-                <div
-                  key={gig.id}
-                  onClick={() => {
-                    setSelectedGig(gig);
-                    setIsReviewOpen(true);
-                  }}
-                  className="border border-line bg-paper p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-ink transition-all cursor-pointer group shadow-xs"
-                >
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 border border-purple-200">
-                        {gig.category}
-                      </span>
-                      <span className="font-bold text-emerald-800 text-xs">
-                        Budget: R{gig.budget.toLocaleString()}
-                      </span>
-                    </div>
-
-                    <h3 className="font-display font-bold text-ink text-base group-hover:underline">{gig.title}</h3>
-
-                    <div className="flex items-center gap-4 text-xs text-ink-500">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="w-3.5 h-3.5 text-purple-700" />
-                        {new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <MapPin className="w-3.5 h-3.5 text-purple-700" />
-                        {gig.location}
-                      </span>
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-6 h-6 text-purple-800 animate-spin" />
+          </div>
+        ) : pitches.length === 0 ? (
+          <div className="border border-dashed border-line bg-paper-100 p-10 text-center space-y-2">
+            <p className="font-display font-bold text-ink text-base">No pitches received yet</p>
+            <p className="text-xs text-ink-500">Talent providers will appear here once they submit pitch sheets to your gig call.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {pitches.map((pitch) => (
+              <div
+                key={pitch.id}
+                className="border border-line bg-paper p-5 space-y-4 shadow-xs"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-line pb-4">
+                  <div className="flex items-center gap-3">
+                    {pitch.artist?.avatar_url ? (
+                      <img
+                        src={pitch.artist.avatar_url}
+                        alt={pitch.artist.full_name}
+                        className="w-12 h-12 rounded-full object-cover border border-line"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-paper-200 flex items-center justify-center text-ink-600 font-bold">
+                        <User className="w-6 h-6" />
+                      </div>
+                    )}
+                    <div>
+                      <h3 className="font-display font-bold text-ink text-base">
+                        {pitch.artist?.full_name || 'Independent Talent'}
+                      </h3>
+                      <p className="text-xs text-purple-800 font-medium uppercase tracking-wide">
+                        {pitch.artist?.category || 'Artist'}
+                      </p>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-3 sm:pt-0 border-t sm:border-t-0 border-line">
-                    <div className="flex items-center gap-1.5 bg-purple-50 text-purple-900 border border-purple-200 px-3 py-1.5 rounded-xs font-bold text-xs">
-                      <Users className="w-3.5 h-3.5 text-purple-700" />
-                      <span>{gig.pitch_count} {gig.pitch_count === 1 ? 'Pitch' : 'Pitches'} Received</span>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <span className="text-[10px] text-ink-500 uppercase tracking-wider block">Proposed Quote</span>
+                      <span className="font-display font-bold text-emerald-800 text-lg">
+                        R{pitch.proposed_rate?.toLocaleString()}
+                      </span>
                     </div>
 
-                    <button
-                      type="button"
-                      className="px-3.5 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm group-hover:bg-ink-800 transition-colors inline-flex items-center gap-1"
-                    >
-                      Review <ArrowRight className="w-3 h-3" />
-                    </button>
+                    {pitch.status === 'accepted' ? (
+                      <span className="px-3 py-1.5 bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold text-xs uppercase tracking-wider inline-flex items-center gap-1">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-700" /> Accepted
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={actionLoadingId === pitch.id}
+                        onClick={() => handleAcceptPitch(pitch)}
+                        className="px-4 py-2 bg-ink text-paper hover:bg-ink-800 transition-colors font-semibold text-xs uppercase tracking-wide-sm inline-flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {actionLoadingId === pitch.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <>Accept & Book <Sparkles className="w-3.5 h-3.5 text-purple-300" /></>
+                        )}
+                      </button>
+                    )}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
 
-          <div className="flex justify-end pt-4 border-t border-line">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2 bg-paper-100 border border-line text-ink text-xs font-semibold uppercase tracking-wide-sm hover:border-ink"
-            >
-              Close
-            </button>
+                <div className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-ink-500 uppercase tracking-wider">Artist Pitch & Cover Message</span>
+                  <p className="text-xs text-ink-700 bg-paper-100 p-3 border border-line whitespace-pre-wrap">
+                    "{pitch.cover_message}"
+                  </p>
+                </div>
+              </div>
+            ))}
           </div>
+        )}
+
+        <div className="flex justify-end pt-4 border-t border-line">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-5 py-2 bg-paper-100 border border-line text-ink text-xs font-semibold uppercase tracking-wide-sm hover:border-ink"
+          >
+            Close
+          </button>
         </div>
       </div>
-
-      {/* Embedded Review Dossier Modal */}
-      {selectedGig && (
-        <HostPitchReviewModal
-          isOpen={isReviewOpen}
-          onClose={() => {
-            setIsReviewOpen(false);
-            setSelectedGig(null);
-            fetchHostGigs();
-          }}
-          gigId={selectedGig.id}
-          gigTitle={selectedGig.title}
-          onSuccess={() => {
-            fetchHostGigs();
-            if (onSuccess) onSuccess();
-          }}
-        />
-      )}
-    </>
+    </div>
   );
 }
