@@ -268,6 +268,7 @@ export default function HostDashboard() {
     newStatus: 'shortlisted' | 'accepted' | 'declined'
   ) => {
     try {
+      // Updating pitch status automatically triggers the database notification
       const { error } = await supabase
         .from('gig_pitches')
         .update({ status: newStatus })
@@ -275,7 +276,7 @@ export default function HostDashboard() {
 
       if (error) throw error;
 
-      // If accepted, automatically create a booking record
+      // Automatically create a booking record when accepted
       if (newStatus === 'accepted' && profile?.id && pitch.artist_id) {
         const { error: bookingErr } = await supabase
           .from('bookings')
@@ -292,50 +293,6 @@ export default function HostDashboard() {
 
         if (bookingErr) {
           console.error('Error auto-creating booking upon pitch acceptance:', bookingErr);
-        }
-      }
-
-      // Send notification to the artist
-      if (pitch.artist_id && pitch.artist_id !== profile?.id) {
-        const gigTitle = pitch.gig?.title || 'Gig';
-        let notifTitle = `Pitch Update for ${gigTitle} 🎤`;
-        let notifMessage = `Your pitch status has been updated to: ${newStatus.toUpperCase()}`;
-
-        if (newStatus === 'accepted') {
-          notifTitle = `Pitch Accepted! 🎉`;
-          notifMessage = `Your pitch for "${gigTitle}" has been accepted by the host! Check your dashboard for booking details.`;
-        } else if (newStatus === 'shortlisted') {
-          notifTitle = `Pitch Shortlisted! ⭐`;
-          notifMessage = `Your pitch for "${gigTitle}" has been shortlisted.`;
-        } else if (newStatus === 'declined') {
-          notifTitle = `Pitch Update`;
-          notifMessage = `Your pitch for "${gigTitle}" was declined by the host.`;
-        }
-
-        // Try dual insertion schema to match any database version
-        const notifPayload = {
-          user_id: pitch.artist_id,
-          title: notifTitle,
-          message: notifMessage,
-          type: 'pitch_status_update',
-          link: '/dashboard',
-          is_read: false,
-          read: false,
-        };
-
-        const { error: notifErr } = await supabase
-          .from('notifications')
-          .insert(notifPayload);
-
-        if (notifErr) {
-          console.warn('Initial notification insert warning, retrying basic format:', notifErr.message);
-          // Fallback simple payload if schema differs
-          await supabase.from('notifications').insert({
-            user_id: pitch.artist_id,
-            title: notifTitle,
-            message: notifMessage,
-            type: 'pitch_status_update',
-          });
         }
       }
 
