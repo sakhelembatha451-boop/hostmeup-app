@@ -63,7 +63,7 @@ export default function GigFeedPage() {
         .from('gigs')
         .select('*')
         .eq('status', 'open')
-        .order('event_date', { ascending: true });
+        .order('created_at', { ascending: false });
 
       if (gigErr) throw gigErr;
 
