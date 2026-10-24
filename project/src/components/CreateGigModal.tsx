@@ -1,29 +1,26 @@
-// Fetch target users from profiles table instead of artist_profiles
-const { data: targetUsers, error: userErr } = await supabase
+// 2. Broadcast Notification to Talent Providers
+// Query talent profiles (excluding the logged-in host)
+const { data: talentProfiles, error: talentErr } = await supabase
   .from('profiles')
-  .select('id');
+  .select('id, role')
+  .neq('id', profile.id)
+  .eq('role', 'artist'); // Or .neq('role', 'host') if you want all non-hosts notified
 
-if (!userErr && targetUsers && targetUsers.length > 0) {
-  const uniqueUserIds = targetUsers
-    .map((u) => u.id)
-    .filter((id) => id && id !== profile.id);
+if (!talentErr && talentProfiles && talentProfiles.length > 0) {
+  const notificationsToInsert = talentProfiles.map((talent) => ({
+    user_id: talent.id,
+    title: `New Gig Posted: ${title} 🎵`,
+    message: `A new ${category} opportunity was posted for R${Number(budget).toLocaleString()} in ${location}.`,
+    type: 'gig_alert',
+    is_read: false,
+    read: false,
+  }));
 
-  if (uniqueUserIds.length > 0) {
-    const notificationsToInsert = uniqueUserIds.map((targetId) => ({
-      user_id: targetId,
-      title: `New Gig Posted: ${title} 🎵`,
-      message: `A new ${category} opportunity was posted for R${Number(budget).toLocaleString()} in ${location}.`,
-      type: 'gig_alert',
-      is_read: false,
-      read: false,
-    }));
+  const { error: notifErr } = await supabase
+    .from('notifications')
+    .insert(notificationsToInsert);
 
-    const { error: notifErr } = await supabase
-      .from('notifications')
-      .insert(notificationsToInsert);
-
-    if (notifErr) {
-      console.error('Error inserting broadcast notifications:', notifErr);
-    }
+  if (notifErr) {
+    console.error('Error inserting broadcast notifications:', notifErr);
   }
 }
