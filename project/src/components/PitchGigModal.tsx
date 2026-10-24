@@ -208,9 +208,8 @@ export default function PitchGigModal({
 
       if (insertErr) throw insertErr;
 
-      // Notify the Event Host about the incoming/updated pitch
+      // Always send a notification to the host every time a pitch is submitted or updated
       if (hostId && hostId !== user.id) {
-        // Fetch artist profile name for the notification message
         const { data: artistProfile } = await supabase
           .from('profiles')
           .select('full_name')
@@ -223,8 +222,8 @@ export default function PitchGigModal({
           .from('notifications')
           .insert({
             user_id: hostId,
-            title: `New Pitch Received for ${gigTitle} 🎤`,
-            message: `${artistName} submitted a pitch for R${Number(proposedRate).toLocaleString()}.`,
+            title: `Pitch Update/Received for ${gigTitle} 🎤`,
+            message: `${artistName} submitted/updated a pitch for R${Number(proposedRate).toLocaleString()}.`,
             type: 'pitch_received',
             is_read: false,
             read: false,
