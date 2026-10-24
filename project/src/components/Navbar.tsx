@@ -117,10 +117,15 @@ export default function Navbar() {
     await markNotificationRead(notif.id);
     setNotifOpen(false);
 
+    const notifTitle = notif.title?.toLowerCase() || '';
+    const notifType = (notif as any).type || '';
+
     if (notif.conversation_id) {
       navigate(inboxPath);
     } else if (notif.booking_id) {
       navigate(dashboardPath);
+    } else if (notifType === 'pitch_received' || notifTitle.includes('pitch')) {
+      navigate(isHost ? '/host-dashboard' : dashboardPath);
     } else if (isHost) {
       navigate('/host-settings');
     } else {
