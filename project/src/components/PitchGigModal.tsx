@@ -208,6 +208,33 @@ export default function PitchGigModal({
 
       if (insertErr) throw insertErr;
 
+      // Notify the Event Host about the incoming/updated pitch
+      if (hostId && hostId !== user.id) {
+        // Fetch artist profile name for the notification message
+        const { data: artistProfile } = await supabase
+          .from('profiles')
+          .select('full_name')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const artistName = artistProfile?.full_name || 'An artist';
+
+        const { error: notifErr } = await supabase
+          .from('notifications')
+          .insert({
+            user_id: hostId,
+            title: `New Pitch Received for ${gigTitle} 🎤`,
+            message: `${artistName} submitted a pitch for R${Number(proposedRate).toLocaleString()}.`,
+            type: 'pitch_received',
+            is_read: false,
+            read: false,
+          });
+
+        if (notifErr) {
+          console.error('Error inserting host pitch notification:', notifErr);
+        }
+      }
+
       alert('Pitch submitted successfully! The host will review your proposal.');
       if (onSuccess) onSuccess();
       onClose();
