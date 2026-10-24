@@ -619,24 +619,32 @@ export default function HostDashboard() {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleUpdatePitchStatus(pitch.id, 'declined')}
-                        className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-red-600 border border-red-200 hover:bg-red-50 rounded-xs transition-colors"
-                      >
-                        Decline
-                      </button>
-                      <button
-                        onClick={() => handleUpdatePitchStatus(pitch.id, 'shortlisted')}
-                        className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-blue-800 border border-blue-300 hover:bg-blue-50 rounded-xs transition-colors"
-                      >
-                        Shortlist
-                      </button>
-                      <button
-                        onClick={() => handleUpdatePitchStatus(pitch.id, 'accepted')}
-                        className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm bg-emerald-700 hover:bg-emerald-800 text-white rounded-xs transition-colors shadow-xs"
-                      >
-                        Accept Pitch
-                      </button>
+                      {pitch.status === 'pending' ? (
+                        <>
+                          <button
+                            onClick={() => handleUpdatePitchStatus(pitch.id, 'declined')}
+                            className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-red-600 border border-red-200 hover:bg-red-50 rounded-xs transition-colors"
+                          >
+                            Decline
+                          </button>
+                          <button
+                            onClick={() => handleUpdatePitchStatus(pitch.id, 'shortlisted')}
+                            className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-blue-800 border border-blue-300 hover:bg-blue-50 rounded-xs transition-colors"
+                          >
+                            Shortlist
+                          </button>
+                          <button
+                            onClick={() => handleUpdatePitchStatus(pitch.id, 'accepted')}
+                            className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm bg-emerald-700 hover:bg-emerald-800 text-white rounded-xs transition-colors shadow-xs"
+                          >
+                            Accept Pitch
+                          </button>
+                        </>
+                      ) : (
+                        <span className="text-xs font-semibold text-ink-400 uppercase tracking-wide-sm">
+                          Pitch {pitch.status}
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
