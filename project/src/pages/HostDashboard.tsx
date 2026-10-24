@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { 
@@ -75,6 +75,9 @@ interface GigPitchWithDetails {
     title: string;
     budget: number;
     event_date: string;
+    location: string;
+    start_time: string;
+    duration: number;
   };
   artist?: {
     id: string;
@@ -102,6 +105,7 @@ const YOCO_PAYMENT_PAGE_URL = 'https://pay.yoco.com/hostmeup';
 
 export default function HostDashboard() {
   const { profile } = useAuth();
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithArtist[]>([]);
   const [gigPitches, setGigPitches] = useState<GigPitchWithDetails[]>([]);
   const [selectedPitchForModal, setSelectedPitchForModal] = useState<GigPitchWithDetails | null>(null);
@@ -217,7 +221,7 @@ export default function HostDashboard() {
       // Fetch Gigs posted by this host to find incoming pitches
       const { data: hostGigs } = await supabase
         .from('gigs')
-        .select('id, title, budget, event_date')
+        .select('id, title, budget, event_date, location, start_time, duration')
         .eq('host_id', profile.id);
 
       if (hostGigs && hostGigs.length > 0) {
@@ -268,7 +272,7 @@ export default function HostDashboard() {
     newStatus: 'shortlisted' | 'accepted' | 'declined'
   ) => {
     try {
-      // Updating pitch status automatically triggers the database notification
+      // 1. Update pitch status
       const { error } = await supabase
         .from('gig_pitches')
         .update({ status: newStatus })
@@ -276,23 +280,36 @@ export default function HostDashboard() {
 
       if (error) throw error;
 
-      // Automatically create a booking record when accepted
+      // 2. If accepted, automatically create a booking record and redirect to checkout
       if (newStatus === 'accepted' && profile?.id && pitch.artist_id) {
-        const { error: bookingErr } = await supabase
+        const gigInfo = pitch.gig;
+
+        const { data: bookingData, error: bookingErr } = await supabase
           .from('bookings')
           .insert({
             host_id: profile.id,
             artist_id: pitch.artist_id,
             gig_id: pitch.gig_id,
-            total_price: pitch.proposed_rate,
-            event_date: pitch.gig?.event_date || new Date().toISOString(),
-            event_name: pitch.gig?.title || 'Gig Booking',
-            status: 'confirmed',
-            deposit_amount: pitch.proposed_rate ? pitch.proposed_rate * 0.5 : 0,
-          });
+            total_price: pitch.proposed_rate || gigInfo?.budget || 0,
+            event_date: gigInfo?.event_date || new Date().toISOString(),
+            event_name: gigInfo?.title || 'Gig Booking',
+            location: gigInfo?.location || '',
+            start_time: gigInfo?.start_time || '18:00',
+            gig_duration: gigInfo?.duration ? `${gigInfo.duration} hrs` : '2 hrs',
+            status: 'pending_deposit',
+            deposit_amount: (pitch.proposed_rate || gigInfo?.budget || 0) * 0.5,
+          })
+          .select()
+          .single();
 
         if (bookingErr) {
           console.error('Error auto-creating booking upon pitch acceptance:', bookingErr);
+          throw bookingErr;
+        }
+
+        if (bookingData?.id) {
+          navigate(`/book/${bookingData.id}`);
+          return;
         }
       }
 
@@ -662,7 +679,7 @@ export default function HostDashboard() {
                             onClick={() => handleUpdatePitchStatus(pitch, 'accepted')}
                             className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm bg-emerald-700 hover:bg-emerald-800 text-white rounded-xs transition-colors shadow-xs"
                           >
-                            Accept Pitch
+                            Accept & Book
                           </button>
                         </>
                       ) : (
