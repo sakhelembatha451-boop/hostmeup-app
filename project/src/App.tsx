@@ -17,7 +17,6 @@ import ArtistDashboard from '@/pages/ArtistDashboard';
 import HostSettingsPage from '@/pages/HostSettingsPage';
 import HostProfileView from '@/pages/HostProfileView';
 import GigFeedPage from '@/pages/GigFeedPage.tsx';
-import Messages from '@/pages/Messages';
 import { InboxPage } from '@/pages/InboxPage';
 import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminDashboard from '@/pages/AdminDashboard';
@@ -229,11 +228,7 @@ function AppRoutes() {
         />
         <Route
           path="/messages"
-          element={
-            <ProtectedRoute>
-              <Messages />
-            </ProtectedRoute>
-          }
+          element={<Navigate to="/inbox" replace />}
         />
         <Route
           path="/inbox"
