@@ -264,27 +264,46 @@ export default function HostDashboard() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleUpdatePitchStatus = async (
-    pitchId: string, 
-    newStatus: 'shortlisted' | 'accepted' | 'declined',
-    artistId: string,
-    gigTitle: string
+    pitch: GigPitchWithDetails, 
+    newStatus: 'shortlisted' | 'accepted' | 'declined'
   ) => {
     try {
       const { error } = await supabase
         .from('gig_pitches')
         .update({ status: newStatus })
-        .eq('id', pitchId);
+        .eq('id', pitch.id);
 
       if (error) throw error;
 
+      // If accepted, automatically create a booking record
+      if (newStatus === 'accepted' && profile?.id && pitch.artist_id) {
+        const { error: bookingErr } = await supabase
+          .from('bookings')
+          .insert({
+            host_id: profile.id,
+            artist_id: pitch.artist_id,
+            gig_id: pitch.gig_id,
+            total_price: pitch.proposed_rate,
+            event_date: pitch.gig?.event_date || new Date().toISOString(),
+            event_name: pitch.gig?.title || 'Gig Booking',
+            status: 'confirmed',
+            deposit_amount: pitch.proposed_rate ? pitch.proposed_rate * 0.5 : 0,
+          });
+
+        if (bookingErr) {
+          console.error('Error auto-creating booking upon pitch acceptance:', bookingErr);
+        }
+      }
+
       // Send notification to the artist
-      if (artistId && artistId !== profile?.id) {
+      if (pitch.artist_id && pitch.artist_id !== profile?.id) {
+        const gigTitle = pitch.gig?.title || 'Gig';
         let title = `Pitch Update for ${gigTitle} 🎤`;
         let message = `Your pitch status has been updated to: ${newStatus.toUpperCase()}`;
 
         if (newStatus === 'accepted') {
           title = `Pitch Accepted! 🎉`;
-          message = `Your pitch for "${gigTitle}" has been accepted by the host!`;
+          message = `Your pitch for "${gigTitle}" has been accepted by the host! A booking has been created.`;
         } else if (newStatus === 'shortlisted') {
           title = `Pitch Shortlisted! ⭐`;
           message = `Your pitch for "${gigTitle}" has been shortlisted.`;
@@ -296,7 +315,7 @@ export default function HostDashboard() {
         const { error: notifErr } = await supabase
           .from('notifications')
           .insert({
-            user_id: artistId,
+            user_id: pitch.artist_id,
             title: title,
             message: message,
             type: 'pitch_status_update',
@@ -660,19 +679,19 @@ export default function HostDashboard() {
                       {pitch.status === 'pending' ? (
                         <>
                           <button
-                            onClick={() => handleUpdatePitchStatus(pitch.id, 'declined', pitch.artist_id, pitch.gig?.title || 'Gig')}
+                            onClick={() => handleUpdatePitchStatus(pitch, 'declined')}
                             className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-red-600 border border-red-200 hover:bg-red-50 rounded-xs transition-colors"
                           >
                             Decline
                           </button>
                           <button
-                            onClick={() => handleUpdatePitchStatus(pitch.id, 'shortlisted', pitch.artist_id, pitch.gig?.title || 'Gig')}
+                            onClick={() => handleUpdatePitchStatus(pitch, 'shortlisted')}
                             className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-blue-800 border border-blue-300 hover:bg-blue-50 rounded-xs transition-colors"
                           >
                             Shortlist
                           </button>
                           <button
-                            onClick={() => handleUpdatePitchStatus(pitch.id, 'accepted', pitch.artist_id, pitch.gig?.title || 'Gig')}
+                            onClick={() => handleUpdatePitchStatus(pitch, 'accepted')}
                             className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm bg-emerald-700 hover:bg-emerald-800 text-white rounded-xs transition-colors shadow-xs"
                           >
                             Accept Pitch
