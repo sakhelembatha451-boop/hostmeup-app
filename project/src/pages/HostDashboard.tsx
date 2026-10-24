@@ -298,33 +298,44 @@ export default function HostDashboard() {
       // Send notification to the artist
       if (pitch.artist_id && pitch.artist_id !== profile?.id) {
         const gigTitle = pitch.gig?.title || 'Gig';
-        let title = `Pitch Update for ${gigTitle} 🎤`;
-        let message = `Your pitch status has been updated to: ${newStatus.toUpperCase()}`;
+        let notifTitle = `Pitch Update for ${gigTitle} 🎤`;
+        let notifMessage = `Your pitch status has been updated to: ${newStatus.toUpperCase()}`;
 
         if (newStatus === 'accepted') {
-          title = `Pitch Accepted! 🎉`;
-          message = `Your pitch for "${gigTitle}" has been accepted by the host! A booking has been created.`;
+          notifTitle = `Pitch Accepted! 🎉`;
+          notifMessage = `Your pitch for "${gigTitle}" has been accepted by the host! Check your dashboard for booking details.`;
         } else if (newStatus === 'shortlisted') {
-          title = `Pitch Shortlisted! ⭐`;
-          message = `Your pitch for "${gigTitle}" has been shortlisted.`;
+          notifTitle = `Pitch Shortlisted! ⭐`;
+          notifMessage = `Your pitch for "${gigTitle}" has been shortlisted.`;
         } else if (newStatus === 'declined') {
-          title = `Pitch Update`;
-          message = `Your pitch for "${gigTitle}" was declined by the host.`;
+          notifTitle = `Pitch Update`;
+          notifMessage = `Your pitch for "${gigTitle}" was declined by the host.`;
         }
+
+        // Try dual insertion schema to match any database version
+        const notifPayload = {
+          user_id: pitch.artist_id,
+          title: notifTitle,
+          message: notifMessage,
+          type: 'pitch_status_update',
+          link: '/dashboard',
+          is_read: false,
+          read: false,
+        };
 
         const { error: notifErr } = await supabase
           .from('notifications')
-          .insert({
-            user_id: pitch.artist_id,
-            title: title,
-            message: message,
-            type: 'pitch_status_update',
-            is_read: false,
-            read: false,
-          });
+          .insert(notifPayload);
 
         if (notifErr) {
-          console.error('Error inserting artist notification:', notifErr);
+          console.warn('Initial notification insert warning, retrying basic format:', notifErr.message);
+          // Fallback simple payload if schema differs
+          await supabase.from('notifications').insert({
+            user_id: pitch.artist_id,
+            title: notifTitle,
+            message: notifMessage,
+            type: 'pitch_status_update',
+          });
         }
       }
 
