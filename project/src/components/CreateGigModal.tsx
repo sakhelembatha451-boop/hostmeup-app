@@ -63,40 +63,38 @@ export default function CreateGigModal({
 
       if (gigErr) throw gigErr;
 
-      // 2. Broadcast Notification to relevant Talent Providers
-      // Fetch all artist profiles matching the category (or all artists if category is general)
-      const { data: targetArtists } = await supabase
+      // 2. Broadcast Notification to Talent Providers
+      const { data: targetArtists, error: artistErr } = await supabase
         .from('artist_profiles')
         .select('user_id, category');
 
-      if (targetArtists && targetArtists.length > 0) {
-        // Filter artists by matching category, or notify all if none match specifically
-        const matchingArtists = targetArtists.filter(
-          (a) => !a.category || a.category.toLowerCase() === category.toLowerCase()
-        );
-
-        const artistUserIds = (matchingArtists.length > 0 ? matchingArtists : targetArtists).map(
-          (a) => a.user_id
-        );
-
-        // Remove duplicate user IDs and exclude host
-        const uniqueArtistIds = Array.from(new Set(artistUserIds)).filter(
-          (id) => id !== profile.id
-        );
+      if (!artistErr && targetArtists && targetArtists.length > 0) {
+        // Exclude the host themselves from receiving their own gig alert
+        const uniqueArtistIds = Array.from(
+          new Set(targetArtists.map((a) => a.user_id))
+        ).filter((id) => id && id !== profile.id);
 
         if (uniqueArtistIds.length > 0) {
           const notificationsToInsert = uniqueArtistIds.map((artistId) => ({
             user_id: artistId,
             title: `New Gig Posted: ${title} 🎵`,
-            message: `A new ${category} gig opportunity ("${title}") was posted for R${Number(budget).toLocaleString()} in ${location}. Check the Gig Board to pitch!`,
+            message: `A new ${category} opportunity was posted for R${Number(budget).toLocaleString()} in ${location}.`,
             type: 'gig_alert',
+            is_read: false,
+            read: false,
           }));
 
-          await supabase.from('notifications').insert(notificationsToInsert);
+          const { error: notifErr } = await supabase
+            .from('notifications')
+            .insert(notificationsToInsert);
+
+          if (notifErr) {
+            console.error('Error inserting broadcast notifications:', notifErr);
+          }
         }
       }
 
-      alert('Gig posted successfully! Talent providers have been notified.');
+      alert('Gig posted successfully! Talent providers notified.');
 
       // Reset form
       setTitle('');
@@ -109,7 +107,7 @@ export default function CreateGigModal({
       onClose();
     } catch (err: any) {
       console.error('Error creating gig:', err);
-      alert(`Could not post gig: ${err.message || 'Check database permissions.'}`);
+      alert(`Could not post gig: ${err.message || 'Check console.'}`);
     } finally {
       setLoading(false);
     }
@@ -132,7 +130,7 @@ export default function CreateGigModal({
           </div>
           <h2 className="font-display text-2xl font-bold text-ink">Post a New Gig Opening</h2>
           <p className="text-xs text-ink-500 mt-0.5">
-            Publish your event details to notify registered talent providers and receive pitch sheets.
+            Publish your event details to notify registered talent providers.
           </p>
         </div>
 
@@ -148,7 +146,7 @@ export default function CreateGigModal({
                 required
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="e.g. Birthday Party Performance, Club DJ Set"
+                placeholder="e.g. Birthday Party Performance"
                 className="w-full bg-paper-100 border border-line pl-9 pr-3 py-2 text-ink font-medium focus:border-ink outline-none"
               />
             </div>
@@ -172,7 +170,6 @@ export default function CreateGigModal({
                   <option value="Singer">Singer / Vocalist</option>
                   <option value="Photographer">Photographer</option>
                   <option value="Videographer">Videographer</option>
-                  <option value="Dancer">Dancer</option>
                 </select>
               </div>
             </div>
@@ -207,7 +204,7 @@ export default function CreateGigModal({
                 required
                 value={location}
                 onChange={(e) => setLocation(e.target.value)}
-                placeholder="e.g. Cape Town CBD, Sandton, Soweto"
+                placeholder="e.g. Cape Town CBD"
                 className="w-full bg-paper-100 border border-line pl-9 pr-3 py-2 text-ink font-medium focus:border-ink outline-none"
               />
             </div>
@@ -262,13 +259,13 @@ export default function CreateGigModal({
 
           <div>
             <label className="block text-ink font-semibold uppercase tracking-wide-sm mb-1">
-              Gig Description & Requirements
+              Description & Requirements
             </label>
             <textarea
               rows={3}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Describe theme, equipment expectations, or specific sound requirements..."
+              placeholder="Describe theme or equipment expectations..."
               className="w-full bg-paper-100 border border-line p-3 text-ink font-medium focus:border-ink outline-none resize-none"
             />
           </div>
