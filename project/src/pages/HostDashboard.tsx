@@ -263,7 +263,12 @@ export default function HostDashboard() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  const handleUpdatePitchStatus = async (pitchId: string, newStatus: 'shortlisted' | 'accepted' | 'declined') => {
+  const handleUpdatePitchStatus = async (
+    pitchId: string, 
+    newStatus: 'shortlisted' | 'accepted' | 'declined',
+    artistId: string,
+    gigTitle: string
+  ) => {
     try {
       const { error } = await supabase
         .from('gig_pitches')
@@ -271,6 +276,39 @@ export default function HostDashboard() {
         .eq('id', pitchId);
 
       if (error) throw error;
+
+      // Send notification to the artist
+      if (artistId && artistId !== profile?.id) {
+        let title = `Pitch Update for ${gigTitle} 🎤`;
+        let message = `Your pitch status has been updated to: ${newStatus.toUpperCase()}`;
+
+        if (newStatus === 'accepted') {
+          title = `Pitch Accepted! 🎉`;
+          message = `Your pitch for "${gigTitle}" has been accepted by the host!`;
+        } else if (newStatus === 'shortlisted') {
+          title = `Pitch Shortlisted! ⭐`;
+          message = `Your pitch for "${gigTitle}" has been shortlisted.`;
+        } else if (newStatus === 'declined') {
+          title = `Pitch Update`;
+          message = `Your pitch for "${gigTitle}" was declined by the host.`;
+        }
+
+        const { error: notifErr } = await supabase
+          .from('notifications')
+          .insert({
+            user_id: artistId,
+            title: title,
+            message: message,
+            type: 'pitch_status_update',
+            is_read: false,
+            read: false,
+          });
+
+        if (notifErr) {
+          console.error('Error inserting artist notification:', notifErr);
+        }
+      }
+
       await loadData();
       alert(`Pitch successfully ${newStatus}!`);
     } catch (err: any) {
@@ -622,19 +660,19 @@ export default function HostDashboard() {
                       {pitch.status === 'pending' ? (
                         <>
                           <button
-                            onClick={() => handleUpdatePitchStatus(pitch.id, 'declined')}
+                            onClick={() => handleUpdatePitchStatus(pitch.id, 'declined', pitch.artist_id, pitch.gig?.title || 'Gig')}
                             className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-red-600 border border-red-200 hover:bg-red-50 rounded-xs transition-colors"
                           >
                             Decline
                           </button>
                           <button
-                            onClick={() => handleUpdatePitchStatus(pitch.id, 'shortlisted')}
+                            onClick={() => handleUpdatePitchStatus(pitch.id, 'shortlisted', pitch.artist_id, pitch.gig?.title || 'Gig')}
                             className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm text-blue-800 border border-blue-300 hover:bg-blue-50 rounded-xs transition-colors"
                           >
                             Shortlist
                           </button>
                           <button
-                            onClick={() => handleUpdatePitchStatus(pitch.id, 'accepted')}
+                            onClick={() => handleUpdatePitchStatus(pitch.id, 'accepted', pitch.artist_id, pitch.gig?.title || 'Gig')}
                             className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide-sm bg-emerald-700 hover:bg-emerald-800 text-white rounded-xs transition-colors shadow-xs"
                           >
                             Accept Pitch
