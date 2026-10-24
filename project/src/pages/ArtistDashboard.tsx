@@ -7,7 +7,7 @@ import {
   ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
   MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
   Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText, Clock3,
-  PartyPopper, Star, Radio, Send, Music2
+  PartyPopper, Star, Radio, Send, Music2, Sparkles
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, EmptyState, Tag } from '@/components/UI';
@@ -64,6 +64,12 @@ interface Gig {
   };
 }
 
+interface UserPitch {
+  gig_id: string;
+  status: 'pending' | 'shortlisted' | 'accepted' | 'declined';
+  proposed_rate: number;
+}
+
 function formatCurrency(n: number | null) {
   if (n == null) return 'R0';
   return `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
@@ -74,6 +80,7 @@ export default function ArtistDashboard() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [openGigs, setOpenGigs] = useState<Gig[]>([]);
+  const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -206,6 +213,20 @@ export default function ArtistDashboard() {
         setOpenGigs([]);
       }
 
+      // Fetch logged-in artist's pitches to track status on cards
+      const { data: pitchData } = await supabase
+        .from('gig_pitches')
+        .select('gig_id, status, proposed_rate')
+        .eq('artist_id', authUserId);
+
+      if (pitchData) {
+        const pitchMap = new Map<string, UserPitch>();
+        pitchData.forEach((p) => {
+          pitchMap.set(p.gig_id, p as UserPitch);
+        });
+        setUserPitches(pitchMap);
+      }
+
     } catch (err) {
       console.error('Error loading artist dashboard data:', err);
       setBookings([]);
@@ -277,6 +298,41 @@ export default function ArtistDashboard() {
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const renderPitchStatusBadge = (gig: Gig) => {
+    const pitch = userPitches.get(gig.id);
+    if (!pitch) return null;
+
+    if (pitch.status === 'accepted') {
+      return (
+        <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-xs inline-flex items-center gap-1">
+          <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Accepted
+        </span>
+      );
+    }
+
+    if (pitch.status === 'shortlisted') {
+      return (
+        <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-blue-50 text-blue-800 border border-blue-300 rounded-xs inline-flex items-center gap-1">
+          <Sparkles className="w-3 h-3 text-blue-600" /> Shortlisted
+        </span>
+      );
+    }
+
+    if (pitch.status === 'declined') {
+      return (
+        <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-red-50 text-red-800 border border-red-200 rounded-xs inline-flex items-center gap-1">
+          <ShieldAlert className="w-3 h-3 text-red-600" /> Declined
+        </span>
+      );
+    }
+
+    return (
+      <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 border border-purple-200 rounded-xs inline-flex items-center gap-1">
+        <Clock className="w-3 h-3 text-purple-700 animate-pulse" /> Pitched
+      </span>
+    );
   };
 
   const renderCustomStatusBadge = (booking: BookingWithHost) => {
@@ -473,40 +529,51 @@ export default function ArtistDashboard() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {openGigs.map((gig) => (
-                <div key={gig.id} className="border border-line bg-paper p-4 space-y-3 flex flex-col justify-between shadow-xs">
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 px-2 py-0.5 border border-purple-200">
-                        {gig.category}
-                      </span>
-                      <span className="font-bold text-emerald-800 text-xs">
-                        R{gig.budget.toLocaleString()}
-                      </span>
+              {openGigs.map((gig) => {
+                const existingPitch = userPitches.get(gig.id);
+
+                return (
+                  <div key={gig.id} className="border border-line bg-paper p-4 space-y-3 flex flex-col justify-between shadow-xs">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 px-2 py-0.5 border border-purple-200">
+                            {gig.category}
+                          </span>
+                          {renderPitchStatusBadge(gig)}
+                        </div>
+                        <span className="font-bold text-emerald-800 text-xs">
+                          R{gig.budget.toLocaleString()}
+                        </span>
+                      </div>
+
+                      <h4 className="font-display font-bold text-ink text-sm leading-snug line-clamp-1">{gig.title}</h4>
+
+                      <div className="space-y-1 text-[11px] text-ink-500">
+                        <div className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3 text-ink-400" />
+                          <span>{new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3 text-ink-400" />
+                          <span className="truncate">{gig.location}</span>
+                        </div>
+                      </div>
                     </div>
 
-                    <h4 className="font-display font-bold text-ink text-sm leading-snug line-clamp-1">{gig.title}</h4>
-
-                    <div className="space-y-1 text-[11px] text-ink-500">
-                      <div className="flex items-center gap-1">
-                        <Calendar className="w-3 h-3 text-ink-400" />
-                        <span>{new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <MapPin className="w-3 h-3 text-ink-400" />
-                        <span className="truncate">{gig.location}</span>
-                      </div>
-                    </div>
+                    <button
+                      onClick={() => handleOpenPitchModal(gig)}
+                      className={`w-full text-center py-2 text-[10px] font-bold uppercase tracking-wide-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
+                        existingPitch
+                          ? 'bg-purple-900 text-white hover:bg-purple-950'
+                          : 'bg-ink text-paper hover:bg-ink-800'
+                      }`}
+                    >
+                      <Send className="w-3 h-3" /> {existingPitch ? 'Edit Submitted Pitch' : 'Pitch for Gig'}
+                    </button>
                   </div>
-
-                  <button
-                    onClick={() => handleOpenPitchModal(gig)}
-                    className="w-full text-center py-2 bg-ink text-paper text-[10px] font-bold uppercase tracking-wide-sm flex items-center justify-center gap-1.5 hover:bg-ink-800 transition-colors cursor-pointer shadow-xs"
-                  >
-                    <Send className="w-3 h-3" /> Pitch for Gig
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
