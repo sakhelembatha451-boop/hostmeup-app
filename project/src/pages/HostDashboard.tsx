@@ -24,10 +24,8 @@ import {
   Plus,
   Radio,
   Sparkles,
-  DollarSign,
   FileText,
   Check,
-  Eye,
   FileAudio,
   FileVideo,
   Image as ImageIcon
@@ -858,4 +856,347 @@ export default function HostDashboard() {
                         {booking.artist?.avatar_url ? (
                           <img src={booking.artist.avatar_url} alt="" width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
                         ) : (
-                          <div className="w-14 h-14 rounded-full bg-ink text-paper flex items-center justify-center font-display text-lg font-bold">{booking.artist?.full_name?.[0]?.toUpperCase() || '?'}</div>
+                          <div className="w-14 h-14 rounded-full bg-ink text-paper flex items-center justify-center font-display text-lg font-bold">
+                            {booking.artist?.full_name?.[0]?.toUpperCase() || '?'}
+                          </div>
+                        )}
+                      </Link>
+                      <div>
+                        <Link to={booking.artist_id ? `/artists/${booking.artist_id}` : '/artists'} className="font-display font-semibold text-ink hover:text-accent transition-colors block">
+                          {booking.artist?.full_name || 'Talent'}
+                        </Link>
+                        {booking.artist?.location && <div className="text-xs text-ink-400 flex items-center gap-1 mt-0.5"><MapPin className="w-3 h-3" />{booking.artist.location}</div>}
+                      </div>
+                    </div>
+
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between gap-3 mb-4">
+                        <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name || 'Untitled Event'}</h3>
+                        
+                        <div className="flex items-center gap-2">
+                          {renderCustomStatusBadge(booking)}
+
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteBookings([booking.id]);
+                            }}
+                            className="p-1.5 text-ink-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                            title="Delete booking card"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
+                        <div className="flex items-center gap-1.5 text-ink-500">
+                          <Calendar className="w-3.5 h-3.5 text-ink-300" />
+                          <span>{booking.event_date ? new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
+                        </div>
+                        {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
+                        <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration || '—'}</span></div>
+                        <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location || '—'}</span></div>
+                      </div>
+
+                      <div className="pt-3 border-t border-line space-y-3" onClick={(e) => e.stopPropagation()}>
+                        {booking.status === 'pending' ? (
+                          <button 
+                            onClick={() => updateBookingStatus(booking.id, 'cancelled')}
+                            className="text-sm font-medium text-red-500 hover:text-red-600 uppercase tracking-wide-sm transition-colors"
+                          >
+                            Cancel Request
+                          </button>
+                        ) : (
+                          <div className="flex flex-col gap-3">
+                            {/* Option A: Pending Verification State */}
+                            {isPendingVerification && !isCompleted && (
+                              <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide-sm text-amber-800 bg-amber-50 px-3 py-2 rounded border border-amber-200 w-fit">
+                                <Clock3 className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
+                                <span>Payment Reference Submitted — Awaiting Talent Confirmation</span>
+                              </div>
+                            )}
+
+                            {/* Option B: Deposit Not Paid & Not Pending */}
+                            {!isDepositPaid && !isPendingVerification && !isCompleted && (
+                              <div className="flex flex-col gap-2.5">
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePaymentRedirect(booking, 'deposit')}
+                                    className="px-3 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/80 flex items-center gap-1.5 transition-colors"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
+                                  </button>
+                                </div>
+
+                                {submittingRefId === booking.id ? (
+                                  <div className="bg-paper p-3 border border-line space-y-2 rounded max-w-md">
+                                    <p className="text-xs text-ink-500">
+                                      Enter your official <strong>Yoco Transaction Reference</strong> from your payment receipt email/SMS:
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        placeholder="e.g. YCO-83921"
+                                        value={refInput}
+                                        onChange={(e) => setRefInput(e.target.value)}
+                                        className="px-3 py-1.5 text-xs border border-line rounded flex-1 bg-white text-ink"
+                                      />
+                                      <button
+                                        onClick={() => submitPaymentReference(booking)}
+                                        className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-emerald-800 whitespace-nowrap"
+                                      >
+                                        Verify & Submit
+                                      </button>
+                                      <button
+                                        onClick={() => setSubmittingRefId(null)}
+                                        className="px-2 py-1.5 text-xs text-ink-400 hover:text-ink"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setSubmittingRefId(booking.id)}
+                                    className="text-xs text-ink-500 underline hover:text-ink w-fit"
+                                  >
+                                    Already paid on Yoco? Enter receipt reference to verify
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Option C: Deposit Paid, Balance Outstanding & Event NOT Completed */}
+                            {isDepositPaid && !isBalancePaid && !isPendingVerification && !isCompleted && (
+                              <div className="flex flex-col gap-2.5">
+                                <div className="flex flex-wrap items-center gap-3">
+                                  <button
+                                    type="button"
+                                    onClick={() => handlePaymentRedirect(booking, 'remaining')}
+                                    className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-emerald-800 flex items-center gap-1.5 transition-colors"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5" />
+                                    <span>Pay Remaining ({formatCurrency(remainingBalance > 0 ? remainingBalance : booking.total_price)})</span>
+                                  </button>
+                                </div>
+
+                                {submittingRefId === booking.id ? (
+                                  <div className="bg-paper p-3 border border-line space-y-2 rounded max-w-md">
+                                    <p className="text-xs text-ink-500">
+                                      Enter your official <strong>Yoco Transaction Reference</strong> for the remaining balance:
+                                    </p>
+                                    <div className="flex items-center gap-2">
+                                      <input
+                                        type="text"
+                                        placeholder="e.g. YCO-99120"
+                                        value={refInput}
+                                        onChange={(e) => setRefInput(e.target.value)}
+                                        className="px-3 py-1.5 text-xs border border-line rounded flex-1 bg-white text-ink"
+                                      />
+                                      <button
+                                        onClick={() => submitPaymentReference(booking)}
+                                        className="px-3 py-1.5 bg-emerald-700 text-white text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-emerald-800 whitespace-nowrap"
+                                      >
+                                        Verify & Submit
+                                      </button>
+                                      <button
+                                        onClick={() => setSubmittingRefId(null)}
+                                        className="px-2 py-1.5 text-xs text-ink-400 hover:text-ink"
+                                      >
+                                        Cancel
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setSubmittingRefId(booking.id)}
+                                    className="text-xs text-ink-500 underline hover:text-ink w-fit"
+                                  >
+                                    Already paid remaining on Yoco? Enter receipt reference to verify
+                                  </button>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Option D: Fully Paid Badge */}
+                            {isBalancePaid && !isCompleted && (
+                              <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-semibold uppercase tracking-wide-sm rounded inline-flex items-center gap-1.5 w-fit">
+                                <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Fully Paid
+                              </span>
+                            )}
+
+                            {/* Option E: Completed Booking — Rate Artist Flow */}
+                            {isCompleted && (
+                              <div className="flex items-center gap-3 pt-2">
+                                {booking.has_reviewed ? (
+                                  <span className="px-3 py-1.5 bg-amber-50 text-amber-800 border border-amber-200 text-xs font-semibold uppercase tracking-wide-sm rounded inline-flex items-center gap-1.5">
+                                    <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Reviewed
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setReviewBookingTarget(booking);
+                                      setIsReviewModalOpen(true);
+                                    }}
+                                    className="px-4 py-2 bg-ink text-paper border border-ink text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/90 flex items-center gap-1.5 transition-colors shadow-sm"
+                                  >
+                                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Rate Artist
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Drawer: Detailed Event View */}
+        {selectedBooking && (
+          <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex justify-end animate-fade-in" onClick={() => setSelectedBooking(null)}>
+            <div className="bg-paper w-full max-w-lg h-full overflow-y-auto p-8 border-l border-line shadow-2xl" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between pb-6 mb-6 border-b border-line">
+                <div>
+                  <h2 className="font-display text-2xl font-bold text-ink">{selectedBooking.event_name || 'Event Details'}</h2>
+                  <p className="text-xs text-ink-400 mt-1">Booking ID: {selectedBooking.id}</p>
+                </div>
+                <button onClick={() => setSelectedBooking(null)} className="p-2 hover:bg-black/5 rounded-full text-ink-400 hover:text-ink">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid || selectedBooking.status === 'accepted' || selectedBooking.is_arrival_verified || selectedBooking.completed_at) && (
+                  <div className="border border-line p-5 bg-white space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400">Talent On-Site Pass</span>
+                      {selectedBooking.completed_at || selectedBooking.status === 'completed' ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-purple-800 bg-purple-50 px-2 py-0.5 rounded font-medium border border-purple-200">
+                          <PartyPopper className="w-3.5 h-3.5 text-purple-600" /> Event Completed
+                        </span>
+                      ) : selectedBooking.is_arrival_verified ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium border border-emerald-200">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Checked In
+                        </span>
+                      ) : (
+                        <span className="text-xs text-amber-700 bg-amber-50 px-2 py-0.5 rounded font-medium">
+                          Awaiting Talent Check-in
+                        </span>
+                      )}
+                    </div>
+
+                    {!selectedBooking.is_arrival_verified && !selectedBooking.completed_at ? (
+                      <div className="bg-paper p-4 border border-line text-center space-y-2">
+                        <div className="flex items-center justify-center gap-2 text-ink-500 text-xs font-medium">
+                          <KeyRound className="w-4 h-4 text-ink-400" />
+                          <span>Show 4-Digit PIN to Talent</span>
+                        </div>
+                        <div className="font-mono text-3xl font-bold tracking-widest text-ink">
+                          {selectedBooking.verification_pin || '----'}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-xs text-emerald-800 bg-emerald-50 p-3 border border-emerald-200 rounded space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium flex items-center gap-1">
+                            <MapPinCheck className="w-3.5 h-3.5 text-emerald-600" /> Verified at:
+                          </span>
+                          <span className="font-mono font-semibold">
+                            {formatTimeOnly(selectedBooking.arrival_verified_at) || '12:05 PM'}
+                          </span>
+                        </div>
+
+                        {(selectedBooking.completed_at || selectedBooking.status === 'completed') && (
+                          <div className="flex items-center justify-between pt-1.5 border-t border-emerald-200/60 text-purple-900">
+                            <span className="font-medium flex items-center gap-1">
+                              <LogOut className="w-3.5 h-3.5 text-purple-600" /> Checked out at:
+                            </span>
+                            <span className="font-mono font-semibold">
+                              {formatTimeOnly(selectedBooking.completed_at) || formatTimeOnly(new Date().toISOString())}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="border border-line p-5 bg-white space-y-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400">Financial Overview</h4>
+                  <div className="flex justify-between text-sm py-1 border-b border-line/50">
+                    <span className="text-ink-500">Total Price</span>
+                    <span className="font-medium text-ink">{formatCurrency(selectedBooking.total_price)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm py-1 border-b border-line/50">
+                    <span className="text-ink-500">Deposit Amount Paid</span>
+                    <span className="font-medium text-ink">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                  </div>
+
+                  {(
+                    selectedBooking.balance_paid || 
+                    selectedBooking.status === 'fully_paid' || 
+                    selectedBooking.status === 'completed' || 
+                    !!selectedBooking.completed_at
+                  ) && (
+                    <div className="flex justify-between text-sm py-1 font-semibold text-emerald-800 bg-emerald-50/60 px-2 py-1.5 rounded mt-1 border border-emerald-200/50">
+                      <span className="flex items-center gap-1.5 text-xs">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Remaining Balance Paid
+                      </span>
+                      <span>
+                        {formatCurrency((selectedBooking.total_price || 0) - (selectedBooking.deposit_amount || 0))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {selectedBooking.notes && (
+                  <div className="border border-line p-5 bg-white">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400 mb-2">Booking Notes</h4>
+                    <p className="text-sm text-ink-500 whitespace-pre-wrap">{selectedBooking.notes}</p>
+                  </div>
+                )}
+
+                <div className="pt-4 flex justify-between items-center">
+                  <button
+                    onClick={() => handleDeleteBookings([selectedBooking.id])}
+                    className="text-xs font-semibold text-red-600 hover:text-red-700 flex items-center gap-1.5 p-2 rounded hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete Booking Card
+                  </button>
+                  <button onClick={() => setSelectedBooking(null)} className="btn-secondary text-xs px-4 py-2">
+                    Close Details
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Review Modal Trigger */}
+        {reviewBookingTarget && (
+          <ReviewModal
+            isOpen={isReviewModalOpen}
+            onClose={() => {
+              setIsReviewModalOpen(false);
+              setReviewBookingTarget(null);
+            }}
+            bookingId={reviewBookingTarget.id}
+            artistId={reviewBookingTarget.artist_id || reviewBookingTarget.client_id || ''}
+            artistName={reviewBookingTarget.artist?.full_name || 'Talent'}
+            onSuccess={() => loadData()}
+          />
+        )}
+
+      </div>
+    </div>
+  );
+}
