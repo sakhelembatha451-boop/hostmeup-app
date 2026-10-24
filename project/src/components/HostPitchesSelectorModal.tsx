@@ -183,10 +183,11 @@ export default function HostPitchesSelectorModal({
         if (acceptedPitch && selectedGig) {
           const finalPrice = acceptedPitch.proposed_rate || selectedGig.budget;
 
-          // Create Booking Record
+          // Create Booking Record supplying both client_id and host_id
           const { data: bookingData, error: bookingErr } = await supabase
             .from('bookings')
             .insert({
+              client_id: profile?.id,
               host_id: profile?.id,
               artist_id: acceptedPitch.artist_id,
               gig_id: selectedGig.id,
