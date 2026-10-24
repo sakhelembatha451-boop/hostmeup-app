@@ -10,6 +10,8 @@ interface HostGig {
   category: string;
   location: string;
   event_date: string;
+  start_time?: string;
+  duration_hours?: number;
   budget: number;
   pitch_count: number;
 }
@@ -175,37 +177,54 @@ export default function HostPitchesSelectorModal({
         prev.map((p) => (p.id === pitchId ? { ...p, status: newStatus } : p))
       );
 
-      // 3. If accepted, create official booking record AND automated notification for the artist
+      // 3. If accepted, create official booking record and redirect directly to checkout
       if (newStatus === 'accepted') {
         const acceptedPitch = pitches.find((p) => p.id === pitchId);
         if (acceptedPitch && selectedGig) {
+          const finalPrice = acceptedPitch.proposed_rate || selectedGig.budget;
+
           // Create Booking Record
-          await supabase.from('bookings').insert({
-            client_id: profile?.id,
-            host_id: profile?.id,
-            artist_id: acceptedPitch.artist_id,
-            event_name: selectedGig.title,
-            event_date: selectedGig.event_date,
-            location: selectedGig.location,
-            total_price: acceptedPitch.proposed_rate,
-            status: 'pending',
-            notes: `Accepted via Gig Pitch Dossier: ${acceptedPitch.pitch_message}`,
-          });
+          const { data: bookingData, error: bookingErr } = await supabase
+            .from('bookings')
+            .insert({
+              host_id: profile?.id,
+              artist_id: acceptedPitch.artist_id,
+              gig_id: selectedGig.id,
+              event_name: selectedGig.title,
+              event_date: selectedGig.event_date,
+              start_time: selectedGig.start_time || '18:00',
+              gig_duration: selectedGig.duration_hours ? `${selectedGig.duration_hours} hrs` : '2 hrs',
+              location: selectedGig.location,
+              total_price: finalPrice,
+              total_amount: finalPrice,
+              deposit_amount: finalPrice * 0.5,
+              status: 'pending_deposit',
+              notes: `Accepted via Gig Pitch Dossier: ${acceptedPitch.pitch_message}`,
+            })
+            .select()
+            .single();
+
+          if (bookingErr) throw bookingErr;
 
           // Insert Notification for the Artist
           await supabase.from('notifications').insert({
             user_id: acceptedPitch.artist_id,
             title: 'Gig Booking Confirmed! 🎉',
-            message: `You have been booked for "${selectedGig.title}" with a proposed rate of R${acceptedPitch.proposed_rate.toLocaleString()}.`,
+            message: `You have been booked for "${selectedGig.title}" with a proposed rate of R${finalPrice.toLocaleString()}.`,
             type: 'booking',
           });
+
+          if (onSuccess) onSuccess();
+
+          // Hard redirect straight to checkout page
+          if (bookingData?.id) {
+            window.location.href = `/book/${bookingData.id}`;
+            return;
+          }
         }
       }
 
       if (onSuccess) onSuccess();
-      if (newStatus === 'accepted') {
-        onClose(); // Automatically close and return to feed
-      }
     } catch (err: any) {
       console.error('Error updating pitch status:', err);
       alert(`Failed to update pitch: ${err.message || 'Check Supabase RLS policies.'}`);
