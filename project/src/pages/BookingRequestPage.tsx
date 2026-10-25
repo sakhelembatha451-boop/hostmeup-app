@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-down';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck, ShieldAlert, UserPlus, Trash2, Search, ExternalLink } from 'lucide-react';
@@ -71,6 +71,64 @@ export default function BookingRequestPage() {
       setError('');
 
       try {
+        // 1. Check if the ID parameter is an existing Booking record (e.g., created from Accepting a Pitch)
+        const { data: existingBooking } = await supabase
+          .from('bookings')
+          .select('*, artist:profiles!artist_id(*), artist_profile:artist_profiles!artist_id(*)')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (existingBooking && isMounted) {
+          setEventName(existingBooking.event_name || '');
+          setEventDate(existingBooking.event_date || '');
+          setStartTime(existingBooking.start_time || '');
+          setDurationHours(existingBooking.gig_duration ? existingBooking.gig_duration.replace(' hrs', '').replace(' hours', '') : '2');
+          setLocation(existingBooking.location || '');
+          setNotes(existingBooking.notes || '');
+          setCreatedBookingId(existingBooking.id);
+
+          let talentObj: ArtistWithProfile;
+          if (existingBooking.artist) {
+            talentObj = {
+              ...existingBooking.artist,
+              artist_profile: existingBooking.artist_profile || null,
+            } as ArtistWithProfile;
+          } else {
+            const { data: artistProfile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', existingBooking.artist_id)
+              .maybeSingle();
+
+            talentObj = {
+              ...(artistProfile || { id: existingBooking.artist_id, full_name: 'Artist Talent' }),
+              artist_profile: null,
+            } as ArtistWithProfile;
+          }
+
+          const price = Number(existingBooking.total_amount || existingBooking.total_price || 0);
+          setSelectedTalents([{
+            artist: talentObj,
+            rate: price,
+            rateUnit: 'flat',
+          }]);
+
+          if (profile?.id) {
+            const { data: hostData } = await supabase
+              .from('host_profiles')
+              .select('is_identity_verified, verification_status')
+              .eq('id', profile.id)
+              .maybeSingle();
+
+            if (hostData) setHostVerification(hostData);
+          }
+
+          setShowCheckout(true);
+          setLoading(false);
+          return;
+        }
+
+        // 2. Otherwise, treat as an artist profile ID or user ID for creating a new booking request
         let targetUserId: string | null = null;
         let artistProfileData: any = null;
 
@@ -169,7 +227,7 @@ export default function BookingRequestPage() {
         }
       } catch (err) {
         console.error('Error searching talents:', err);
-      } finally {
+      } font-finally {
         setIsSearching(false);
       }
     }, 300);
