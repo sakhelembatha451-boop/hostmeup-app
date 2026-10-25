@@ -1,5 +1,5 @@
 import { useState, useEffect, FormEvent, useMemo } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-down';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck, ShieldAlert, UserPlus, Trash2, Search, ExternalLink } from 'lucide-react';
@@ -227,7 +227,7 @@ export default function BookingRequestPage() {
         }
       } catch (err) {
         console.error('Error searching talents:', err);
-      } font-finally {
+      } finally {
         setIsSearching(false);
       }
     }, 300);
