@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { KeyRound, ShieldCheck, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { createNotification } from '@/lib/messaging';
 
 interface TalentVerificationModalProps {
   bookingId: string;
@@ -59,14 +60,14 @@ export default function TalentVerificationModal({
     try {
       let { data: booking, error: fetchErr } = await supabase
         .from('bookings')
-        .select('id, verification_pin, status')
+        .select('id, verification_pin, status, host_id, client_id, event_name')
         .eq('id', bookingId)
         .single();
 
       if (fetchErr && fetchErr.message.includes('Could not find the table')) {
         const fallback = await supabase
           .from('booking')
-          .select('id, verification_pin, status')
+          .select('id, verification_pin, status, host_id, client_id, event_name')
           .eq('id', bookingId)
           .single();
         booking = fallback.data;
@@ -86,6 +87,7 @@ export default function TalentVerificationModal({
       const updateData = {
         is_arrival_verified: true,
         arrival_verified_at: new Date().toISOString(),
+        status: 'checked_in',
         updated_at: new Date().toISOString(),
       };
 
@@ -109,6 +111,7 @@ export default function TalentVerificationModal({
           .from(targetTable)
           .update({
             is_arrival_verified: true,
+            status: 'checked_in',
             updated_at: new Date().toISOString(),
           })
           .eq('id', bookingId);
@@ -117,6 +120,19 @@ export default function TalentVerificationModal({
       }
 
       if (updateErr) throw updateErr;
+
+      // Dispatch Real-Time Notification to the Host upon successful check-in
+      const hostTargetId = booking.host_id || booking.client_id;
+      if (hostTargetId) {
+        await createNotification(
+          hostTargetId,
+          'check_in',
+          'Artist Arrived & Checked In 📍',
+          `The artist has checked in at "${booking.event_name || eventName}".`,
+          '/host-dashboard',
+          bookingId
+        );
+      }
 
       setVerifiedSuccess(true);
       setTimeout(() => {
