@@ -71,14 +71,14 @@ export default function BookingRequestPage() {
       setError('');
 
       try {
-        // 1. Check if the ID parameter is an existing Booking record (e.g., created from Accepting a Pitch)
-        const { data: existingBooking } = await supabase
+        // 1. Check if the ID parameter is an existing Booking record
+        const { data: existingBooking, error: bookingErr } = await supabase
           .from('bookings')
-          .select('*, artist:profiles!artist_id(*), artist_profile:artist_profiles!artist_id(*)')
+          .select('*')
           .eq('id', id)
           .maybeSingle();
 
-        if (existingBooking && isMounted) {
+        if (existingBooking && !bookingErr && isMounted) {
           setEventName(existingBooking.event_name || '');
           setEventDate(existingBooking.event_date || '');
           setStartTime(existingBooking.start_time || '');
@@ -87,23 +87,35 @@ export default function BookingRequestPage() {
           setNotes(existingBooking.notes || '');
           setCreatedBookingId(existingBooking.id);
 
-          let talentObj: ArtistWithProfile;
-          if (existingBooking.artist) {
-            talentObj = {
-              ...existingBooking.artist,
-              artist_profile: existingBooking.artist_profile || null,
-            } as ArtistWithProfile;
-          } else {
-            const { data: artistProfile } = await supabase
+          // Fetch artist profile details separately to avoid relationship 400 errors
+          let talentObj: ArtistWithProfile | null = null;
+          if (existingBooking.artist_id) {
+            const { data: userProfile } = await supabase
               .from('profiles')
               .select('*')
               .eq('id', existingBooking.artist_id)
               .maybeSingle();
 
+            const { data: artistProfileData } = await supabase
+              .from('artist_profiles')
+              .select('*')
+              .eq('user_id', existingBooking.artist_id)
+              .maybeSingle();
+
+            if (userProfile) {
+              talentObj = {
+                ...userProfile,
+                artist_profile: artistProfileData || null,
+              } as ArtistWithProfile;
+            }
+          }
+
+          if (!talentObj) {
             talentObj = {
-              ...(artistProfile || { id: existingBooking.artist_id, full_name: 'Artist Talent' }),
+              id: existingBooking.artist_id || 'unknown',
+              full_name: 'Artist Talent',
               artist_profile: null,
-            } as ArtistWithProfile;
+            } as unknown as ArtistWithProfile;
           }
 
           const price = Number(existingBooking.total_amount || existingBooking.total_price || 0);
@@ -128,7 +140,7 @@ export default function BookingRequestPage() {
           return;
         }
 
-        // 2. Otherwise, treat as an artist profile ID or user ID for creating a new booking request
+        // 2. Fallback to artist profile lookup for manual booking creation
         let targetUserId: string | null = null;
         let artistProfileData: any = null;
 
