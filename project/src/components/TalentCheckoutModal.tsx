@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { createNotification } from '@/lib/messaging';
 import { X, LogOut, Loader2, PartyPopper } from 'lucide-react';
 
 interface TalentCheckoutModalProps {
@@ -50,7 +51,18 @@ export default function TalentCheckoutModal({
         }
       }
 
-      // 2. Update booking status to 'completed' in Supabase
+      // 2. Fetch booking details first to retrieve the host ID for notification
+      const { data: bookingData, error: fetchError } = await supabase
+        .from('bookings')
+        .select('id, host_id, client_id, event_name')
+        .eq('id', bookingId)
+        .single();
+
+      if (fetchError) {
+        console.error('Error fetching booking for checkout notification:', fetchError);
+      }
+
+      // 3. Update booking status to 'completed' in Supabase
       console.log('Updating booking ID:', bookingId, 'to completed...');
       const { data, error: updateError } = await supabase
         .from('bookings')
@@ -68,6 +80,19 @@ export default function TalentCheckoutModal({
       }
 
       console.log('Successfully updated booking row:', data);
+
+      // 4. Dispatch real-time notification to the host
+      const hostTargetId = bookingData?.host_id || bookingData?.client_id;
+      if (hostTargetId) {
+        await createNotification(
+          hostTargetId,
+          'check_out',
+          'Artist Checked Out 👋',
+          `The artist has completed their set and checked out from "${bookingData?.event_name || eventName}".`,
+          '/host-dashboard',
+          bookingId
+        );
+      }
 
       alert('Successfully checked out of event! Event marked as completed.');
       onCheckoutSuccess();
