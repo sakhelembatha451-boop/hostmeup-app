@@ -11,6 +11,7 @@ interface NotificationItem {
   created_at: string;
   type: string;
   link_url?: string;
+  link?: string;
 }
 
 export const NotificationBell: React.FC = () => {
@@ -22,11 +23,11 @@ export const NotificationBell: React.FC = () => {
   useEffect(() => {
     let channel: any;
 
-    const fetchNotifications = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+    const setupNotifications = async () => {
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) return;
 
-      // Initial Fetch
+      // 1. Initial Fetch of Notifications
       const { data, error } = await supabase
         .from('notifications')
         .select('*')
@@ -35,11 +36,11 @@ export const NotificationBell: React.FC = () => {
         .limit(10);
 
       if (!error && data) {
-        setNotifications(data);
+        setNotifications(data as NotificationItem[]);
         setUnreadCount(data.filter((n) => !n.is_read).length);
       }
 
-      // Supabase Realtime Listener
+      // 2. Setup Supabase Realtime Listener for instant inserts
       channel = supabase
         .channel(`user_notifications:${user.id}`)
         .on(
@@ -56,18 +57,24 @@ export const NotificationBell: React.FC = () => {
             setUnreadCount((prev) => prev + 1);
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('Realtime listener active for notifications.');
+          }
+        });
     };
 
-    fetchNotifications();
+    setupNotifications();
 
     return () => {
-      if (channel) supabase.removeChannel(channel);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
     };
   }, []);
 
   const handleNotificationClick = async (notif: NotificationItem) => {
-    // Mark single notification as read if it isn't already
+    // Mark single notification as read in the database
     if (!notif.is_read) {
       await supabase
         .from('notifications')
@@ -81,8 +88,11 @@ export const NotificationBell: React.FC = () => {
     }
 
     setIsOpen(false);
-    if (notif.link_url) {
-      navigate(notif.link_url);
+    
+    // Support both link_url and link property fields
+    const targetUrl = notif.link_url || notif.link;
+    if (targetUrl) {
+      navigate(targetUrl);
     }
   };
 
@@ -91,17 +101,18 @@ export const NotificationBell: React.FC = () => {
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 text-gray-700 hover:text-black focus:outline-none flex items-center"
+        aria-label="Notifications"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white">
+          <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-600 text-[10px] font-bold text-white animate-pulse">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden">
+        <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden animate-fade-in">
           <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
             <h4 className="text-sm font-semibold text-gray-800">Notifications</h4>
             {unreadCount > 0 && (
