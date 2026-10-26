@@ -392,7 +392,7 @@ export default function HostDashboard() {
 
   const renderCustomStatusBadge = (booking: BookingWithArtist) => {
     const isCompleted = booking.status === 'completed' || !!booking.completed_at;
-    const isPendingCheckoutApproval = booking.status === 'pending_checkout_approval';
+    const isPendingCheckoutApproval = booking.status === 'pending_checkout_approval' || booking.notes?.includes('Awaiting Host Approval');
     const isCheckedIn = booking.is_arrival_verified || booking.status === 'checked_in';
     const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
     const isDepositPaid = booking.deposit_paid || booking.status?.toLowerCase() === 'confirmed';
@@ -922,7 +922,7 @@ export default function HostDashboard() {
               const isSelected = selectedBookingIds.includes(booking.id);
               const isDepositPaid = booking.deposit_paid || booking.status?.toLowerCase() === 'confirmed';
               const isPendingVerification = booking.status?.toLowerCase() === 'pending_verification';
-              const isPendingCheckoutApproval = booking.status === 'pending_checkout_approval';
+              const isPendingCheckoutApproval = booking.status === 'pending_checkout_approval' || booking.notes?.includes('Awaiting Host Approval');
               const isBalancePaid = booking.balance_paid || booking.status?.toLowerCase() === 'fully_paid';
               const isCompleted = booking.status?.toLowerCase() === 'completed' || !!booking.completed_at;
               const remainingBalance = (booking.total_price || 0) - (booking.deposit_amount || 0);
@@ -1122,7 +1122,7 @@ export default function HostDashboard() {
                             {isPendingCheckoutApproval && (
                               <div className="flex flex-col gap-2 pt-1">
                                 <div className="text-xs text-purple-800 font-medium bg-purple-50 p-2.5 rounded border border-purple-200">
-                                  📍 Artist has requested checkout within the 75m geofence. Review and approve completion below:
+                                  📍 Artist has requested checkout within the geofence. Review and approve completion below:
                                 </div>
                                 <button
                                   type="button"
