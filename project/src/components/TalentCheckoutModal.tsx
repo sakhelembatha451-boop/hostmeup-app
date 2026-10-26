@@ -114,8 +114,10 @@ export default function TalentCheckoutModal({
       const distance = getDistanceInMeters(artistLat, artistLng, venueCoords.lat, venueCoords.lng);
       console.log(`Checkout distance from venue: ${Math.round(distance)} meters`);
 
-      if (distance > 75) {
-        setError(`Geofence check failed: You are approximately ${Math.round(distance)} meters away from the venue. You must be within 75 meters to check out.`);
+      const ALLOWED_RADIUS_METERS = 75;
+
+      if (distance > ALLOWED_RADIUS_METERS) {
+        setError(`Geofence check failed: You are approximately ${Math.round(distance)} meters away from the venue. You must be within ${ALLOWED_RADIUS_METERS} meters to check out.`);
         setLoading(false);
         setStatusMessage(null);
         return;
@@ -151,14 +153,21 @@ export default function TalentCheckoutModal({
       // 5. Dispatch real-time notification to the host for Dual-Party Approval
       const hostTargetId = bookingData?.host_id || bookingData?.client_id;
       if (hostTargetId) {
-        await supabase.from('notifications').insert({
+        const { error: notifError } = await supabase.from('notifications').insert({
           user_id: hostTargetId,
           type: 'checkout_request',
           title: 'Checkout Approval Required 📍',
           message: `The artist has requested check-out for "${bookingData?.event_name || eventName}". Tap to review and approve completion.`,
           link: '/host-dashboard',
           related_id: bookingId,
+          is_read: false,
         });
+
+        if (notifError) {
+          console.error('Error inserting notification (check RLS policies):', notifError);
+        }
+      } else {
+        console.warn('Could not find host_id or client_id on booking for notification dispatch.');
       }
 
       alert('Checkout request submitted successfully! Awaiting host approval.');
