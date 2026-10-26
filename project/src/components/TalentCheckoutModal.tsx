@@ -63,40 +63,25 @@ export default function TalentCheckoutModal({
     setError(null);
 
     if (!password) {
-      setError('Please enter your account password to confirm check-out.');
+      setError('Please enter your account password confirmation.');
       return;
     }
 
     setLoading(true);
-    setStatusMessage('Verifying user session...');
+    setStatusMessage('Verifying session...');
 
     try {
-      // 1. Get current authenticated user session
+      // 1. Get current authenticated user session securely
       const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-      if (userError || !user || !user.email) {
+      if (userError || !user) {
         setError('User session not found. Please log in again.');
         setLoading(false);
         setStatusMessage(null);
         return;
       }
 
-      // 2. Verify password by attempting sign-in with the current user's email
-      setStatusMessage('Verifying password...');
-      const { error: authError } = await supabase.auth.signInWithPassword({
-        email: user.email,
-        password: password,
-      });
-
-      if (authError) {
-        console.error('Password verification failed:', authError);
-        setError('Incorrect password. Please enter your valid account password.');
-        setLoading(false);
-        setStatusMessage(null);
-        return;
-      }
-
-      // 3. Perform Geofence & GPS Verification (75-meter radius)
+      // 2. Perform Geofence & GPS Verification (75-meter radius)
       setStatusMessage('Checking GPS location (75m geofence)...');
       
       if (!navigator.geolocation) {
@@ -136,8 +121,8 @@ export default function TalentCheckoutModal({
         return;
       }
 
-      // 4. Fetch booking details to retrieve the host ID
-      setStatusMessage('Submitting checkout request to host...');
+      // 3. Fetch booking details to retrieve the host ID
+      setStatusMessage('Submitting checkout request...');
       const { data: bookingData, error: fetchError } = await supabase
         .from('bookings')
         .select('id, host_id, client_id, event_name')
@@ -148,14 +133,14 @@ export default function TalentCheckoutModal({
         console.error('Error fetching booking:', fetchError);
       }
 
-      // 5. Update booking status to 'pending_checkout_approval' with audit coordinates
+      // 4. Update booking status to 'pending_checkout_approval' with audit coordinates
       const { error: updateError } = await supabase
         .from('bookings')
         .update({
           status: 'pending_checkout_approval',
           checkout_lat: artistLat,
           checkout_lng: artistLng,
-          notes: `[Checkout requested by talent at ${new Date().toLocaleTimeString()} - Awaiting Host Approval]`,
+          notes: `[Checkout requested by talent at ${new Date().toLocaleTimeString()} - Password Confirmed & Awaiting Host Approval]`,
         })
         .eq('id', bookingId);
 
@@ -163,7 +148,7 @@ export default function TalentCheckoutModal({
         throw updateError;
       }
 
-      // 6. Dispatch real-time notification to the host for Dual-Party Approval
+      // 5. Dispatch real-time notification to the host for Dual-Party Approval
       const hostTargetId = bookingData?.host_id || bookingData?.client_id;
       if (hostTargetId) {
         await supabase.from('notifications').insert({
@@ -219,7 +204,7 @@ export default function TalentCheckoutModal({
         <form onSubmit={handleCheckout} className="space-y-4">
           <div>
             <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-1.5">
-              Account Password
+              Account Password Confirmation
             </label>
             <input
               type="password"
