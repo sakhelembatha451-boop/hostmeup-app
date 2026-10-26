@@ -81,8 +81,8 @@ export default function TalentCheckoutModal({
         return;
       }
 
-      // 2. Perform Geofence & GPS Verification (2000m radius for desktop testing)
-      setStatusMessage('Checking GPS location (Geofence Active)...');
+      // 2. Perform Geofence & GPS Verification (75-meter radius)
+      setStatusMessage('Checking GPS location (75m geofence)...');
       
       if (!navigator.geolocation) {
         setError('Geolocation is not supported by your browser.');
@@ -99,7 +99,7 @@ export default function TalentCheckoutModal({
         });
       }).catch((geoErr) => {
         console.error('Geolocation error:', geoErr);
-        throw new Error('Unable to retrieve your browser location. Please ensure location permissions are enabled.');
+        throw new Error('Unable to retrieve your GPS location. Please ensure location permissions are enabled.');
       });
 
       const artistLat = position.coords.latitude;
@@ -114,11 +114,8 @@ export default function TalentCheckoutModal({
       const distance = getDistanceInMeters(artistLat, artistLng, venueCoords.lat, venueCoords.lng);
       console.log(`Checkout distance from venue: ${Math.round(distance)} meters`);
 
-      // Set to 2000m (2km) to account for desktop browser Wi-Fi/IP location drift
-      const ALLOWED_RADIUS_METERS = 2000;
-
-      if (distance > ALLOWED_RADIUS_METERS) {
-        setError(`Geofence check failed: You are approximately ${Math.round(distance)} meters away from the venue. You must be within ${ALLOWED_RADIUS_METERS} meters to check out.`);
+      if (distance > 75) {
+        setError(`Geofence check failed: You are approximately ${Math.round(distance)} meters away from the venue. You must be within 75 meters to check out.`);
         setLoading(false);
         setStatusMessage(null);
         return;
@@ -194,7 +191,7 @@ export default function TalentCheckoutModal({
           </p>
           <div className="flex items-center justify-center gap-1 text-xs text-ink-500 pt-1">
             <MapPin className="w-3.5 h-3.5 text-purple-600" />
-            <span>Venue: {location || 'Standard Venue'} (2km Test Geofence Active)</span>
+            <span>Venue: {location || 'Standard Venue'} (75m Geofence Active)</span>
           </div>
         </div>
 
