@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase'; // Adjust import if your supabase client is located elsewhere
+import { supabase } from '../lib/supabase';
 
 interface NotificationItem {
   id: string;
   title: string;
   message: string;
   is_read: boolean;
-  created_at: string;
-  type: string;
+  created_at?: string;
+  type?: string;
   link_url?: string;
   link?: string;
 }
@@ -24,44 +24,49 @@ export const NotificationBell: React.FC = () => {
     let channel: any;
 
     const setupNotifications = async () => {
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      if (userError || !user) return;
+      try {
+        const { data: { user }, error: userError } = await supabase.auth.getUser();
+        if (userError || !user) return;
 
-      // 1. Initial Fetch of Notifications
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
+        // 1. Initial Fetch (Safer query without aggressive order parameters if schema differs)
+        const { data, error } = await supabase
+          .from('notifications')
+          .select('*')
+          .eq('user_id', user.id)
+          .limit(10);
 
-      if (!error && data) {
-        setNotifications(data as NotificationItem[]);
-        setUnreadCount(data.filter((n) => !n.is_read).length);
+        if (error) {
+          console.error('Error fetching notifications:', error.message || error);
+        } else if (data) {
+          // Sort in memory to avoid 400 errors if created_at column format varies
+          const sorted = [...data].sort((a, b) => 
+            new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
+          );
+          setNotifications(sorted as NotificationItem[]);
+          setUnreadCount(sorted.filter((n) => !n.is_read).length);
+        }
+
+        // 2. Realtime Subscription Listener
+        channel = supabase
+          .channel(`user_notifications_${user.id}`)
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'notifications',
+              filter: `user_id=eq.${user.id}`,
+            },
+            (payload) => {
+              const newNotif = payload.new as NotificationItem;
+              setNotifications((prev) => [newNotif, ...prev]);
+              setUnreadCount((prev) => prev + 1);
+            }
+          )
+          .subscribe();
+      } catch (err) {
+        console.error('Notification setup failed:', err);
       }
-
-      // 2. Setup Supabase Realtime Listener for instant inserts
-      channel = supabase
-        .channel(`user_notifications:${user.id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'notifications',
-            filter: `user_id=eq.${user.id}`,
-          },
-          (payload) => {
-            const newNotif = payload.new as NotificationItem;
-            setNotifications((prev) => [newNotif, ...prev]);
-            setUnreadCount((prev) => prev + 1);
-          }
-        )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            console.log('Realtime listener active for notifications.');
-          }
-        });
     };
 
     setupNotifications();
@@ -74,7 +79,6 @@ export const NotificationBell: React.FC = () => {
   }, []);
 
   const handleNotificationClick = async (notif: NotificationItem) => {
-    // Mark single notification as read in the database
     if (!notif.is_read) {
       await supabase
         .from('notifications')
@@ -89,7 +93,6 @@ export const NotificationBell: React.FC = () => {
 
     setIsOpen(false);
     
-    // Support both link_url and link property fields
     const targetUrl = notif.link_url || notif.link;
     if (targetUrl) {
       navigate(targetUrl);
@@ -112,7 +115,7 @@ export const NotificationBell: React.FC = () => {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden animate-fade-in">
+        <div className="absolute right-0 mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50 overflow-hidden">
           <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
             <h4 className="text-sm font-semibold text-gray-800">Notifications</h4>
             {unreadCount > 0 && (
@@ -135,12 +138,14 @@ export const NotificationBell: React.FC = () => {
                 >
                   <p className="text-xs font-semibold text-gray-900">{notif.title}</p>
                   <p className="text-xs text-gray-600 mt-0.5">{notif.message}</p>
-                  <span className="text-[10px] text-gray-400 mt-1 block">
-                    {new Date(notif.created_at).toLocaleTimeString([], {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
+                  {notif.created_at && (
+                    <span className="text-[10px] text-gray-400 mt-1 block">
+                      {new Date(notif.created_at).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  )}
                 </div>
               ))
             )}
