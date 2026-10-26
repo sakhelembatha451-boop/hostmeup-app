@@ -161,8 +161,9 @@ export default function TalentCheckoutModal({
           title: 'Checkout Approval Required 📍',
           message: `The artist has requested check-out for "${bookingData.event_name || eventName}". Tap to review and approve completion.`,
           link: '/host-dashboard',
-          related_id: bookingId,
+          booking_id: bookingId,
           is_read: false,
+          read: false,
         });
 
         if (notifError) {
