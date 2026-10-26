@@ -60,35 +60,36 @@ export default function TalentCheckoutModal({
 
   const handleCheckout = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
     if (!password) {
       setError('Please enter your account password to confirm check-out.');
       return;
     }
 
     setLoading(true);
-    setError(null);
     setStatusMessage('Verifying user session...');
 
     try {
-      // 1. Get current authenticated user session directly from Supabase
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      const currentUserEmail = sessionData?.session?.user?.email;
+      // 1. Get current authenticated user session
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-      if (sessionError || !currentUserEmail) {
+      if (userError || !user || !user.email) {
         setError('User session not found. Please log in again.');
         setLoading(false);
         setStatusMessage(null);
         return;
       }
 
-      // 2. Strictly verify user password via Supabase re-authentication
+      // 2. Verify password by attempting sign-in with the current user's email
       setStatusMessage('Verifying password...');
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: currentUserEmail,
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
         password: password,
       });
 
-      if (authError || !authData.user) {
+      if (authError) {
+        console.error('Password verification failed:', authError);
         setError('Incorrect password. Please enter your valid account password.');
         setLoading(false);
         setStatusMessage(null);
@@ -165,7 +166,6 @@ export default function TalentCheckoutModal({
       // 6. Dispatch real-time notification to the host for Dual-Party Approval
       const hostTargetId = bookingData?.host_id || bookingData?.client_id;
       if (hostTargetId) {
-        // Create notification record
         await supabase.from('notifications').insert({
           user_id: hostTargetId,
           type: 'checkout_request',
@@ -223,6 +223,7 @@ export default function TalentCheckoutModal({
             </label>
             <input
               type="password"
+              autoComplete="current-password"
               placeholder="••••••••"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
