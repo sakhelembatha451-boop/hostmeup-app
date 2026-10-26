@@ -68,20 +68,33 @@ export default function TalentCheckoutModal({
     }
 
     setLoading(true);
-    setStatusMessage('Verifying session...');
+    setStatusMessage('Verifying password...');
 
     try {
       // 1. Get current authenticated user session securely
       const { data: { user }, error: userError } = await supabase.auth.getUser();
 
-      if (userError || !user) {
+      if (userError || !user || !user.email) {
         setError('User session not found. Please log in again.');
         setLoading(false);
         setStatusMessage(null);
         return;
       }
 
-      // 2. Perform Geofence & GPS Verification (Expanded for testing)
+      // 2. SECURITY FIX: Validate the password by attempting a re-authentication sign-in
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: password,
+      });
+
+      if (authError) {
+        setError('Incorrect account password. Please try again.');
+        setLoading(false);
+        setStatusMessage(null);
+        return;
+      }
+
+      // 3. Perform Geofence & GPS Verification (Expanded for testing)
       setStatusMessage('Checking GPS location...');
       
       if (!navigator.geolocation) {
@@ -124,7 +137,7 @@ export default function TalentCheckoutModal({
         return;
       }
 
-      // 3. Fetch booking details to retrieve the host ID with strict validation
+      // 4. Fetch booking details to retrieve the host ID with strict validation
       setStatusMessage('Submitting checkout request...');
       const { data: bookingData, error: fetchError } = await supabase
         .from('bookings')
@@ -136,7 +149,7 @@ export default function TalentCheckoutModal({
         throw new Error(fetchError?.message || 'Could not retrieve booking details for host notification.');
       }
 
-      // 4. Update booking status to 'pending_checkout_approval' with audit coordinates
+      // 5. Update booking status to 'pending_checkout_approval' with audit coordinates
       const { error: updateError } = await supabase
         .from('bookings')
         .update({
@@ -151,7 +164,7 @@ export default function TalentCheckoutModal({
         throw updateError;
       }
 
-      // 5. Dispatch real-time notification to the host for Dual-Party Approval
+      // 6. Dispatch real-time notification to the host for Dual-Party Approval
       const hostTargetId = bookingData.host_id || bookingData.client_id;
       
       if (hostTargetId) {
