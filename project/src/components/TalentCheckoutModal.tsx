@@ -2,19 +2,53 @@ import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { createNotification } from '@/lib/messaging';
-import { X, LogOut, Loader2, PartyPopper } from 'lucide-react';
+import { X, LogOut, Loader2, PartyPopper, MapPin } from 'lucide-react';
 
 interface TalentCheckoutModalProps {
   bookingId: string;
   eventName: string;
+  location: string;
   isOpen: boolean;
   onClose: () => void;
   onCheckoutSuccess: () => void;
 }
 
+// Helper to calculate distance in meters using Haversine formula
+function getDistanceInMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371e3; // Earth radius in meters
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+// Helper to geocode address text using OpenStreetMap Nominatim
+async function geocodeAddress(address: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const encoded = encodeURIComponent(address);
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encoded}&limit=1`, {
+      headers: { 'User-Agent': 'HostMeUp-App' }
+    });
+    const data = await response.json();
+    if (data && data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    }
+  } catch (err) {
+    console.error('Geocoding error:', err);
+  }
+  return null;
+}
+
 export default function TalentCheckoutModal({
   bookingId,
   eventName,
+  location,
   isOpen,
   onClose,
   onCheckoutSuccess,
@@ -22,6 +56,7 @@ export default function TalentCheckoutModal({
   const { user } = useAuth();
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
@@ -33,25 +68,71 @@ export default function TalentCheckoutModal({
       return;
     }
 
+    if (!user?.email) {
+      setError('User session not found. Please log in again.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
+    setStatusMessage('Verifying location and security...');
 
     try {
-      // 1. Verify user password via Supabase re-authentication
-      if (user?.email) {
-        const { error: authError } = await supabase.auth.signInWithPassword({
-          email: user.email,
-          password: password,
-        });
+      // 1. Strictly verify user password via Supabase re-authentication
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: password,
+      });
 
-        if (authError) {
-          setError('Incorrect password. Please try again.');
-          setLoading(false);
-          return;
-        }
+      if (authError || !authData.user) {
+        setError('Incorrect password. Please enter your valid account password.');
+        setLoading(false);
+        setStatusMessage(null);
+        return;
       }
 
-      // 2. Fetch booking details first to retrieve the host ID for notification
+      // 2. Perform Geofence & GPS Verification (75-meter radius)
+      setStatusMessage('Checking GPS location (75m geofence)...');
+      
+      if (!navigator.geolocation) {
+        setError('Geolocation is not supported by your browser.');
+        setLoading(false);
+        setStatusMessage(null);
+        return;
+      }
+
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        });
+      }).catch((geoErr) => {
+        console.error('Geolocation error:', geoErr);
+        throw new Error('Unable to retrieve your GPS location. Please ensure location permissions are enabled.');
+      });
+
+      const artistLat = position.coords.latitude;
+      const artistLng = position.coords.longitude;
+
+      // Geocode the venue location string
+      const venueCoords = await geocodeAddress(location || 'Cape Town');
+      if (!venueCoords) {
+        throw new Error(`Could not verify venue address coordinates for "${location}". Please contact support.`);
+      }
+
+      const distance = getDistanceInMeters(artistLat, artistLng, venueCoords.lat, venueCoords.lng);
+      console.log(`Checkout distance from venue: ${Math.round(distance)} meters`);
+
+      if (distance > 75) {
+        setError(`Geofence check failed: You are approximately ${Math.round(distance)} meters away from the venue. You must be within 75 meters to check out.`);
+        setLoading(false);
+        setStatusMessage(null);
+        return;
+      }
+
+      // 3. Fetch booking details to retrieve the host ID
+      setStatusMessage('Submitting checkout request to host...');
       const { data: bookingData, error: fetchError } = await supabase
         .from('bookings')
         .select('id, host_id, client_id, event_name')
@@ -59,42 +140,38 @@ export default function TalentCheckoutModal({
         .single();
 
       if (fetchError) {
-        console.error('Error fetching booking for checkout notification:', fetchError);
+        console.error('Error fetching booking:', fetchError);
       }
 
-      // 3. Update booking status to 'completed' in Supabase
-      console.log('Updating booking ID:', bookingId, 'to completed...');
-      const { data, error: updateError } = await supabase
+      // 4. Update booking status to 'pending_checkout_approval' with audit coordinates
+      const { error: updateError } = await supabase
         .from('bookings')
         .update({
-          status: 'completed',
-          completed_at: new Date().toISOString(),
-          notes: `[Checked out by talent at ${new Date().toLocaleTimeString()}]`,
+          status: 'pending_checkout_approval',
+          checkout_lat: artistLat,
+          checkout_lng: artistLng,
+          notes: `[Checkout requested by talent at ${new Date().toLocaleTimeString()} - Awaiting Host Approval]`,
         })
-        .eq('id', bookingId)
-        .select();
+        .eq('id', bookingId);
 
       if (updateError) {
-        console.error('Supabase update error:', updateError);
         throw updateError;
       }
 
-      console.log('Successfully updated booking row:', data);
-
-      // 4. Dispatch real-time notification to the host
+      // 5. Dispatch real-time notification to the host for Dual-Party Approval
       const hostTargetId = bookingData?.host_id || bookingData?.client_id;
       if (hostTargetId) {
         await createNotification(
           hostTargetId,
-          'check_out',
-          'Artist Checked Out 👋',
-          `The artist has completed their set and checked out from "${bookingData?.event_name || eventName}".`,
+          'checkout_request',
+          'Checkout Approval Required 📍',
+          `The artist has requested check-out for "${bookingData?.event_name || eventName}". Tap to review and approve completion.`,
           '/host-dashboard',
           bookingId
         );
       }
 
-      alert('Successfully checked out of event! Event marked as completed.');
+      alert('Checkout request submitted successfully! Awaiting host approval.');
       onCheckoutSuccess();
       onClose();
     } catch (err: any) {
@@ -102,6 +179,7 @@ export default function TalentCheckoutModal({
       setError(err?.message || 'Failed to check out. Please try again.');
     } finally {
       setLoading(false);
+      setStatusMessage(null);
     }
   };
 
@@ -117,17 +195,18 @@ export default function TalentCheckoutModal({
           <div className="w-12 h-12 bg-purple-50 text-purple-700 border border-purple-200 rounded-full flex items-center justify-center mx-auto">
             <PartyPopper className="w-6 h-6" />
           </div>
-          <h2 className="font-display text-2xl font-bold text-ink">Check Out From Event</h2>
+          <h2 className="font-display text-2xl font-bold text-ink">Secure Check Out</h2>
           <p className="text-xs text-ink-400">
             Event: <strong className="text-ink">{eventName}</strong>
           </p>
-          <p className="text-xs text-ink-500">
-            Enter your account password to securely check out and sign off from this event.
-          </p>
+          <div className="flex items-center justify-center gap-1 text-xs text-ink-500 pt-1">
+            <MapPin className="w-3.5 h-3.5 text-purple-600" />
+            <span>Venue: {location || 'Standard Venue'} (75m Geofence Active)</span>
+          </div>
         </div>
 
         {error && (
-          <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded">
+          <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded leading-relaxed">
             {error}
           </div>
         )}
@@ -163,12 +242,12 @@ export default function TalentCheckoutModal({
               {loading ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Verifying...</span>
+                  <span>{statusMessage || 'Verifying...'}</span>
                 </>
               ) : (
                 <>
                   <LogOut className="w-3.5 h-3.5" />
-                  <span>Confirm Check Out</span>
+                  <span>Request Checkout</span>
                 </>
               )}
             </button>
