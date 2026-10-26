@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { createNotification } from '@/lib/messaging';
 import { 
   Calendar, 
   MapPin, 
@@ -123,6 +124,7 @@ export default function HostDashboard() {
 
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [approvingBookingId, setApprovingBookingId] = useState<string | null>(null);
   const [submittingRefId, setSubmittingRefId] = useState<string | null>(null);
   const [refInput, setRefInput] = useState('');
 
@@ -272,7 +274,6 @@ export default function HostDashboard() {
     newStatus: 'shortlisted' | 'accepted' | 'declined'
   ) => {
     try {
-      // 1. Update pitch status
       const { error } = await supabase
         .from('gig_pitches')
         .update({ status: newStatus })
@@ -280,7 +281,6 @@ export default function HostDashboard() {
 
       if (error) throw error;
 
-      // 2. If accepted, automatically create a booking record and redirect to checkout
       if (newStatus === 'accepted' && profile?.id && pitch.artist_id) {
         const gigInfo = pitch.gig;
 
@@ -321,6 +321,43 @@ export default function HostDashboard() {
     }
   };
 
+  const handleApproveCheckout = async (bookingId: string, artistId: string, eventName: string) => {
+    setApprovingBookingId(bookingId);
+    try {
+      // 1. Update booking status to completed
+      const { error: updateError } = await supabase
+        .from('bookings')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          notes: `[Checkout approved by host at ${new Date().toLocaleTimeString()}]`,
+        })
+        .eq('id', bookingId);
+
+      if (updateError) throw updateError;
+
+      // 2. Notify the artist
+      if (artistId) {
+        await createNotification(
+          artistId,
+          'checkout_approved',
+          'Checkout Approved! 🎉',
+          `Your check-out for "${eventName}" has been approved by the host. Gig completed successfully!`,
+          '/artist-dashboard',
+          bookingId
+        );
+      }
+
+      alert('Checkout approved successfully! Booking marked as completed.');
+      await loadData();
+    } catch (err: any) {
+      console.error('Error approving checkout:', err);
+      alert('Failed to approve checkout. Please try again.');
+    } finally {
+      setApprovingBookingId(null);
+    }
+  };
+
   const handleDeleteBookings = async (idsToDelete: string[]) => {
     if (idsToDelete.length === 0) return;
 
@@ -355,6 +392,7 @@ export default function HostDashboard() {
 
   const renderCustomStatusBadge = (booking: BookingWithArtist) => {
     const isCompleted = booking.status === 'completed' || !!booking.completed_at;
+    const isPendingCheckoutApproval = booking.status === 'pending_checkout_approval';
     const isCheckedIn = booking.is_arrival_verified || booking.status === 'checked_in';
     const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
     const isDepositPaid = booking.deposit_paid || booking.status?.toLowerCase() === 'confirmed';
@@ -364,6 +402,14 @@ export default function HostDashboard() {
       return (
         <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-800 border border-purple-200 rounded-sm inline-flex items-center gap-1">
           <PartyPopper className="w-3.5 h-3.5 text-purple-600" /> Event Completed
+        </span>
+      );
+    }
+
+    if (isPendingCheckoutApproval) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-900 border border-purple-300 rounded-sm inline-flex items-center gap-1 animate-pulse">
+          <LogOut className="w-3.5 h-3.5 text-purple-700" /> Checkout Pending Approval
         </span>
       );
     }
@@ -876,6 +922,7 @@ export default function HostDashboard() {
               const isSelected = selectedBookingIds.includes(booking.id);
               const isDepositPaid = booking.deposit_paid || booking.status?.toLowerCase() === 'confirmed';
               const isPendingVerification = booking.status?.toLowerCase() === 'pending_verification';
+              const isPendingCheckoutApproval = booking.status === 'pending_checkout_approval';
               const isBalancePaid = booking.balance_paid || booking.status?.toLowerCase() === 'fully_paid';
               const isCompleted = booking.status?.toLowerCase() === 'completed' || !!booking.completed_at;
               const remainingBalance = (booking.total_price || 0) - (booking.deposit_amount || 0);
@@ -960,7 +1007,7 @@ export default function HostDashboard() {
                         ) : (
                           <div className="flex flex-col gap-3">
                             {/* Option A: Pending Verification State */}
-                            {isPendingVerification && !isCompleted && (
+                            {isPendingVerification && !isCompleted && !isPendingCheckoutApproval && (
                               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide-sm text-amber-800 bg-amber-50 px-3 py-2 rounded border border-amber-200 w-fit">
                                 <Clock3 className="w-3.5 h-3.5 text-amber-600 animate-pulse" />
                                 <span>Payment Reference Submitted — Awaiting Talent Confirmation</span>
@@ -968,7 +1015,7 @@ export default function HostDashboard() {
                             )}
 
                             {/* Option B: Deposit Not Paid & Not Pending */}
-                            {!isDepositPaid && !isPendingVerification && !isCompleted && (
+                            {!isDepositPaid && !isPendingVerification && !isCompleted && !isPendingCheckoutApproval && (
                               <div className="flex flex-col gap-2.5">
                                 <div className="flex flex-wrap items-center gap-3">
                                   <button
@@ -1020,7 +1067,7 @@ export default function HostDashboard() {
                             )}
 
                             {/* Option C: Deposit Paid, Balance Outstanding & Event NOT Completed */}
-                            {isDepositPaid && !isBalancePaid && !isPendingVerification && !isCompleted && (
+                            {isDepositPaid && !isBalancePaid && !isPendingVerification && !isCompleted && !isPendingCheckoutApproval && (
                               <div className="flex flex-col gap-2.5">
                                 <div className="flex flex-wrap items-center gap-3">
                                   <button
@@ -1071,14 +1118,41 @@ export default function HostDashboard() {
                               </div>
                             )}
 
-                            {/* Option D: Fully Paid Badge */}
-                            {isBalancePaid && !isCompleted && (
+                            {/* Option D: Pending Checkout Approval Action Button */}
+                            {isPendingCheckoutApproval && (
+                              <div className="flex flex-col gap-2 pt-1">
+                                <div className="text-xs text-purple-800 font-medium bg-purple-50 p-2.5 rounded border border-purple-200">
+                                  📍 Artist has requested checkout within the 75m geofence. Review and approve completion below:
+                                </div>
+                                <button
+                                  type="button"
+                                  disabled={approvingBookingId === booking.id}
+                                  onClick={() => handleApproveCheckout(booking.id, booking.artist_id || booking.client_id || '', booking.event_name || 'Event')}
+                                  className="bg-ink hover:bg-ink/90 text-paper text-xs font-semibold uppercase tracking-wide-sm px-4 py-2.5 rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 w-fit"
+                                >
+                                  {approvingBookingId === booking.id ? (
+                                    <>
+                                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                      <span>Approving Checkout...</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <CheckCircle2 className="w-3.5 h-3.5 text-purple-400" />
+                                      <span>Approve Check Out</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                            )}
+
+                            {/* Option E: Fully Paid Badge (when not pending approval) */}
+                            {isBalancePaid && !isCompleted && !isPendingCheckoutApproval && (
                               <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-semibold uppercase tracking-wide-sm rounded inline-flex items-center gap-1.5 w-fit">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Fully Paid
                               </span>
                             )}
 
-                            {/* Option E: Completed Booking — Rate Artist Flow */}
+                            {/* Option F: Completed Booking — Rate Artist Flow */}
                             {isCompleted && (
                               <div className="flex items-center gap-3 pt-2">
                                 {booking.has_reviewed ? (
@@ -1125,13 +1199,17 @@ export default function HostDashboard() {
               </div>
 
               <div className="space-y-6">
-                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid || selectedBooking.status === 'accepted' || selectedBooking.is_arrival_verified || selectedBooking.completed_at) && (
+                {(selectedBooking.status === 'confirmed' || selectedBooking.deposit_paid || selectedBooking.status === 'accepted' || selectedBooking.is_arrival_verified || selectedBooking.completed_at || selectedBooking.status === 'pending_checkout_approval') && (
                   <div className="border border-line p-5 bg-white space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-semibold uppercase tracking-wide-sm text-ink-400">Talent On-Site Pass</span>
                       {selectedBooking.completed_at || selectedBooking.status === 'completed' ? (
                         <span className="inline-flex items-center gap-1 text-xs text-purple-800 bg-purple-50 px-2 py-0.5 rounded font-medium border border-purple-200">
                           <PartyPopper className="w-3.5 h-3.5 text-purple-600" /> Event Completed
+                        </span>
+                      ) : selectedBooking.status === 'pending_checkout_approval' ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-purple-900 bg-purple-50 px-2 py-0.5 rounded font-medium border border-purple-200 animate-pulse">
+                          <LogOut className="w-3.5 h-3.5 text-purple-700" /> Checkout Pending Approval
                         </span>
                       ) : selectedBooking.is_arrival_verified ? (
                         <span className="inline-flex items-center gap-1 text-xs text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-medium border border-emerald-200">
