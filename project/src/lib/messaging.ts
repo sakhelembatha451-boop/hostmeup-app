@@ -45,7 +45,6 @@ export async function createConversation(
   if (!userId1 || !userId2) return null;
 
   try {
-    // Check for existing conversation
     const { data: existing, error: checkError } = await supabase
       .from('conversations')
       .select('id')
@@ -57,7 +56,6 @@ export async function createConversation(
       return existing.id;
     }
 
-    // Insert new conversation if none exists
     const { data: newConv, error: insertError } = await supabase
       .from('conversations')
       .insert({
@@ -79,6 +77,57 @@ export async function createConversation(
   } catch (err: any) {
     console.error('Unexpected error in createConversation:', err?.message || err);
     return null;
+  }
+}
+
+/**
+ * Sends a chat message within a conversation.
+ */
+export async function sendMessage(
+  conversationId: string,
+  senderId: string,
+  messageText: string
+): Promise<boolean> {
+  if (!conversationId || !senderId || !messageText) return false;
+
+  try {
+    const { error } = await supabase.from('messages').insert({
+      conversation_id: conversationId,
+      sender_id: senderId,
+      message: messageText,
+      created_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.error('Error sending message:', error.message);
+      return false;
+    }
+
+    return true;
+  } catch (err: any) {
+    console.error('Unexpected error in sendMessage:', err?.message || err);
+    return false;
+  }
+}
+
+/**
+ * Marks messages as read within a conversation.
+ */
+export async function markMessagesRead(conversationId: string, userId: string): Promise<void> {
+  if (!conversationId || !userId) return;
+
+  try {
+    const { error } = await supabase
+      .from('messages')
+      .update({ is_read: true })
+      .eq('conversation_id', conversationId)
+      .neq('sender_id', userId);
+
+    if (error) {
+      console.error('Error marking messages as read:', error.message);
+    }
+  } catch (err: any) {
+    console.error('Unexpected error in markMessagesRead:', err?.message || err);
   }
 }
 
@@ -105,11 +154,11 @@ export async function createNotification(
       type: type || 'general',
       title: title,
       message: message,
-      link: linkUrl || null,                  // Maps to table's 'link' column
-      booking_id: bookingId || null,          // Maps to table's 'booking_id' column
-      conversation_id: conversationId || null,// Maps to table's 'conversation_id' column
-      is_read: false,                         // Maps to table's 'is_read' column
-      read: false,                            // Maps to table's 'read' column
+      link: linkUrl || null,
+      booking_id: bookingId || null,
+      conversation_id: conversationId || null,
+      is_read: false,
+      read: false,
     });
 
     if (error) {
