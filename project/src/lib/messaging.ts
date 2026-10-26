@@ -11,6 +11,78 @@ export interface NotificationPayload {
 }
 
 /**
+ * Retrieves an admin user ID from the profiles database table or fallback.
+ */
+export async function getAdminId(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('role', 'admin')
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error fetching admin ID:', error.message);
+      return null;
+    }
+
+    return data?.id || null;
+  } catch (err: any) {
+    console.error('Unexpected error in getAdminId:', err?.message || err);
+    return null;
+  }
+}
+
+/**
+ * Creates or retrieves an existing conversation between two users.
+ */
+export async function createConversation(
+  userId1: string,
+  userId2: string,
+  bookingId?: string
+): Promise<string | null> {
+  if (!userId1 || !userId2) return null;
+
+  try {
+    // Check for existing conversation
+    const { data: existing, error: checkError } = await supabase
+      .from('conversations')
+      .select('id')
+      .or(`and(user1_id.eq.${userId1},user2_id.eq.${userId2}),and(user1_id.eq.${userId2},user2_id.eq.${userId1})`)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing?.id) {
+      return existing.id;
+    }
+
+    // Insert new conversation if none exists
+    const { data: newConv, error: insertError } = await supabase
+      .from('conversations')
+      .insert({
+        user1_id: userId1,
+        user2_id: userId2,
+        booking_id: bookingId || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+
+    if (insertError) {
+      console.error('Error creating conversation:', insertError.message);
+      return null;
+    }
+
+    return newConv?.id || null;
+  } catch (err: any) {
+    console.error('Unexpected error in createConversation:', err?.message || err);
+    return null;
+  }
+}
+
+/**
  * Creates and dispatches an in-app notification to a specific user in real time.
  */
 export async function createNotification(
@@ -78,8 +150,7 @@ export async function markAllNotificationsRead(userId: string): Promise<void> {
     const { error } = await supabase
       .from('notifications')
       .update({ is_read: true, read: true })
-      .eq('user_id', userId)
-      .or('is_read.eq.false,read.eq.false');
+      .eq('user_id', userId);
 
     if (error) {
       console.error('Error marking all notifications as read:', error.message);
