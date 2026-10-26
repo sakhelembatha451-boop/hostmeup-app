@@ -1,7 +1,5 @@
 import { useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { useAuth } from '@/context/AuthContext';
-import { createNotification } from '@/lib/messaging';
 import { X, LogOut, Loader2, PartyPopper, MapPin } from 'lucide-react';
 
 interface TalentCheckoutModalProps {
@@ -53,7 +51,6 @@ export default function TalentCheckoutModal({
   onClose,
   onCheckoutSuccess,
 }: TalentCheckoutModalProps) {
-  const { user } = useAuth();
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -68,19 +65,26 @@ export default function TalentCheckoutModal({
       return;
     }
 
-    if (!user?.email) {
-      setError('User session not found. Please log in again.');
-      return;
-    }
-
     setLoading(true);
     setError(null);
-    setStatusMessage('Verifying location and security...');
+    setStatusMessage('Verifying user session...');
 
     try {
-      // 1. Strictly verify user password via Supabase re-authentication
+      // 1. Get current authenticated user session directly from Supabase
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      const currentUserEmail = sessionData?.session?.user?.email;
+
+      if (sessionError || !currentUserEmail) {
+        setError('User session not found. Please log in again.');
+        setLoading(false);
+        setStatusMessage(null);
+        return;
+      }
+
+      // 2. Strictly verify user password via Supabase re-authentication
+      setStatusMessage('Verifying password...');
       const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: user.email,
+        email: currentUserEmail,
         password: password,
       });
 
@@ -91,7 +95,7 @@ export default function TalentCheckoutModal({
         return;
       }
 
-      // 2. Perform Geofence & GPS Verification (75-meter radius)
+      // 3. Perform Geofence & GPS Verification (75-meter radius)
       setStatusMessage('Checking GPS location (75m geofence)...');
       
       if (!navigator.geolocation) {
@@ -131,7 +135,7 @@ export default function TalentCheckoutModal({
         return;
       }
 
-      // 3. Fetch booking details to retrieve the host ID
+      // 4. Fetch booking details to retrieve the host ID
       setStatusMessage('Submitting checkout request to host...');
       const { data: bookingData, error: fetchError } = await supabase
         .from('bookings')
@@ -143,7 +147,7 @@ export default function TalentCheckoutModal({
         console.error('Error fetching booking:', fetchError);
       }
 
-      // 4. Update booking status to 'pending_checkout_approval' with audit coordinates
+      // 5. Update booking status to 'pending_checkout_approval' with audit coordinates
       const { error: updateError } = await supabase
         .from('bookings')
         .update({
@@ -158,17 +162,18 @@ export default function TalentCheckoutModal({
         throw updateError;
       }
 
-      // 5. Dispatch real-time notification to the host for Dual-Party Approval
+      // 6. Dispatch real-time notification to the host for Dual-Party Approval
       const hostTargetId = bookingData?.host_id || bookingData?.client_id;
       if (hostTargetId) {
-        await createNotification(
-          hostTargetId,
-          'checkout_request',
-          'Checkout Approval Required 📍',
-          `The artist has requested check-out for "${bookingData?.event_name || eventName}". Tap to review and approve completion.`,
-          '/host-dashboard',
-          bookingId
-        );
+        // Create notification record
+        await supabase.from('notifications').insert({
+          user_id: hostTargetId,
+          type: 'checkout_request',
+          title: 'Checkout Approval Required 📍',
+          message: `The artist has requested check-out for "${bookingData?.event_name || eventName}". Tap to review and approve completion.`,
+          link: '/host-dashboard',
+          related_id: bookingId,
+        });
       }
 
       alert('Checkout request submitted successfully! Awaiting host approval.');
