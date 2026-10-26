@@ -337,11 +337,20 @@ export default function ArtistDashboard() {
   };
 
   const renderCustomStatusBadge = (booking: BookingWithHost) => {
+    const isPendingCheckoutApproval = booking.status === 'pending_checkout_approval' || booking.notes?.includes('Awaiting Host Approval');
     const isCompleted = booking.status === 'completed' || !!booking.completed_at;
     const isCheckedIn = booking.is_arrival_verified || booking.status === 'checked_in';
     const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
     const isDepositPaid = booking.deposit_paid || booking.status === 'confirmed';
     const isPendingVerification = booking.status === 'pending_verification';
+
+    if (isPendingCheckoutApproval) {
+      return (
+        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-900 border border-purple-300 rounded-sm inline-flex items-center gap-1 animate-pulse">
+          <LogOut className="w-3.5 h-3.5 text-purple-700" /> Checkout Pending Approval
+        </span>
+      );
+    }
 
     if (isCompleted) {
       return (
