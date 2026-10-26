@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 
 interface NotificationItem {
   id: string;
+  user_id?: string;
   title: string;
   message: string;
   is_read: boolean;
@@ -28,7 +29,7 @@ export const NotificationBell: React.FC = () => {
         const { data: { user }, error: userError } = await supabase.auth.getUser();
         if (userError || !user) return;
 
-        // 1. Initial Fetch (Safer query without aggressive order parameters if schema differs)
+        // 1. Initial Fetch (Limit to 10 most recent)
         const { data, error } = await supabase
           .from('notifications')
           .select('*')
@@ -38,7 +39,7 @@ export const NotificationBell: React.FC = () => {
         if (error) {
           console.error('Error fetching notifications:', error.message || error);
         } else if (data) {
-          // Sort in memory to avoid 400 errors if created_at column format varies
+          // Sort in memory to prevent postgREST 400 parameter errors
           const sorted = [...data].sort((a, b) => 
             new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime()
           );
@@ -46,7 +47,7 @@ export const NotificationBell: React.FC = () => {
           setUnreadCount(sorted.filter((n) => !n.is_read).length);
         }
 
-        // 2. Realtime Subscription Listener
+        // 2. Realtime Subscription Listener (Listen to public inserts and filter in memory)
         channel = supabase
           .channel(`user_notifications_${user.id}`)
           .on(
@@ -55,12 +56,16 @@ export const NotificationBell: React.FC = () => {
               event: 'INSERT',
               schema: 'public',
               table: 'notifications',
-              filter: `user_id=eq.${user.id}`,
             },
             (payload) => {
               const newNotif = payload.new as NotificationItem;
-              setNotifications((prev) => [newNotif, ...prev]);
-              setUnreadCount((prev) => prev + 1);
+              // Ensure notification is targeted to the logged-in user
+              if (newNotif && newNotif.user_id === user.id) {
+                setNotifications((prev) => [newNotif, ...prev]);
+                if (!newNotif.is_read) {
+                  setUnreadCount((prev) => prev + 1);
+                }
+              }
             }
           )
           .subscribe();
