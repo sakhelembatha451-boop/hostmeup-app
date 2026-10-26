@@ -1,178 +1,49 @@
-import { supabase } from './supabase';
+import { supabase } from './supabase'; // Adjust this import path if your supabase client is located elsewhere
 
-export interface Notification {
-  id: string;
-  user_id: string;
+export interface NotificationPayload {
+  userId: string;
+  type?: string;
   title: string;
   message: string;
-  read: boolean;
-  type?: string;
-  link?: string;
-  created_at?: string;
+  linkUrl?: string;
+  bookingId?: string;
+  conversationId?: string;
 }
 
-export async function getAdminId(): Promise<string | null> {
-  try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'admin')
-      .limit(1)
-      .maybeSingle();
-
-    if (error) console.error('Error fetching admin ID:', error);
-    return data?.id || null;
-  } catch (err) {
-    console.error('Unexpected error fetching admin ID:', err);
-    return null;
-  }
-}
-
-export async function createConversation(
-  userId: string,
-  subject: string,
-  type = 'direct',
-  bookingId?: string,
-  initialMessage?: string,
-  recipientId?: string
-): Promise<string | null> {
-  // FIXED: If sender is Admin, target recipient must be user_id, participant2_id, or participant_id.
-  // We populate both user_id (target recipient) and participant fields so both users can read the conversation.
-  const targetUser = recipientId || userId;
-
-  const { data: conv, error } = await supabase
-    .from('conversations')
-    .insert({
-      user_id: targetUser,               // Target recipient's ID so their UI inbox query picks it up
-      participant1_id: userId,          // Sender ID (Admin)
-      participant2_id: targetUser,      // Recipient ID (User)
-      subject,
-      type,
-      booking_id: bookingId,
-      updated_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
-
-  if (error || !conv) throw error;
-
-  if (initialMessage) {
-    await sendMessage(conv.id, userId, initialMessage, recipientId);
-  }
-
-  return conv.id;
-}
-
-export async function sendMessage(
-  conversationId: string,
-  senderId: string,
-  content: string,
-  recipientId?: string
-) {
-  const messageText = content || '';
-
-  const { data, error } = await supabase
-    .from('messages')
-    .insert({
-      conversation_id: conversationId,
-      sender_id: senderId,
-      recipient_id: recipientId || null,
-      body: messageText,
-      content: messageText,
-      read: false,
-      is_read: false,
-    })
-    .select('*')
-    .single();
-
-  return { data, error };
-}
-
-export async function markMessagesRead(conversationId: string, userId: string) {
-  const { error } = await supabase
-    .from('messages')
-    .update({ read: true, is_read: true })
-    .eq('conversation_id', conversationId)
-    .neq('sender_id', userId);
-
-  if (error) console.error('Error marking messages read:', error);
-}
-
-// --- Notification Exports ---
-
+/**
+ * Creates and dispatches an in-app notification to a specific user in real time.
+ */
 export async function createNotification(
   userId: string,
+  type: string,
   title: string,
   message: string,
-  type = 'info',
-  link?: string
-) {
+  linkUrl?: string,
+  bookingId?: string,
+  conversationId?: string
+): Promise<void> {
+  if (!userId) {
+    console.warn('createNotification skipped: No target userId provided.');
+    return;
+  }
+
   try {
-    const { data, error } = await supabase
-      .from('notifications')
-      .insert({
-        user_id: userId,
-        title,
-        message,
-        type,
-        link,
-        read: false,
-        is_read: false,
-      })
-      .select('*')
-      .single();
+    const { error } = await supabase.from('notifications').insert({
+      user_id: userId,
+      type: type || 'general',
+      title: title,
+      message: message,
+      link: linkUrl || null,                  // Maps to your table's 'link' column
+      booking_id: bookingId || null,          // Maps to your table's 'booking_id' column
+      conversation_id: conversationId || null,// Maps to your table's 'conversation_id' column
+      is_read: false,                         // Maps to your table's 'is_read' column
+      read: false,                            // Maps to your table's 'read' column
+    });
 
     if (error) {
-      console.warn('First notification insert attempt failed, trying fallback:', error);
-      return await supabase
-        .from('notifications')
-        .insert({
-          user_id: userId,
-          title,
-          message,
-          read: false,
-        })
-        .select('*')
-        .single();
+      console.error('Error inserting notification into Supabase:', error.message);
     }
-
-    return { data, error: null };
-  } catch (err) {
-    console.error('Non-blocking error creating notification:', err);
-    return { data: null, error: err };
-  }
-}
-
-export async function markNotificationRead(notificationId: string) {
-  const { error } = await supabase
-    .from('notifications')
-    .update({ read: true, is_read: true })
-    .eq('id', notificationId);
-
-  if (error) console.error('Error marking notification read:', error);
-}
-
-export async function markAllNotificationsRead(userId: string) {
-  const { error } = await supabase
-    .from('notifications')
-    .update({ read: true, is_read: true })
-    .eq('user_id', userId);
-
-  if (error) console.error('Error marking all notifications read:', error);
-}
-
-export async function fetchUnreadCount(userId: string): Promise<number> {
-  try {
-    const { count, error } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('user_id', userId)
-      .eq('read', false);
-
-    if (error) throw error;
-    return count || 0;
-  } catch (err) {
-    console.error('Error fetching unread notification count:', err);
-    return 0;
+  } catch (err: any) {
+    console.error('Unexpected error in createNotification:', err?.message || err);
   }
 }
