@@ -1066,8 +1066,8 @@ export default function HostDashboard() {
                               </div>
                             )}
 
-                            {/* Option C: Deposit Paid, Balance Outstanding & Event NOT Completed */}
-                            {isDepositPaid && !isBalancePaid && !isPendingVerification && !isCompleted && !isPendingCheckoutApproval && (
+                            {/* Option C: Deposit Paid & Balance Outstanding (Accessible even if event is completed until fully paid) */}
+                            {isDepositPaid && !isBalancePaid && !isPendingVerification && (
                               <div className="flex flex-col gap-2.5">
                                 <div className="flex flex-wrap items-center gap-3">
                                   <button
@@ -1146,7 +1146,7 @@ export default function HostDashboard() {
                             )}
 
                             {/* Option E: Fully Paid Badge (when not pending approval) */}
-                            {isBalancePaid && !isCompleted && !isPendingCheckoutApproval && (
+                            {isBalancePaid && !isPendingCheckoutApproval && (
                               <span className="px-3 py-1.5 bg-emerald-50 text-emerald-800 border border-emerald-300 text-xs font-semibold uppercase tracking-wide-sm rounded inline-flex items-center gap-1.5 w-fit">
                                 <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Fully Paid
                               </span>
