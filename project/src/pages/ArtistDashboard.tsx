@@ -809,9 +809,10 @@ export default function ArtistDashboard() {
 
                           {isPendingVerification && (
                             <button
-                              onClick={() => setSelectedBooking(booking)}
+                              onClick={() => artistConfirmBooking(booking.id)}
+                              disabled={updatingId === booking.id}
                               className="bg-emerald-700 hover:bg-emerald-800 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Confirm Payment
+                              {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Confirm Payment Reference
                             </button>
                           )}
 
