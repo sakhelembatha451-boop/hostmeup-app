@@ -321,7 +321,13 @@ export default function HostDashboard() {
     }
   };
 
-  const handleApproveCheckout = async (bookingId: string, artistId: string, eventName: string) => {
+  const handleApproveCheckout = async (
+    bookingId: string, 
+    artistId: string, 
+    eventName: string, 
+    balancePaid: boolean, 
+    remainingAmount: number
+  ) => {
     setApprovingBookingId(bookingId);
     try {
       // 1. Update booking status to completed
@@ -348,7 +354,21 @@ export default function HostDashboard() {
         );
       }
 
-      alert('Checkout approved successfully! Booking marked as completed.');
+      // 3. Escrow & Balance Verification: If balance is unpaid, notify host to clear remaining balance
+      if (!balancePaid && profile?.id) {
+        await createNotification(
+          profile.id,
+          'remaining_balance_reminder',
+          'Final Payment Required 💳',
+          `Checkout approved for "${eventName}", but your remaining balance of R ${remainingAmount.toLocaleString()} is still due. Please settle via Yoco.`,
+          '/host-dashboard',
+          bookingId
+        );
+        alert(`Checkout approved successfully! Note: You still have a remaining balance of R ${remainingAmount.toLocaleString()} due for this event.`);
+      } else {
+        alert('Checkout approved successfully! Booking marked as completed.');
+      }
+
       await loadData();
     } catch (err: any) {
       console.error('Error approving checkout:', err);
@@ -1127,7 +1147,13 @@ export default function HostDashboard() {
                                 <button
                                   type="button"
                                   disabled={approvingBookingId === booking.id}
-                                  onClick={() => handleApproveCheckout(booking.id, booking.artist_id || booking.client_id || '', booking.event_name || 'Event')}
+                                  onClick={() => handleApproveCheckout(
+                                    booking.id, 
+                                    booking.artist_id || booking.client_id || '', 
+                                    booking.event_name || 'Event', 
+                                    !!booking.balance_paid || booking.status === 'fully_paid',
+                                    remainingBalance > 0 ? remainingBalance : (booking.total_price || 0) - (booking.deposit_amount || 0)
+                                  )}
                                   className="bg-ink hover:bg-ink/90 text-paper text-xs font-semibold uppercase tracking-wide-sm px-4 py-2.5 rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 w-fit"
                                 >
                                   {approvingBookingId === booking.id ? (
