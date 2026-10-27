@@ -94,7 +94,7 @@ export default function TalentCheckoutModal({
         return;
       }
 
-      // 3. Perform Geofence & GPS Verification (Expanded for testing)
+      // 3. Perform Geofence & GPS Verification (75 km limit)
       setStatusMessage('Checking GPS location...');
       
       if (!navigator.geolocation) {
@@ -127,11 +127,11 @@ export default function TalentCheckoutModal({
       const distance = getDistanceInMeters(artistLat, artistLng, venueCoords.lat, venueCoords.lng);
       console.log(`Checkout distance from venue: ${Math.round(distance)} meters`);
 
-      // Expanded radius for testing purposes
-      const ALLOWED_RADIUS_METERS = 500000;
+      // Production 75 km radius geofence limit (75,000 meters)
+      const ALLOWED_RADIUS_METERS = 75000;
 
       if (distance > ALLOWED_RADIUS_METERS) {
-        setError(`Geofence check failed: You are approximately ${Math.round(distance)} meters away from the venue. You must be within ${ALLOWED_RADIUS_METERS} meters to check out.`);
+        setError(`Geofence check failed: You are approximately ${Math.round(distance)} meters away from the venue. You must be within 75 km to check out.`);
         setLoading(false);
         setStatusMessage(null);
         return;
@@ -216,7 +216,7 @@ export default function TalentCheckoutModal({
           </p>
           <div className="flex items-center justify-center gap-1 text-xs text-ink-500 pt-1">
             <MapPin className="w-3.5 h-3.5 text-purple-600" />
-            <span>Venue: {location || 'Standard Venue'} (Test Mode Active)</span>
+            <span>Venue: {location || 'Standard Venue'} (75 km Geofence Active)</span>
           </div>
         </div>
 
