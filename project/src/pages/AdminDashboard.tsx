@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   Calendar, MapPin, Clock, Loader2, CheckCircle2, AlertCircle, 
-  X, Eye, Package, ShieldAlert, Check, AlertTriangle, PhoneCall 
+  X, Eye, ShieldAlert, Check, AlertTriangle 
 } from 'lucide-react';
 import type { Booking } from '@/types';
 import { StatusBadge, Tag } from '@/components/UI';
@@ -79,7 +79,7 @@ export default function AdminDashboard() {
         rawBookings = res1.data;
       }
 
-      // 2. Fallback to 'booking' table
+      // 2. Fallback to 'booking' table if bookings is empty
       if (rawBookings.length === 0 || fetchError) {
         const res2 = await supabase
           .from('booking')
@@ -91,7 +91,7 @@ export default function AdminDashboard() {
         }
       }
 
-      // 3. Hydrate profile details manually if FK relations were empty
+      // 3. Hydrate profile details manually if foreign key relations were empty
       if (rawBookings.length > 0) {
         const userIds = Array.from(
           new Set(
@@ -224,15 +224,15 @@ export default function AdminDashboard() {
 
   const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
 
-  // Metrics
-  const totalVolume = bookings.reduce((sum, b) => sum + (b.total_amount || 0), 0);
+  // Metrics (Corrected from total_amount to total_price)
+  const totalVolume = bookings.reduce((sum, b) => sum + (b.total_price || 0), 0);
   const totalDepositsCollected = bookings
-    .filter((b) => b.deposit_paid)
+    .filter((b) => b.deposit_paid || b.status === 'confirmed')
     .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
   const totalOutstandingBalance = bookings
     .filter((b) => b.status === 'confirmed' || b.status === 'accepted')
     .reduce((sum, b) => {
-      const remaining = (b.total_amount || 0) - (b.deposit_paid ? (b.deposit_amount || 0) : 0);
+      const remaining = (b.total_price || 0) - (b.deposit_paid ? (b.deposit_amount || 0) : 0);
       return sum + Math.max(0, remaining);
     }, 0);
 
@@ -292,9 +292,9 @@ export default function AdminDashboard() {
         ) : (
           <div className="space-y-4">
             {filtered.map((booking) => {
-              const total = booking.total_amount || 0;
+              const total = booking.total_price || 0;
               const deposit = booking.deposit_amount || 0;
-              const remaining = booking.deposit_paid ? total - deposit : total;
+              const remaining = (booking.deposit_paid || booking.status === 'confirmed') ? total - deposit : total;
 
               return (
                 <div 
@@ -353,7 +353,7 @@ export default function AdminDashboard() {
 
                       <div className="mt-3 pt-2 border-t border-line flex items-center justify-between text-xs">
                         <span className="text-ink-400 font-medium">Payment Status:</span>
-                        {booking.deposit_paid ? (
+                        {(booking.deposit_paid || booking.status === 'confirmed') ? (
                           <span className="text-accent flex items-center gap-1 font-semibold">
                             <CheckCircle2 className="w-3.5 h-3.5" /> Deposit Paid
                           </span>
@@ -461,15 +461,15 @@ export default function AdminDashboard() {
                 )}
 
                 {/* Financial Summary */}
-                {selectedBooking.total_amount != null && (
+                {selectedBooking.total_price != null && (
                   <div className="p-4 bg-paper-200 border border-line space-y-2 text-xs">
                     <div className="flex justify-between font-medium text-ink-400">
                       <span>Total Agreed Value:</span>
-                      <span className="text-ink font-bold font-display text-sm">{formatCurrency(selectedBooking.total_amount)}</span>
+                      <span className="text-ink font-bold font-display text-sm">{formatCurrency(selectedBooking.total_price)}</span>
                     </div>
                     <div className="flex justify-between items-center text-ink-400">
                       <span className="flex items-center gap-1">
-                        40% Deposit: 
+                        Deposit Amount: 
                         {(selectedBooking.deposit_paid || selectedBooking.status === 'confirmed') && (
                           <Check className="w-3.5 h-3.5 text-accent" />
                         )}
@@ -478,15 +478,15 @@ export default function AdminDashboard() {
                     </div>
                     <div className="flex justify-between items-center text-ink-400">
                       <span className="flex items-center gap-1">
-                        60% Balance: 
+                        Remaining Balance: 
                         {(selectedBooking.balance_paid || selectedBooking.status === 'fully_paid') && (
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                         )}
                       </span>
                       <span className="text-ink-500 font-bold font-display text-sm">
                         {formatCurrency(
-                          selectedBooking.total_amount != null && selectedBooking.deposit_amount != null
-                            ? selectedBooking.total_amount - selectedBooking.deposit_amount
+                          selectedBooking.total_price != null && selectedBooking.deposit_amount != null
+                            ? selectedBooking.total_price - selectedBooking.deposit_amount
                             : 0
                         )}
                       </span>
