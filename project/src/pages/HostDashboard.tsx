@@ -476,7 +476,7 @@ export default function HostDashboard() {
       case 'shortlisted':
         return <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-blue-50 text-blue-800 border border-blue-300 rounded-sm inline-flex items-center gap-1"><Sparkles className="w-3.5 h-3.5 text-blue-600" /> Shortlisted</span>;
       case 'declined':
-        return <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-red-50 text-red-800 border border-red-200 rounded-sm inline-flex items-center gap-1"><X className="w-3.5 h-3.5 text-red-600" /> Declined</span>;
+        return <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-red-50 text-red-800 border border-red-300 rounded-sm inline-flex items-center gap-1"><X className="w-3.5 h-3.5 text-red-600" /> Declined</span>;
       default:
         return <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-900 border border-purple-200 rounded-sm inline-flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-purple-700 animate-pulse" /> Pending Review</span>;
     }
@@ -534,7 +534,20 @@ export default function HostDashboard() {
       }
 
       if (data && data.success === true) {
-        alert(data.message || 'Reference submitted successfully!');
+        // Automatically notify the artist to review and approve the Yoco reference
+        const artistTargetId = booking.artist_id || booking.client_id;
+        if (artistTargetId) {
+          await createNotification(
+            artistTargetId,
+            'payment_verification_required',
+            'Remaining Payment Submitted 💳',
+            `The host has submitted Yoco reference "${refInput.trim()}" for the remaining balance. Please review and approve it on your dashboard.`,
+            '/artist-dashboard',
+            booking.id
+          );
+        }
+
+        alert('Reference submitted successfully! The artist has been notified to verify and approve the payment.');
         setSubmittingRefId(null);
         setRefInput('');
         await loadData();
