@@ -109,18 +109,30 @@ function BookingSuccessPage() {
   );
 }
 
-function DashboardRedirect() {
+function RoleBasedDashboard() {
   const { profile, loading } = useAuth();
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-[60vh] flex items-center justify-center">
         <Loader2 className="w-6 h-6 text-ink animate-spin" />
       </div>
     );
   }
-  if (!profile) return <Navigate to="/login" replace />;
-  if (profile.is_admin) return <Navigate to="/admin" replace />;
-  return <Navigate to={profile.role === 'artist' ? '/artist-dashboard' : '/host-dashboard'} replace />;
+
+  if (!profile) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (profile.is_admin) {
+    return <Navigate to="/admin" replace />;
+  }
+
+  if (profile.role === 'artist') {
+    return <ArtistDashboard />;
+  }
+
+  return <HostDashboard />;
 }
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -172,7 +184,14 @@ function AppRoutes() {
         <Route path="/gigs" element={<GigFeedPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
-        <Route path="/dashboard" element={<DashboardRedirect />} />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <RoleBasedDashboard />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/success" element={<BookingSuccessPage />} />
         <Route
           path="/book/:id"
