@@ -14,6 +14,7 @@ import ArtistProfileEditPage from '@/pages/ArtistProfileEditPage';
 import BookingRequestPage from '@/pages/BookingRequestPage';
 import HostDashboard from '@/pages/HostDashboard';
 import ArtistDashboard from '@/pages/ArtistDashboard';
+import ArtistEarningsPage from '@/pages/ArtistEarningsPage';
 import HostSettingsPage from '@/pages/HostSettingsPage';
 import HostProfileView from '@/pages/HostProfileView';
 import GigFeedPage from '@/pages/GigFeedPage';
@@ -182,6 +183,7 @@ function AppRoutes() {
         <Route path="/host-settings" element={<ProtectedRoute role="host"><HostSettingsPage /></ProtectedRoute>} />
         <Route path="/host-profile/edit" element={<Navigate to="/host-settings" replace />} />
         <Route path="/artist-dashboard" element={<ProtectedRoute role="artist"><ArtistDashboard /></ProtectedRoute>} />
+        <Route path="/artist-earnings" element={<ProtectedRoute role="artist"><ArtistEarningsPage /></ProtectedRoute>} />
         <Route path="/artist-profile/edit" element={<ProtectedRoute role="artist"><ArtistProfileEditPage /></ProtectedRoute>} />
         <Route path="/messages" element={<Navigate to="/inbox" replace />} />
         <Route path="/inbox" element={<ProtectedRoute><InboxPage /></ProtectedRoute>} />
