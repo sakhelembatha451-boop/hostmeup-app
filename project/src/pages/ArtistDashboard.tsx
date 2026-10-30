@@ -82,7 +82,7 @@ export default function ArtistDashboard() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [openGigs, setOpenGigs] = useState<Gig[]>([]);
-  const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
+  const [userPitches, setUserPitches] = useState>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -516,17 +516,30 @@ export default function ArtistDashboard() {
     <div className="min-h-screen bg-paper">
       <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12 space-y-10">
         
-        {/* Header */}
+        {/* Header with External Quick-Action Link Button */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Talent Dashboard</p>
             <h1 className="font-display text-4xl font-bold text-ink mb-1 tracking-tight">Incoming Requests & Gigs</h1>
             <p className="text-ink-400">View bookings, pitch for live open gigs, and monitor escrow safety.</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Quick-Action Link to Earnings Page or Tab */}
+            <button
+              onClick={() => setFilter('earnings')}
+              className={`px-4 py-2.5 text-xs uppercase font-semibold tracking-wide-sm transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer ${
+                filter === 'earnings' 
+                  ? 'bg-emerald-900 text-white' 
+                  : 'bg-emerald-800 text-white hover:bg-emerald-900'
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5 text-emerald-200" /> Earnings & Payouts
+            </button>
+
             <Link to="/gigs" className="px-4 py-2.5 bg-purple-900 text-white text-xs uppercase font-semibold tracking-wide-sm hover:bg-purple-950 transition-colors flex items-center gap-1.5 shadow-xs">
               <Radio className="w-3.5 h-3.5 text-purple-300 animate-pulse" /> Browse Gig Board
             </Link>
+            
             <Link to={`/artists/${profile?.id}`} aria-label="View public profile" className="btn-outline inline-flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wide-sm">
               <ExternalLink className="w-3.5 h-3.5" /> View Profile
             </Link>
