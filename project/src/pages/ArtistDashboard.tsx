@@ -3,25 +3,22 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { 
-  Calendar, MapPin, Clock, Loader2, Check, X, 
-  ExternalLink, ShieldCheck, Eye, MessageSquare, 
-  MapPinCheck, LogOut, ShieldAlert, CheckCircle2, KeyRound,
-  Trash2, CheckSquare, Square, Mail, Clock3,
-  PartyPopper, Star, Radio, Send, Sparkles
+  Calendar, MapPin, Clock, Loader2, Package, Check, X, 
+  ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
+  MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
+  Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText, Clock3,
+  PartyPopper, Star, Radio, Send, Music2, Sparkles, Wallet
 } from 'lucide-react';
 import type { Booking } from '@/types';
-import { StatusBadge, EmptyState } from '@/components/UI';
+import { StatusBadge, EmptyState, Tag } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
 import ReviewModal from '@/components/ReviewModal';
 import PitchGigModal from '@/components/PitchGigModal';
-import * as EarningsModule from '@/components/TalentEarningsTab';
+import { TalentEarningsTab } from '@/components/TalentEarningsTab';
 import { maskContactInfo } from '@/utils/masking';
 import { createNotification } from '@/lib/messaging';
-
-// Resolve named vs default export to avoid blank screen crashes
-const TalentEarningsTab = EarningsModule.TalentEarningsTab || (EarningsModule as any).default;
 
 type BookingWithHost = Booking & {
   conversation_id?: string | null;
@@ -85,7 +82,7 @@ export default function ArtistDashboard() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [openGigs, setOpenGigs] = useState<Gig[]>([]);
-  const [userPitches, setUserPitches] = useState>(new Map());
+  const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -99,9 +96,11 @@ export default function ArtistDashboard() {
   const [activeVerifyBooking, setActiveVerifyBooking] = useState<{ id: string; eventName: string } | null>(null);
   const [activeCheckoutBooking, setActiveCheckoutBooking] = useState<{ id: string; eventName: string } | null>(null);
 
-  // Review & Pitch Modal State
+  // Review Modal State (For rating hosts)
   const [reviewBookingTarget, setReviewBookingTarget] = useState<BookingWithHost | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+
+  // Pitch Modal State
   const [selectedGigForPitch, setSelectedGigForPitch] = useState<Gig | null>(null);
   const [isPitchModalOpen, setIsPitchModalOpen] = useState(false);
 
@@ -189,7 +188,7 @@ export default function ArtistDashboard() {
         setBookings(processedBookings as BookingWithHost[]);
       }
 
-      // Fetch Open Gigs for Feed
+      // Fetch Open Gigs for Talent Dashboard Feed
       const { data: gigData } = await supabase
         .from('gigs')
         .select('*')
@@ -216,7 +215,7 @@ export default function ArtistDashboard() {
         setOpenGigs([]);
       }
 
-      // Fetch logged-in artist's pitches
+      // Fetch logged-in artist's pitches to track status on cards
       const { data: pitchData } = await supabase
         .from('gig_pitches')
         .select('gig_id, status, proposed_rate')
@@ -266,7 +265,11 @@ export default function ArtistDashboard() {
     if (e) e.stopPropagation();
     if (idsToDelete.length === 0) return;
 
-    if (!window.confirm(`Are you sure you want to delete ${idsToDelete.length} selected booking card(s)?`)) return;
+    const confirmMessage = idsToDelete.length === 1
+      ? 'Are you sure you want to delete this booking card?'
+      : `Are you sure you want to delete ${idsToDelete.length} selected booking cards?`;
+
+    if (!window.confirm(confirmMessage)) return;
 
     setIsDeleting(true);
     try {
@@ -283,7 +286,11 @@ export default function ArtistDashboard() {
         .in('id', idsToDelete);
 
       if (error) {
-        const hardDelete = await supabase.from('bookings').delete().in('id', idsToDelete);
+        const hardDelete = await supabase
+          .from('bookings')
+          .delete()
+          .in('id', idsToDelete);
+
         if (hardDelete.error) throw hardDelete.error;
       }
     } catch (err: any) {
@@ -392,8 +399,16 @@ export default function ArtistDashboard() {
   const updateBookingStatus = async (id: string, newStatus: string, extraFields: Record<string, any> = {}) => {
     setUpdatingId(id);
     try {
-      const payload = { status: newStatus, ...extraFields };
-      const { error } = await supabase.from('bookings').update(payload).eq('id', id);
+      const payload = { 
+        status: newStatus, 
+        ...extraFields 
+      };
+
+      const { error } = await supabase
+        .from('bookings')
+        .update(payload)
+        .eq('id', id);
+
       if (error) throw error;
       await loadDashboardData(false);
     } catch (err: any) {
@@ -414,8 +429,8 @@ export default function ArtistDashboard() {
       targetBooking?.status === 'checked_in';
 
     const confirmPromptText = isRemainingBalancePayment
-      ? "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the REMAINING BALANCE payment."
-      : "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the DEPOSIT payment.";
+      ? "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the REMAINING BALANCE payment.\n\nBy clicking OK, you agree that you have verified the funds and acknowledge full payment for this event."
+      : "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the DEPOSIT payment.\n\nBy clicking OK, you agree that you have verified the funds and unlocked the event pass for the host.";
 
     if (!window.confirm(confirmPromptText)) return;
 
@@ -435,9 +450,14 @@ export default function ArtistDashboard() {
         notes: `${targetBooking?.notes || ''} [Deposit Verified & Confirmed by Talent]`
       };
 
-      const { error } = await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
+      const { error } = await supabase
+        .from('bookings')
+        .update(updatePayload)
+        .eq('id', bookingId);
+
       if (error) throw error;
 
+      // Real-time notification dispatch to host
       const hostTargetId = targetBooking?.host_id || targetBooking?.client_id;
       if (hostTargetId) {
         await createNotification(
@@ -452,7 +472,10 @@ export default function ArtistDashboard() {
         );
       }
 
-      alert(isRemainingBalancePayment ? 'Remaining balance payment verified!' : 'Payment confirmed successfully!');
+      alert(isRemainingBalancePayment 
+        ? 'Remaining balance payment verified & confirmed! Booking is now fully paid.' 
+        : 'Payment confirmed successfully! Host event pass unlocked.'
+      );
       await loadDashboardData(false);
     } catch (err: any) {
       console.error('Error confirming payment:', err);
@@ -460,6 +483,11 @@ export default function ArtistDashboard() {
     } finally {
       setUpdatingId(null);
     }
+  };
+
+  const handleOpenPitchModal = (gig: Gig) => {
+    setSelectedGigForPitch(gig);
+    setIsPitchModalOpen(true);
   };
 
   const counts = {
@@ -471,6 +499,14 @@ export default function ArtistDashboard() {
     declined: bookings.filter((b) => b.status === 'declined').length,
     completed: bookings.filter((b) => b.status === 'completed' || b.completed_at).length,
   };
+
+  const totalEarnings = bookings
+    .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed' || b.status === 'fully_paid')
+    .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
+  
+  const depositedAmount = bookings
+    .filter((b) => b.deposit_paid)
+    .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
@@ -497,14 +533,8 @@ export default function ArtistDashboard() {
           </div>
         </div>
 
-        {/* FRONT & CENTER: EARNINGS & PAYOUTS TAB WITH SAFE FALLBACK */}
-        <div className="border border-line bg-white p-6 rounded-xl shadow-xs space-y-4">
-          <h2 className="font-display text-xl font-bold text-ink">Earnings & Payout Breakdown</h2>
-          {TalentEarningsTab ? <TalentEarningsTab /> : null}
-        </div>
-
         {/* Live Open Gig Calls Section for Talent */}
-        <div className="border border-line bg-purple-50/40 p-6 space-y-4 shadow-xs rounded-xl">
+        <div className="border border-line bg-purple-50/40 p-6 space-y-4 shadow-xs">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Radio className="w-5 h-5 text-purple-700 animate-pulse" />
@@ -558,10 +588,7 @@ export default function ArtistDashboard() {
                     </div>
 
                     <button
-                      onClick={() => {
-                        setSelectedGigForPitch(gig);
-                        setIsPitchModalOpen(true);
-                      }}
+                      onClick={() => handleOpenPitchModal(gig)}
                       className={`w-full text-center py-2 text-[10px] font-bold uppercase tracking-wide-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
                         existingPitch
                           ? 'bg-purple-900 text-white hover:bg-purple-950'
@@ -577,26 +604,57 @@ export default function ArtistDashboard() {
           )}
         </div>
 
+        {/* Earnings & Stats */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 border-y border-line py-6">
+          <div>
+            <div className="font-display text-4xl font-bold text-ink mb-1">{counts.all}</div>
+            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Total Requests</div>
+          </div>
+          <div>
+            <div className="font-display text-4xl font-bold text-ink mb-1">{counts.pending_verification}</div>
+            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Pending Review</div>
+          </div>
+          <div>
+            <div className="font-display text-3xl font-bold text-accent mb-1">{formatCurrency(depositedAmount)}</div>
+            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Deposits Received</div>
+          </div>
+          <div>
+            <div className="font-display text-3xl font-bold text-ink-500 mb-1">{formatCurrency(totalEarnings)}</div>
+            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Total Booked Value</div>
+          </div>
+        </div>
+
         {/* Filters and Selection Bar */}
-        <div className="space-y-6">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-line pt-8">
-            <h2 className="font-display text-2xl font-bold text-ink">Booking Requests</h2>
-            <div className="flex flex-wrap gap-2">
-              {['all', 'pending', 'pending_verification', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
-                <button key={f} onClick={() => setFilter(f)}
-                  className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
-                  {f.replace('_', ' ')} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
-                </button>
-              ))}
-            </div>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex flex-wrap gap-2">
+            {['all', 'pending', 'pending_verification', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
+              <button key={f} onClick={() => setFilter(f)}
+                className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
+                {f.replace('_', ' ')} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
+              </button>
+            ))}
+
+            {/* Earnings & Payouts Navigation Tab */}
+            <button
+              onClick={() => setFilter('earnings')}
+              className={`filter-chip inline-flex items-center gap-1 capitalize ${
+                filter === 'earnings' ? 'filter-chip-active' : 'filter-chip-inactive'
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5" /> Earnings & Payouts
+            </button>
           </div>
 
-          {filtered.length > 0 && (
-            <div className="flex items-center justify-between">
+          {filter !== 'earnings' && filtered.length > 0 && (
+            <div className="flex items-center gap-3">
               <button
                 onClick={toggleSelectAll}
                 className="text-xs font-semibold text-ink-500 hover:text-ink flex items-center gap-1.5 transition-colors">
-                {allFilteredSelected ? <CheckSquare className="w-4 h-4 text-ink" /> : <Square className="w-4 h-4 text-ink-300" />}
+                {allFilteredSelected ? (
+                  <CheckSquare className="w-4 h-4 text-ink" />
+                ) : (
+                  <Square className="w-4 h-4 text-ink-300" />
+                )}
                 {allFilteredSelected ? 'Deselect All' : 'Select All'}
               </button>
 
@@ -611,8 +669,14 @@ export default function ArtistDashboard() {
               )}
             </div>
           )}
+        </div>
 
-          {filtered.length === 0 ? (
+        {/* Render Earnings Component when Earnings tab is active */}
+        {filter === 'earnings' ? (
+          <TalentEarningsTab />
+        ) : (
+          /* Booking Card List */
+          filtered.length === 0 ? (
             <EmptyState icon={<Calendar className="w-8 h-8" />}
               title={bookings.length === 0 ? "No booking requests yet" : "No requests match this filter"}
               message={bookings.length === 0 ? "When hosts send you booking requests, they'll appear here." : "Try a different filter."}
@@ -636,7 +700,7 @@ export default function ArtistDashboard() {
                   <div 
                     key={booking.id} 
                     onClick={() => setSelectedBooking(booking)}
-                    className={`border p-6 bg-white cursor-pointer animate-fade-in transition-all relative rounded-xl ${
+                    className={`border p-6 bg-white cursor-pointer animate-fade-in transition-all relative ${
                       isSelected ? 'border-ink bg-paper-200/20 shadow-sm' : 'border-line hover:border-ink/40 hover:shadow-sm'
                     }`}
                   >
@@ -652,7 +716,11 @@ export default function ArtistDashboard() {
                         onClick={(e) => toggleSelectBooking(booking.id, e)}
                         className="p-1 text-ink-400 hover:text-ink transition-colors"
                       >
-                        {isSelected ? <CheckSquare className="w-5 h-5 text-ink" /> : <Square className="w-5 h-5 text-ink-300" />}
+                        {isSelected ? (
+                          <CheckSquare className="w-5 h-5 text-ink" />
+                        ) : (
+                          <Square className="w-5 h-5 text-ink-300" />
+                        )}
                       </button>
                     </div>
 
@@ -713,12 +781,12 @@ export default function ArtistDashboard() {
                             <span>{booking.event_date ? new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
                           </div>
                           {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
-                          <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.duration_hours ? `${booking.duration_hours} hrs` : '—'}</span></div>
+                          <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration || booking.duration_hours ? `${booking.duration_hours} hrs` : '—'}</span></div>
                           <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location || '—'}</span></div>
                         </div>
 
                         {displayNote && (
-                          <div className="bg-paper-200/50 p-2.5 border border-line text-xs space-y-1 mb-4 rounded">
+                          <div className="bg-paper-200/50 p-2.5 border border-line text-xs space-y-1 mb-4">
                             <p className="text-ink-600 italic">"{displayNote}"</p>
                             {!isPaid && (
                               <p className="text-[10px] text-amber-700 flex items-center gap-1 font-sans not-italic pt-1 border-t border-line/50">
@@ -798,8 +866,8 @@ export default function ArtistDashboard() {
                 );
               })}
             </div>
-          )}
-        </div>
+          )
+        )}
 
         {/* Modal: Full Event Details */}
         {selectedBooking && (() => {
@@ -812,7 +880,7 @@ export default function ArtistDashboard() {
 
           return (
             <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
-              <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-6 rounded-xl" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-6" onClick={(e) => e.stopPropagation()}>
                 
                 <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
                   <X className="w-5 h-5" />
@@ -826,7 +894,7 @@ export default function ArtistDashboard() {
                   <h2 className="font-display text-2xl font-bold text-ink">{selectedBooking.event_name || 'Untitled Event'}</h2>
                 </div>
 
-                <div className="p-4 border border-line bg-paper-100 flex items-center gap-4 rounded-lg">
+                <div className="p-4 border border-line bg-paper-100 flex items-center gap-4">
                   <Link to={`/hosts/${selectedHostId}`} className="group">
                     {selectedBooking.host?.avatar_url ? (
                       <img src={selectedBooking.host.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-line group-hover:opacity-90 transition-opacity" />
@@ -858,6 +926,11 @@ export default function ArtistDashboard() {
                       <Calendar className="w-3.5 h-3.5 text-ink-400" />
                       {selectedBooking.event_date ? new Date(selectedBooking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
                     </div>
+                    {selectedBooking.start_time && (
+                      <div className="text-ink-500 flex items-center gap-1.5 mt-1">
+                        <Clock className="w-3.5 h-3.5 text-ink-400" /> {selectedBooking.start_time} ({selectedBooking.duration_hours || 1} hrs)
+                      </div>
+                    )}
                   </div>
 
                   <div>
@@ -875,13 +948,60 @@ export default function ArtistDashboard() {
                     <span className="text-ink-500">Total Agreed Price:</span>
                     <span className="font-bold text-ink">{formatCurrency(selectedBooking.total_price || selectedBooking.total_amount)}</span>
                   </div>
+                  {selectedBooking.deposit_amount && (
+                    <div className="flex justify-between py-1 border-b border-line">
+                      <span className="text-ink-500">Required Deposit:</span>
+                      <span className="font-bold text-accent">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                    </div>
+                  )}
                 </div>
 
+                {displayNote && (
+                  <div className="space-y-1 text-xs">
+                    <span className="text-ink-400 uppercase tracking-wide-sm block">Host Notes & Submitted Yoco Reference</span>
+                    <div className="p-3 bg-white border border-line text-xs font-mono rounded leading-relaxed text-ink">
+                      {displayNote}
+                    </div>
+                    {!isPaid && (
+                      <p className="text-[11px] text-amber-700 mt-1.5 flex items-center gap-1 font-sans">
+                        🛡️ Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {selectedBooking.status === 'pending_verification' && (
+                  <div className="p-4 bg-amber-50 border border-amber-200 rounded space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
+                      <Clock3 className="w-4 h-4 text-amber-600 animate-pulse" />
+                      <span>Host has submitted a payment reference. Please check your email or Yoco notification before confirming.</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        artistConfirmBooking(selectedBooking.id);
+                        setSelectedBooking(null);
+                      }}
+                      className="w-full bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 px-4 text-xs font-semibold uppercase tracking-wide-sm rounded flex items-center justify-center gap-2 transition-colors">
+                      <CheckCircle2 className="w-4 h-4" /> Confirm Payment & Unlock Booking
+                    </button>
+                  </div>
+                )}
+
                 <div className="pt-4 flex items-center justify-between border-t border-line">
-                  <button onClick={() => { setSelectedBooking(null); navigate('/inbox'); }} className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm">
+                  <button
+                    onClick={() => {
+                      setSelectedBooking(null);
+                      navigate('/inbox');
+                    }}
+                    className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
+                  >
                     <MessageSquare className="w-3.5 h-3.5" /> Message Host
                   </button>
-                  <button onClick={() => setSelectedBooking(null)} className="btn-primary px-6 py-2 text-xs uppercase tracking-wide-sm">
+
+                  <button 
+                    onClick={() => setSelectedBooking(null)} 
+                    className="btn-primary px-6 py-2 text-xs uppercase tracking-wide-sm"
+                  >
                     Close
                   </button>
                 </div>
@@ -891,31 +1011,42 @@ export default function ArtistDashboard() {
           );
         })()}
 
-        {/* Modals */}
+        {/* Modal: Talent Verification (PIN Check-in) */}
         {activeVerifyBooking && (
           <TalentVerificationModal
             bookingId={activeVerifyBooking.id}
             eventName={activeVerifyBooking.eventName}
             isOpen={!!activeVerifyBooking}
             onClose={() => setActiveVerifyBooking(null)}
-            onVerified={() => { setActiveVerifyBooking(null); loadDashboardData(false); }}
+            onVerified={() => {
+              setActiveVerifyBooking(null);
+              loadDashboardData(false);
+            }}
           />
         )}
 
+        {/* Modal: Talent Check-out */}
         {activeCheckoutBooking && (
           <TalentCheckoutModal
             bookingId={activeCheckoutBooking.id}
             eventName={activeCheckoutBooking.eventName}
             isOpen={!!activeCheckoutBooking}
             onClose={() => setActiveCheckoutBooking(null)}
-            onCheckoutSuccess={() => { setActiveCheckoutBooking(null); loadDashboardData(false); }}
+            onCheckoutSuccess={() => {
+              setActiveCheckoutBooking(null);
+              loadDashboardData(false);
+            }}
           />
         )}
 
+        {/* Review Modal Trigger (For rating the host) */}
         {reviewBookingTarget && (
           <ReviewModal
             isOpen={isReviewModalOpen}
-            onClose={() => { setIsReviewModalOpen(false); setReviewBookingTarget(null); }}
+            onClose={() => {
+              setIsReviewModalOpen(false);
+              setReviewBookingTarget(null);
+            }}
             bookingId={reviewBookingTarget.id}
             artistId={reviewBookingTarget.artist_id || profile?.id}
             targetHostId={reviewBookingTarget.host_id || reviewBookingTarget.client_id}
@@ -924,10 +1055,14 @@ export default function ArtistDashboard() {
           />
         )}
 
+        {/* Pitch Modal Trigger */}
         {selectedGigForPitch && (
           <PitchGigModal
             isOpen={isPitchModalOpen}
-            onClose={() => { setIsPitchModalOpen(false); setSelectedGigForPitch(null); }}
+            onClose={() => {
+              setIsPitchModalOpen(false);
+              setSelectedGigForPitch(null);
+            }}
             gigId={selectedGigForPitch.id}
             gigTitle={selectedGigForPitch.title}
             eventDate={selectedGigForPitch.event_date}
