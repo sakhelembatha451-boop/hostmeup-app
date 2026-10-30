@@ -1,6 +1,6 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { LogOut, LayoutDashboard, User, Menu, X, Bell, Mail, Shield, ShieldCheck, AlertTriangle, Radio } from 'lucide-react';
+import { LogOut, LayoutDashboard, User, Menu, X, Bell, Mail, Shield, ShieldCheck, AlertTriangle, Radio, Wallet } from 'lucide-react';
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { markNotificationRead, markAllNotificationsRead } from '@/lib/messaging';
@@ -191,6 +191,19 @@ export default function Navbar() {
                 >
                   <LayoutDashboard className="w-3.5 h-3.5" /> Dashboard
                 </Link>
+
+                {/* Talent Earnings Link */}
+                {isArtist && (
+                  <Link
+                    to="/artist-dashboard?tab=earnings"
+                    aria-label="View earnings and escrow"
+                    className={`flex items-center gap-1 text-xs font-semibold transition-colors uppercase tracking-wide-sm ${
+                      location.search.includes('tab=earnings') ? 'text-emerald-800 font-bold' : 'text-emerald-700 hover:text-emerald-900'
+                    }`}
+                  >
+                    <Wallet className="w-3.5 h-3.5 text-emerald-600" /> Earnings
+                  </Link>
+                )}
                 
                 {/* Profile Link */}
                 <Link
@@ -427,6 +440,15 @@ export default function Navbar() {
                 >
                   Dashboard
                 </Link>
+                {isArtist && (
+                  <Link
+                    to="/artist-dashboard?tab=earnings"
+                    onClick={() => setMenuOpen(false)}
+                    className="block py-2.5 text-sm font-semibold text-emerald-800 hover:text-emerald-950 uppercase tracking-wide-sm flex items-center gap-2"
+                  >
+                    <Wallet className="w-4 h-4 text-emerald-600" /> Earnings
+                  </Link>
+                )}
                 <Link
                   to={profileEditPath}
                   onClick={() => setMenuOpen(false)}
