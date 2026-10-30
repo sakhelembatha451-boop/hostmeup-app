@@ -195,10 +195,10 @@ export default function Navbar() {
                 {/* Talent Earnings Link */}
                 {isArtist && (
                   <Link
-                    to="/artist-dashboard?tab=earnings"
+                    to="/artist-earnings"
                     aria-label="View earnings and escrow"
                     className={`flex items-center gap-1 text-xs font-semibold transition-colors uppercase tracking-wide-sm ${
-                      location.search.includes('tab=earnings') ? 'text-emerald-800 font-bold' : 'text-emerald-700 hover:text-emerald-900'
+                      location.pathname === '/artist-earnings' ? 'text-emerald-800 font-bold' : 'text-emerald-700 hover:text-emerald-900'
                     }`}
                   >
                     <Wallet className="w-3.5 h-3.5 text-emerald-600" /> Earnings
@@ -442,7 +442,7 @@ export default function Navbar() {
                 </Link>
                 {isArtist && (
                   <Link
-                    to="/artist-dashboard?tab=earnings"
+                    to="/artist-earnings"
                     onClick={() => setMenuOpen(false)}
                     className="block py-2.5 text-sm font-semibold text-emerald-800 hover:text-emerald-950 uppercase tracking-wide-sm flex items-center gap-2"
                   >
