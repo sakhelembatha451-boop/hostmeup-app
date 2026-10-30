@@ -204,7 +204,7 @@ export default function BookingRequestPage() {
         }
       } catch (err: any) {
         console.error('Error resolving booking page talent:', err);
-      } font-sans finally {
+      } finally {
         if (isMounted) setLoading(false);
       }
     }
