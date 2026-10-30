@@ -16,7 +16,7 @@ import HostDashboard from '@/pages/HostDashboard';
 import ArtistDashboard from '@/pages/ArtistDashboard';
 import HostSettingsPage from '@/pages/HostSettingsPage';
 import HostProfileView from '@/pages/HostProfileView';
-import GigFeedPage from '@/pages/GigFeedPage.tsx';
+import GigFeedPage from '@/pages/GigFeedPage';
 import { InboxPage } from '@/pages/InboxPage';
 import AdminInboxPage from '@/pages/AdminInboxPage';
 import AdminDashboard from '@/pages/AdminDashboard';
@@ -120,19 +120,9 @@ function RoleBasedDashboard() {
     );
   }
 
-  if (!profile) {
-    return <Navigate to="/login" replace />;
-  }
-
-  if (profile.is_admin) {
-    return <Navigate to="/admin" replace />;
-  }
-
-  if (profile.role === 'artist') {
-    return <ArtistDashboard />;
-  }
-
-  return <HostDashboard />;
+  if (!profile) return <Navigate to="/login" replace />;
+  if (profile.is_admin) return <Navigate to="/admin" replace />;
+  return profile.role === 'artist' ? <ArtistDashboard /> : <HostDashboard />;
 }
 
 function Layout({ children }: { children: React.ReactNode }) {
@@ -184,129 +174,25 @@ function AppRoutes() {
         <Route path="/gigs" element={<GigFeedPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute>
-              <RoleBasedDashboard />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/dashboard" element={<ProtectedRoute><RoleBasedDashboard /></ProtectedRoute>} />
         <Route path="/success" element={<BookingSuccessPage />} />
-        <Route
-          path="/book/:id"
-          element={
-            <ProtectedRoute role="host">
-              <BookingRequestPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/booking/:id"
-          element={
-            <ProtectedRoute role="host">
-              <BookingRequestPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/host-dashboard"
-          element={
-            <ProtectedRoute role="host">
-              <HostDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/host-settings"
-          element={
-            <ProtectedRoute role="host">
-              <HostSettingsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/host-profile/edit"
-          element={<Navigate to="/host-settings" replace />}
-        />
-        <Route
-          path="/artist-dashboard"
-          element={
-            <ProtectedRoute role="artist">
-              <ArtistDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/artist-profile/edit"
-          element={
-            <ProtectedRoute role="artist">
-              <ArtistProfileEditPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/messages"
-          element={<Navigate to="/inbox" replace />}
-        />
-        <Route
-          path="/inbox"
-          element={
-            <ProtectedRoute>
-              <InboxPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/inbox/:recipientId"
-          element={
-            <ProtectedRoute>
-              <InboxPage />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/book/:id" element={<ProtectedRoute role="host"><BookingRequestPage /></ProtectedRoute>} />
+        <Route path="/booking/:id" element={<ProtectedRoute role="host"><BookingRequestPage /></ProtectedRoute>} />
+        <Route path="/host-dashboard" element={<ProtectedRoute role="host"><HostDashboard /></ProtectedRoute>} />
+        <Route path="/host-settings" element={<ProtectedRoute role="host"><HostSettingsPage /></ProtectedRoute>} />
+        <Route path="/host-profile/edit" element={<Navigate to="/host-settings" replace />} />
+        <Route path="/artist-dashboard" element={<ProtectedRoute role="artist"><ArtistDashboard /></ProtectedRoute>} />
+        <Route path="/artist-profile/edit" element={<ProtectedRoute role="artist"><ArtistProfileEditPage /></ProtectedRoute>} />
+        <Route path="/messages" element={<Navigate to="/inbox" replace />} />
+        <Route path="/inbox" element={<ProtectedRoute><InboxPage /></ProtectedRoute>} />
+        <Route path="/inbox/:recipientId" element={<ProtectedRoute><InboxPage /></ProtectedRoute>} />
 
         {/* ADMIN ROUTES */}
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute requireAdmin>
-              <AdminDashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/verifications"
-          element={
-            <ProtectedRoute requireAdmin>
-              <AdminVerification />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/safety"
-          element={
-            <ProtectedRoute requireAdmin>
-              <AdminSafetyPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/inbox"
-          element={
-            <ProtectedRoute requireAdmin>
-              <AdminInboxPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/settings"
-          element={
-            <ProtectedRoute requireAdmin>
-              <AdminSettingsPage />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/admin" element={<ProtectedRoute requireAdmin><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/admin/verifications" element={<ProtectedRoute requireAdmin><AdminVerification /></ProtectedRoute>} />
+        <Route path="/admin/safety" element={<ProtectedRoute requireAdmin><AdminSafetyPage /></ProtectedRoute>} />
+        <Route path="/admin/inbox" element={<ProtectedRoute requireAdmin><AdminInboxPage /></ProtectedRoute>} />
+        <Route path="/admin/settings" element={<ProtectedRoute requireAdmin><AdminSettingsPage /></ProtectedRoute>} />
 
         <Route path="/legal" element={<Legal />} />
         <Route
