@@ -16,7 +16,7 @@ import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
 import ReviewModal from '@/components/ReviewModal';
 import PitchGigModal from '@/components/PitchGigModal';
-import { TalentEarningsTab } from '../components/TalentEarningsTab';
+import { TalentEarningsTab } from '@/components/TalentEarningsTab';
 import { maskContactInfo } from '@/utils/masking';
 import { createNotification } from '@/lib/messaging';
 
@@ -82,7 +82,7 @@ export default function ArtistDashboard() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [openGigs, setOpenGigs] = useState<Gig[]>([]);
-  const [userPitches, setUserPitches] = useState>(new Map());
+  const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
