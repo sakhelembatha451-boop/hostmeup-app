@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Wallet, Clock, CheckCircle2, AlertCircle, ArrowUpRight, ShieldCheck } from 'lucide-react';
+import React, { useState } from 'react';
+import { Wallet, Clock, CheckCircle2, ArrowUpRight, ShieldCheck } from 'lucide-react';
 
 interface EarningsSummary {
   totalEarned: number;
@@ -16,7 +16,7 @@ interface EarningsSummary {
 }
 
 export const TalentEarningsTab: React.FC = () => {
-  const [stats, setStats] = useState<EarningsSummary>({
+  const [stats] = useState<EarningsSummary>({
     totalEarned: 4500,
     escrowHeld: 1200,
     availableBalance: 3300,
@@ -41,7 +41,7 @@ export const TalentEarningsTab: React.FC = () => {
   });
 
   return (
-    <div className="space-y-6 p-6 max-w-6xl mx-auto">
+    <div className="space-y-6">
       {/* Financial Overview Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Total Lifetime Earnings */}
@@ -73,7 +73,10 @@ export const TalentEarningsTab: React.FC = () => {
             <CheckCircle2 className="w-5 h-5 text-emerald-600" />
           </div>
           <p className="text-3xl font-bold text-slate-900">R {stats.availableBalance.toLocaleString()}</p>
-          <button className="mt-3 w-full bg-slate-900 text-white text-xs font-semibold py-2 rounded-lg hover:bg-slate-800 transition">
+          <button 
+            onClick={() => alert('Payout request sent to your linked bank account!')}
+            className="mt-3 w-full bg-slate-900 text-white text-xs font-semibold py-2 rounded-lg hover:bg-slate-800 transition"
+          >
             Request Payout to Bank
           </button>
         </div>
