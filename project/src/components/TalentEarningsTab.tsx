@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { Wallet, Clock, CheckCircle2, ArrowUpRight, ShieldCheck, Sparkles, Loader2, Landmark } from 'lucide-react';
+import { Wallet, Clock, CheckCircle2, ArrowUpRight, ShieldCheck, DollarSign, Loader2, Landmark } from 'lucide-react';
 import type { Booking } from '@/types';
 
 function formatCurrency(n: number | null) {
@@ -82,12 +82,12 @@ export const TalentEarningsTab: React.FC = () => {
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       
-      {/* Vibe Banner: Commission Policy */}
+      {/* Vibe Banner: Commission Policy with Money/Dollar Icon */}
       <div className="bg-gradient-to-r from-emerald-950 via-zinc-900 to-black text-paper rounded-2xl p-6 shadow-md border border-emerald-900/40 relative overflow-hidden flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="absolute -right-10 -bottom-10 w-48 h-48 bg-emerald-500/10 rounded-full blur-2xl pointer-events-none" />
         <div className="flex items-center gap-4 relative z-10">
           <div className="p-3 bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 rounded-xl">
-            <Sparkles className="w-6 h-6" />
+            <DollarSign className="w-6 h-6" />
           </div>
           <div>
             <h4 className="font-display font-bold text-lg text-white">Secure Escrow & Transparent Payouts</h4>
@@ -128,7 +128,7 @@ export const TalentEarningsTab: React.FC = () => {
           <p className="text-xs text-zinc-500 mt-3">Released automatically upon event sign-off</p>
         </div>
 
-        {/* Available Payout Card (Vibey & Bold) */}
+        {/* Available Payout Card */}
         <div className="bg-gradient-to-br from-ink to-zinc-900 text-paper rounded-2xl p-6 shadow-lg border border-ink relative overflow-hidden flex flex-col justify-between">
           <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 rounded-full blur-xl pointer-events-none" />
           <div>
