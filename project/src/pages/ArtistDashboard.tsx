@@ -1,22 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { 
-  Calendar, MapPin, Clock, Loader2, Package, Check, X, 
-  ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
-  MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
-  Trash2, CheckSquare, Square, User, Mail, DollarSign, FileText, Clock3,
-  PartyPopper, Star, Radio, Send, Music2, Sparkles, Wallet
+  Calendar, MapPin, Clock, Loader2, Check, X, 
+  ExternalLink, ShieldCheck, Eye, MessageSquare, 
+  MapPinCheck, LogOut, CheckCircle2, KeyRound,
+  Trash2, CheckSquare, Square, Mail, Clock3,
+  PartyPopper, Star, Radio, Send, Sparkles, Wallet, DollarSign
 } from 'lucide-react';
 import type { Booking } from '@/types';
-import { StatusBadge, EmptyState, Tag } from '@/components/UI';
+import { StatusBadge, EmptyState } from '@/components/UI';
 import HostStatusBadge from '@/components/HostStatusBadge';
 import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
 import ReviewModal from '@/components/ReviewModal';
 import PitchGigModal from '@/components/PitchGigModal';
-import { TalentEarningsTab } from '@/components/TalentEarningsTab';
 import { maskContactInfo } from '@/utils/masking';
 import { createNotification } from '@/lib/messaging';
 
@@ -80,12 +79,16 @@ function formatCurrency(n: number | null) {
 export default function ArtistDashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [openGigs, setOpenGigs] = useState<Gig[]>([]);
-  const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
+  const [userPitches, setUserPitches] = useState>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  // Check if user clicked Earnings from Navbar (?tab=earnings)
+  const isEarningsTab = new URLSearchParams(location.search).get('tab') === 'earnings';
 
   // Selection & Bulk Deletion State
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
@@ -96,7 +99,7 @@ export default function ArtistDashboard() {
   const [activeVerifyBooking, setActiveVerifyBooking] = useState<{ id: string; eventName: string } | null>(null);
   const [activeCheckoutBooking, setActiveCheckoutBooking] = useState<{ id: string; eventName: string } | null>(null);
 
-  // Review Modal State (For rating hosts)
+  // Review Modal State
   const [reviewBookingTarget, setReviewBookingTarget] = useState<BookingWithHost | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
 
@@ -188,7 +191,7 @@ export default function ArtistDashboard() {
         setBookings(processedBookings as BookingWithHost[]);
       }
 
-      // Fetch Open Gigs for Talent Dashboard Feed
+      // Fetch Open Gigs for Feed
       const { data: gigData } = await supabase
         .from('gigs')
         .select('*')
@@ -215,7 +218,7 @@ export default function ArtistDashboard() {
         setOpenGigs([]);
       }
 
-      // Fetch logged-in artist's pitches to track status on cards
+      // Fetch logged-in artist's pitches
       const { data: pitchData } = await supabase
         .from('gig_pitches')
         .select('gig_id, status, proposed_rate')
@@ -265,11 +268,7 @@ export default function ArtistDashboard() {
     if (e) e.stopPropagation();
     if (idsToDelete.length === 0) return;
 
-    const confirmMessage = idsToDelete.length === 1
-      ? 'Are you sure you want to delete this booking card?'
-      : `Are you sure you want to delete ${idsToDelete.length} selected booking cards?`;
-
-    if (!window.confirm(confirmMessage)) return;
+    if (!window.confirm(`Are you sure you want to delete ${idsToDelete.length} selected booking card(s)?`)) return;
 
     setIsDeleting(true);
     try {
@@ -286,11 +285,7 @@ export default function ArtistDashboard() {
         .in('id', idsToDelete);
 
       if (error) {
-        const hardDelete = await supabase
-          .from('bookings')
-          .delete()
-          .in('id', idsToDelete);
-
+        const hardDelete = await supabase.from('bookings').delete().in('id', idsToDelete);
         if (hardDelete.error) throw hardDelete.error;
       }
     } catch (err: any) {
@@ -399,16 +394,8 @@ export default function ArtistDashboard() {
   const updateBookingStatus = async (id: string, newStatus: string, extraFields: Record<string, any> = {}) => {
     setUpdatingId(id);
     try {
-      const payload = { 
-        status: newStatus, 
-        ...extraFields 
-      };
-
-      const { error } = await supabase
-        .from('bookings')
-        .update(payload)
-        .eq('id', id);
-
+      const payload = { status: newStatus, ...extraFields };
+      const { error } = await supabase.from('bookings').update(payload).eq('id', id);
       if (error) throw error;
       await loadDashboardData(false);
     } catch (err: any) {
@@ -429,8 +416,8 @@ export default function ArtistDashboard() {
       targetBooking?.status === 'checked_in';
 
     const confirmPromptText = isRemainingBalancePayment
-      ? "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the REMAINING BALANCE payment.\n\nBy clicking OK, you agree that you have verified the funds and acknowledge full payment for this event."
-      : "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the DEPOSIT payment.\n\nBy clicking OK, you agree that you have verified the funds and unlocked the event pass for the host.";
+      ? "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the REMAINING BALANCE payment."
+      : "CONFIRMATION NOTICE:\n\nYou confirm that you have checked your email or Yoco notification and received the DEPOSIT payment.";
 
     if (!window.confirm(confirmPromptText)) return;
 
@@ -450,14 +437,9 @@ export default function ArtistDashboard() {
         notes: `${targetBooking?.notes || ''} [Deposit Verified & Confirmed by Talent]`
       };
 
-      const { error } = await supabase
-        .from('bookings')
-        .update(updatePayload)
-        .eq('id', bookingId);
-
+      const { error } = await supabase.from('bookings').update(updatePayload).eq('id', bookingId);
       if (error) throw error;
 
-      // Real-time notification dispatch to host
       const hostTargetId = targetBooking?.host_id || targetBooking?.client_id;
       if (hostTargetId) {
         await createNotification(
@@ -472,10 +454,7 @@ export default function ArtistDashboard() {
         );
       }
 
-      alert(isRemainingBalancePayment 
-        ? 'Remaining balance payment verified & confirmed! Booking is now fully paid.' 
-        : 'Payment confirmed successfully! Host event pass unlocked.'
-      );
+      alert(isRemainingBalancePayment ? 'Remaining balance payment verified!' : 'Payment confirmed successfully!');
       await loadDashboardData(false);
     } catch (err: any) {
       console.error('Error confirming payment:', err);
@@ -483,11 +462,6 @@ export default function ArtistDashboard() {
     } finally {
       setUpdatingId(null);
     }
-  };
-
-  const handleOpenPitchModal = (gig: Gig) => {
-    setSelectedGigForPitch(gig);
-    setIsPitchModalOpen(true);
   };
 
   const counts = {
@@ -500,13 +474,17 @@ export default function ArtistDashboard() {
     completed: bookings.filter((b) => b.status === 'completed' || b.completed_at).length,
   };
 
-  const totalEarnings = bookings
-    .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed' || b.status === 'fully_paid')
+  const escrowHeldAmount = bookings
+    .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.deposit_paid)
+    .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
+
+  const availableEarningsAmount = bookings
+    .filter((b) => b.status === 'completed' || b.balance_paid || !!b.completed_at)
     .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
   
-  const depositedAmount = bookings
-    .filter((b) => b.deposit_paid)
-    .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
+  const lifetimeEarnedAmount = bookings
+    .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed' || b.status === 'fully_paid')
+    .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
@@ -533,340 +511,356 @@ export default function ArtistDashboard() {
           </div>
         </div>
 
-        {/* Live Open Gig Calls Section for Talent */}
-        <div className="border border-line bg-purple-50/40 p-6 space-y-4 shadow-xs">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Radio className="w-5 h-5 text-purple-700 animate-pulse" />
+        {/* IF EARNINGS TAB IS ACTIVE FROM NAVBAR */}
+        {isEarningsTab ? (
+          <div className="border border-line bg-white p-8 rounded-xl shadow-xs space-y-6 animate-fade-in">
+            <div className="flex items-center justify-between border-b border-line pb-4">
               <div>
-                <h3 className="font-display text-lg font-bold text-ink">Open Gig Calls & Set Proposals</h3>
-                <p className="text-xs text-ink-500">Pitch directly with your rate quote, gear specs, and sample media links</p>
+                <h2 className="font-display text-2xl font-bold text-ink">Earnings & Escrow Payouts</h2>
+                <p className="text-xs text-ink-400 mt-1">Monitor your cleared payouts, active escrow funds, and bank setup.</p>
+              </div>
+              <button 
+                onClick={() => navigate('/artist-dashboard')}
+                className="px-4 py-2 bg-ink text-paper text-xs uppercase font-semibold tracking-wide-sm hover:bg-ink-800 transition-colors"
+              >
+                ← Back to Bookings
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+              <div className="p-5 border border-line bg-paper-100 rounded-lg space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide-sm text-emerald-800">
+                  <Wallet className="w-4 h-4" /> Available Balance
+                </div>
+                <div className="text-3xl font-display font-bold text-ink">{formatCurrency(availableEarningsAmount)}</div>
+                <p className="text-xs text-ink-500">Ready for automated weekly payout</p>
+              </div>
+
+              <div className="p-5 border border-line bg-paper-100 rounded-lg space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide-sm text-accent">
+                  <ShieldCheck className="w-4 h-4" /> Pending Escrow
+                </div>
+                <div className="text-3xl font-display font-bold text-accent">{formatCurrency(escrowHeldAmount)}</div>
+                <p className="text-xs text-ink-500">Releases upon successful event completion</p>
+              </div>
+
+              <div className="p-5 border border-line bg-paper-100 rounded-lg space-y-2">
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide-sm text-ink-600">
+                  <DollarSign className="w-4 h-4" /> Lifetime Earned
+                </div>
+                <div className="text-3xl font-display font-bold text-emerald-800">{formatCurrency(lifetimeEarnedAmount)}</div>
+                <p className="text-xs text-ink-500">Total volume processed securely</p>
               </div>
             </div>
 
-            <Link to="/gigs" className="text-xs font-bold uppercase tracking-wide-sm text-purple-900 hover:underline">
-              Explore All Gigs →
-            </Link>
-          </div>
-
-          {openGigs.length === 0 ? (
-            <div className="border border-dashed border-line bg-paper p-6 text-center text-xs text-ink-400">
-              No open gig calls posted at the moment. Check back soon!
+            <div className="p-6 border border-dashed border-line bg-paper text-center space-y-3 rounded-lg">
+              <h3 className="font-display font-bold text-ink text-sm">Need to update your banking details?</h3>
+              <p className="text-xs text-ink-500 max-w-md mx-auto">Make sure your bank account information is updated in your profile settings to prevent payout delays.</p>
+              <Link to="/artist-profile/edit" className="inline-block px-5 py-2.5 bg-purple-900 text-white text-xs font-semibold uppercase tracking-wide-sm hover:bg-purple-950 transition-colors">
+                Setup Bank Account →
+              </Link>
             </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {openGigs.map((gig) => {
-                const existingPitch = userPitches.get(gig.id);
-
-                return (
-                  <div key={gig.id} className="border border-line bg-paper p-4 space-y-3 flex flex-col justify-between shadow-xs">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 px-2 py-0.5 border border-purple-200">
-                            {gig.category}
-                          </span>
-                          {renderPitchStatusBadge(gig)}
-                        </div>
-                        <span className="font-bold text-emerald-800 text-xs">
-                          R{gig.budget.toLocaleString()}
-                        </span>
-                      </div>
-
-                      <h4 className="font-display font-bold text-ink text-sm leading-snug line-clamp-1">{gig.title}</h4>
-
-                      <div className="space-y-1 text-[11px] text-ink-500">
-                        <div className="flex items-center gap-1">
-                          <Calendar className="w-3 h-3 text-ink-400" />
-                          <span>{new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-ink-400" />
-                          <span className="truncate">{gig.location}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => handleOpenPitchModal(gig)}
-                      className={`w-full text-center py-2 text-[10px] font-bold uppercase tracking-wide-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
-                        existingPitch
-                          ? 'bg-purple-900 text-white hover:bg-purple-950'
-                          : 'bg-ink text-paper hover:bg-ink-800'
-                      }`}
-                    >
-                      <Send className="w-3 h-3" /> {existingPitch ? 'Edit Submitted Pitch' : 'Pitch for Gig'}
-                    </button>
+          </div>
+        ) : (
+          <>
+            {/* Live Open Gig Calls Section for Talent */}
+            <div className="border border-line bg-purple-50/40 p-6 space-y-4 shadow-xs rounded-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Radio className="w-5 h-5 text-purple-700 animate-pulse" />
+                  <div>
+                    <h3 className="font-display text-lg font-bold text-ink">Open Gig Calls & Set Proposals</h3>
+                    <p className="text-xs text-ink-500">Pitch directly with your rate quote, gear specs, and sample media links</p>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+                </div>
 
-        {/* Earnings & Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 border-y border-line py-6">
-          <div>
-            <div className="font-display text-4xl font-bold text-ink mb-1">{counts.all}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Total Requests</div>
-          </div>
-          <div>
-            <div className="font-display text-4xl font-bold text-ink mb-1">{counts.pending_verification}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Pending Review</div>
-          </div>
-          <div>
-            <div className="font-display text-3xl font-bold text-accent mb-1">{formatCurrency(depositedAmount)}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Deposits Received</div>
-          </div>
-          <div>
-            <div className="font-display text-3xl font-bold text-ink-500 mb-1">{formatCurrency(totalEarnings)}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Total Booked Value</div>
-          </div>
-        </div>
+                <Link to="/gigs" className="text-xs font-bold uppercase tracking-wide-sm text-purple-900 hover:underline">
+                  Explore All Gigs →
+                </Link>
+              </div>
 
-        {/* Filters and Selection Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex flex-wrap gap-2">
-            {['all', 'pending', 'pending_verification', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
-              <button key={f} onClick={() => setFilter(f)}
-                className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
-                {f.replace('_', ' ')} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
-              </button>
-            ))}
+              {openGigs.length === 0 ? (
+                <div className="border border-dashed border-line bg-paper p-6 text-center text-xs text-ink-400">
+                  No open gig calls posted at the moment. Check back soon!
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {openGigs.map((gig) => {
+                    const existingPitch = userPitches.get(gig.id);
 
-            {/* Earnings & Payouts Navigation Tab */}
-            <button
-              onClick={() => setFilter('earnings')}
-              className={`filter-chip inline-flex items-center gap-1 capitalize ${
-                filter === 'earnings' ? 'filter-chip-active' : 'filter-chip-inactive'
-              }`}
-            >
-              <Wallet className="w-3.5 h-3.5" /> Earnings & Payouts
-            </button>
-          </div>
+                    return (
+                      <div key={gig.id} className="border border-line bg-paper p-4 space-y-3 flex flex-col justify-between shadow-xs">
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 px-2 py-0.5 border border-purple-200">
+                                {gig.category}
+                              </span>
+                              {renderPitchStatusBadge(gig)}
+                            </div>
+                            <span className="font-bold text-emerald-800 text-xs">
+                              R{gig.budget.toLocaleString()}
+                            </span>
+                          </div>
 
-          {filter !== 'earnings' && filtered.length > 0 && (
-            <div className="flex items-center gap-3">
-              <button
-                onClick={toggleSelectAll}
-                className="text-xs font-semibold text-ink-500 hover:text-ink flex items-center gap-1.5 transition-colors">
-                {allFilteredSelected ? (
-                  <CheckSquare className="w-4 h-4 text-ink" />
-                ) : (
-                  <Square className="w-4 h-4 text-ink-300" />
-                )}
-                {allFilteredSelected ? 'Deselect All' : 'Select All'}
-              </button>
+                          <h4 className="font-display font-bold text-ink text-sm leading-snug line-clamp-1">{gig.title}</h4>
 
-              {selectedBookingIds.length > 0 && (
-                <button
-                  onClick={(e) => handleDeleteBookings(selectedBookingIds, e)}
-                  disabled={isDeleting}
-                  className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-1.5 rounded inline-flex items-center gap-1.5 transition-colors shadow-xs">
-                  {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  Delete Selected ({selectedBookingIds.length})
-                </button>
+                          <div className="space-y-1 text-[11px] text-ink-500">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="w-3 h-3 text-ink-400" />
+                              <span>{new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-ink-400" />
+                              <span className="truncate">{gig.location}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => {
+                            setSelectedGigForPitch(gig);
+                            setIsPitchModalOpen(true);
+                          }}
+                          className={`w-full text-center py-2 text-[10px] font-bold uppercase tracking-wide-sm flex items-center justify-center gap-1.5 transition-colors cursor-pointer shadow-xs ${
+                            existingPitch
+                              ? 'bg-purple-900 text-white hover:bg-purple-950'
+                              : 'bg-ink text-paper hover:bg-ink-800'
+                          }`}
+                        >
+                          <Send className="w-3 h-3" /> {existingPitch ? 'Edit Submitted Pitch' : 'Pitch for Gig'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
-          )}
-        </div>
 
-        {/* Render Earnings Component when Earnings tab is active */}
-        {filter === 'earnings' ? (
-          <TalentEarningsTab />
-        ) : (
-          /* Booking Card List */
-          filtered.length === 0 ? (
-            <EmptyState icon={<Calendar className="w-8 h-8" />}
-              title={bookings.length === 0 ? "No booking requests yet" : "No requests match this filter"}
-              message={bookings.length === 0 ? "When hosts send you booking requests, they'll appear here." : "Try a different filter."}
-              actionLabel={bookings.length === 0 ? "Edit Your Profile" : undefined}
-              actionTo={bookings.length === 0 ? "/artist-profile/edit" : undefined} />
-          ) : (
+            {/* Filters and Selection Bar */}
             <div className="space-y-6">
-              {filtered.map((booking) => {
-                const isSelected = selectedBookingIds.includes(booking.id);
-                const isPendingVerification = booking.status === 'pending_verification';
-                const isCompleted = booking.status === 'completed' || !!booking.completed_at;
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-line pt-8">
+                <h2 className="font-display text-2xl font-bold text-ink">Booking Requests</h2>
+                <div className="flex flex-wrap gap-2">
+                  {['all', 'pending', 'pending_verification', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
+                    <button key={f} onClick={() => setFilter(f)}
+                      className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
+                      {f.replace('_', ' ')} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                const isPaid = booking.deposit_paid === true;
-                const rawNote = booking.notes || booking.special_requests || '';
-                const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
-                const rawHostEmail = booking.host?.email || '';
-                const displayHostEmail = isPaid ? rawHostEmail : (rawHostEmail ? maskContactInfo(rawHostEmail) : '');
-                const hostId = booking.host?.id || booking.host_id || booking.client_id;
+              {filtered.length > 0 && (
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={toggleSelectAll}
+                    className="text-xs font-semibold text-ink-500 hover:text-ink flex items-center gap-1.5 transition-colors">
+                    {allFilteredSelected ? <CheckSquare className="w-4 h-4 text-ink" /> : <Square className="w-4 h-4 text-ink-300" />}
+                    {allFilteredSelected ? 'Deselect All' : 'Select All'}
+                  </button>
 
-                return (
-                  <div 
-                    key={booking.id} 
-                    onClick={() => setSelectedBooking(booking)}
-                    className={`border p-6 bg-white cursor-pointer animate-fade-in transition-all relative ${
-                      isSelected ? 'border-ink bg-paper-200/20 shadow-sm' : 'border-line hover:border-ink/40 hover:shadow-sm'
-                    }`}
-                  >
-                    <div className="absolute top-4 right-4 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        onClick={(e) => handleDeleteBookings([booking.id], e)}
-                        title="Delete booking card"
-                        className="p-1.5 text-ink-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                  {selectedBookingIds.length > 0 && (
+                    <button
+                      onClick={(e) => handleDeleteBookings(selectedBookingIds, e)}
+                      disabled={isDeleting}
+                      className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-1.5 rounded inline-flex items-center gap-1.5 transition-colors shadow-xs">
+                      {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      Delete Selected ({selectedBookingIds.length})
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {filtered.length === 0 ? (
+                <EmptyState icon={<Calendar className="w-8 h-8" />}
+                  title={bookings.length === 0 ? "No booking requests yet" : "No requests match this filter"}
+                  message={bookings.length === 0 ? "When hosts send you booking requests, they'll appear here." : "Try a different filter."}
+                  actionLabel={bookings.length === 0 ? "Edit Your Profile" : undefined}
+                  actionTo={bookings.length === 0 ? "/artist-profile/edit" : undefined} />
+              ) : (
+                <div className="space-y-6">
+                  {filtered.map((booking) => {
+                    const isSelected = selectedBookingIds.includes(booking.id);
+                    const isPendingVerification = booking.status === 'pending_verification';
+                    const isCompleted = booking.status === 'completed' || !!booking.completed_at;
+
+                    const isPaid = booking.deposit_paid === true;
+                    const rawNote = booking.notes || booking.special_requests || '';
+                    const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
+                    const rawHostEmail = booking.host?.email || '';
+                    const displayHostEmail = isPaid ? rawHostEmail : (rawHostEmail ? maskContactInfo(rawHostEmail) : '');
+                    const hostId = booking.host?.id || booking.host_id || booking.client_id;
+
+                    return (
+                      <div 
+                        key={booking.id} 
+                        onClick={() => setSelectedBooking(booking)}
+                        className={`border p-6 bg-white cursor-pointer animate-fade-in transition-all relative rounded-xl ${
+                          isSelected ? 'border-ink bg-paper-200/20 shadow-sm' : 'border-line hover:border-ink/40 hover:shadow-sm'
+                        }`}
                       >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={(e) => toggleSelectBooking(booking.id, e)}
-                        className="p-1 text-ink-400 hover:text-ink transition-colors"
-                      >
-                        {isSelected ? (
-                          <CheckSquare className="w-5 h-5 text-ink" />
-                        ) : (
-                          <Square className="w-5 h-5 text-ink-300" />
-                        )}
-                      </button>
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row sm:items-start gap-6 pr-16">
-                      <div className="flex items-center gap-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <Link to={`/hosts/${hostId}`} className="group">
-                          {booking.host?.avatar_url ? (
-                            <img src={booking.host.avatar_url} alt="" width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line group-hover:opacity-90 transition-opacity" />
-                          ) : (
-                            <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold group-hover:bg-ink-300 transition-colors">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
-                          )}
-                        </Link>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <Link to={`/hosts/${hostId}`} className="font-display font-semibold text-ink hover:underline">
-                              {booking.host?.full_name || 'Host'}
-                            </Link>
-                            <HostStatusBadge isVerified={true} verificationStatus="approved" />
-                          </div>
-                          {displayHostEmail && (
-                            <div className="text-xs text-ink-400 font-mono mt-0.5">{displayHostEmail}</div>
-                          )}
+                        <div className="absolute top-4 right-4 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            onClick={(e) => handleDeleteBookings([booking.id], e)}
+                            title="Delete booking card"
+                            className="p-1.5 text-ink-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={(e) => toggleSelectBooking(booking.id, e)}
+                            className="p-1 text-ink-400 hover:text-ink transition-colors"
+                          >
+                            {isSelected ? <CheckSquare className="w-5 h-5 text-ink" /> : <Square className="w-5 h-5 text-ink-300" />}
+                          </button>
                         </div>
-                      </div>
 
-                      <div className="flex-1">
-                        <div className="flex items-center justify-between gap-3 mb-4">
-                          <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name || 'Untitled Event'}</h3>
-                          <div className="flex items-center gap-2">
-                            {renderCustomStatusBadge(booking)}
+                        <div className="flex flex-col sm:flex-row sm:items-start gap-6 pr-16">
+                          <div className="flex items-center gap-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <Link to={`/hosts/${hostId}`} className="group">
+                              {booking.host?.avatar_url ? (
+                                <img src={booking.host.avatar_url} alt="" width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line group-hover:opacity-90 transition-opacity" />
+                              ) : (
+                                <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold group-hover:bg-ink-300 transition-colors">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
+                              )}
+                            </Link>
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <Link to={`/hosts/${hostId}`} className="font-display font-semibold text-ink hover:underline">
+                                  {booking.host?.full_name || 'Host'}
+                                </Link>
+                                <HostStatusBadge isVerified={true} verificationStatus="approved" />
+                              </div>
+                              {displayHostEmail && (
+                                <div className="text-xs text-ink-400 font-mono mt-0.5">{displayHostEmail}</div>
+                              )}
+                            </div>
+                          </div>
 
-                            {isCompleted && (
-                              <div onClick={(e) => e.stopPropagation()}>
-                                {booking.has_reviewed ? (
-                                  <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold uppercase tracking-wider rounded-sm inline-flex items-center gap-1">
-                                    <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Host Reviewed
-                                  </span>
-                                ) : (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setReviewBookingTarget(booking);
-                                      setIsReviewModalOpen(true);
-                                    }}
-                                    className="px-3 py-1 bg-ink text-paper border border-ink text-[11px] font-bold uppercase tracking-wider rounded-sm hover:bg-ink/90 inline-flex items-center gap-1 shadow-xs transition-colors"
-                                  >
-                                    <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Rate Host
-                                  </button>
+                          <div className="flex-1">
+                            <div className="flex items-center justify-between gap-3 mb-4">
+                              <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name || 'Untitled Event'}</h3>
+                              <div className="flex items-center gap-2">
+                                {renderCustomStatusBadge(booking)}
+
+                                {isCompleted && (
+                                  <div onClick={(e) => e.stopPropagation()}>
+                                    {booking.has_reviewed ? (
+                                      <span className="px-2.5 py-1 bg-amber-50 text-amber-800 border border-amber-200 text-[11px] font-bold uppercase tracking-wider rounded-sm inline-flex items-center gap-1">
+                                        <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" /> Host Reviewed
+                                      </span>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setReviewBookingTarget(booking);
+                                          setIsReviewModalOpen(true);
+                                        }}
+                                        className="px-3 py-1 bg-ink text-paper border border-ink text-[11px] font-bold uppercase tracking-wider rounded-sm hover:bg-ink/90 inline-flex items-center gap-1 shadow-xs transition-colors"
+                                      >
+                                        <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" /> Rate Host
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
+                              <div className="flex items-center gap-1.5 text-ink-500">
+                                <Calendar className="w-3.5 h-3.5 text-ink-300" />
+                                <span>{booking.event_date ? new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
+                              </div>
+                              {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
+                              <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.duration_hours ? `${booking.duration_hours} hrs` : '—'}</span></div>
+                              <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location || '—'}</span></div>
+                            </div>
+
+                            {displayNote && (
+                              <div className="bg-paper-200/50 p-2.5 border border-line text-xs space-y-1 mb-4 rounded">
+                                <p className="text-ink-600 italic">"{displayNote}"</p>
+                                {!isPaid && (
+                                  <p className="text-[10px] text-amber-700 flex items-center gap-1 font-sans not-italic pt-1 border-t border-line/50">
+                                    <ShieldCheck className="w-3 h-3 shrink-0" />
+                                    Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
+                                  </p>
                                 )}
                               </div>
                             )}
-                          </div>
-                        </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
-                          <div className="flex items-center gap-1.5 text-ink-500">
-                            <Calendar className="w-3.5 h-3.5 text-ink-300" />
-                            <span>{booking.event_date ? new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
-                          </div>
-                          {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
-                          <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration || booking.duration_hours ? `${booking.duration_hours} hrs` : '—'}</span></div>
-                          <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location || '—'}</span></div>
-                        </div>
-
-                        {displayNote && (
-                          <div className="bg-paper-200/50 p-2.5 border border-line text-xs space-y-1 mb-4">
-                            <p className="text-ink-600 italic">"{displayNote}"</p>
-                            {!isPaid && (
-                              <p className="text-[10px] text-amber-700 flex items-center gap-1 font-sans not-italic pt-1 border-t border-line/50">
-                                <ShieldCheck className="w-3 h-3 shrink-0" />
-                                Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => setSelectedBooking(booking)}
-                            className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
-                            <Eye className="w-3.5 h-3.5 text-ink-400" /> View Details
-                          </button>
-
-                          <div className="flex flex-wrap items-center gap-2">
-                            {booking.status === 'pending' && (
-                              <>
-                                <button 
-                                  onClick={() => updateBookingStatus(booking.id, 'declined')}
-                                  disabled={updatingId === booking.id}
-                                  className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
-                                  {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Decline
-                                </button>
-                                <button 
-                                  onClick={() => updateBookingStatus(booking.id, 'accepted')}
-                                  disabled={updatingId === booking.id}
-                                  className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
-                                  {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
-                                </button>
-                              </>
-                            )}
-
-                            {isPendingVerification && (
+                            <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
                               <button
-                                onClick={() => artistConfirmBooking(booking.id)}
-                                disabled={updatingId === booking.id}
-                                className="bg-emerald-700 hover:bg-emerald-800 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                                {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Confirm Payment Reference
+                                onClick={() => setSelectedBooking(booking)}
+                                className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
+                                <Eye className="w-3.5 h-3.5 text-ink-400" /> View Details
                               </button>
-                            )}
 
-                            {!isCompleted && (booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in' || booking.status === 'fully_paid') && !isPendingVerification && (
-                              <>
-                                {!booking.is_arrival_verified ? (
-                                  <button
-                                    onClick={() => setActiveVerifyBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
-                                    className="bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                                    <KeyRound className="w-3.5 h-3.5" /> Enter Host Pass Code
-                                  </button>
-                                ) : (
-                                  <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                                    <MapPinCheck className="w-3.5 h-3.5 text-emerald-600" /> Arrived at Event
-                                  </span>
+                              <div className="flex flex-wrap items-center gap-2">
+                                {booking.status === 'pending' && (
+                                  <>
+                                    <button 
+                                      onClick={() => updateBookingStatus(booking.id, 'declined')}
+                                      disabled={updatingId === booking.id}
+                                      className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
+                                      {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Decline
+                                    </button>
+                                    <button 
+                                      onClick={() => updateBookingStatus(booking.id, 'accepted')}
+                                      disabled={updatingId === booking.id}
+                                      className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
+                                      {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
+                                    </button>
+                                  </>
                                 )}
 
-                                <button
-                                  onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
-                                  className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                                  <LogOut className="w-3.5 h-3.5" /> Check Out of Event
-                                </button>
+                                {isPendingVerification && (
+                                  <button
+                                    onClick={() => artistConfirmBooking(booking.id)}
+                                    disabled={updatingId === booking.id}
+                                    className="bg-emerald-700 hover:bg-emerald-800 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                                    {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />} Confirm Payment Reference
+                                  </button>
+                                )}
 
-                                <button
-                                  onClick={() => navigate('/inbox')}
-                                  className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
-                                  <MessageSquare className="w-3.5 h-3.5" /> Message Host
-                                </button>
-                              </>
-                            )}
+                                {!isCompleted && (booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in' || booking.status === 'fully_paid') && !isPendingVerification && (
+                                  <>
+                                    {!booking.is_arrival_verified ? (
+                                      <button
+                                        onClick={() => setActiveVerifyBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
+                                        className="bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                                        <KeyRound className="w-3.5 h-3.5" /> Enter Host Pass Code
+                                      </button>
+                                    ) : (
+                                      <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
+                                        <MapPinCheck className="w-3.5 h-3.5 text-emerald-600" /> Arrived at Event
+                                      </span>
+                                    )}
+
+                                    <button
+                                      onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
+                                      className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
+                                      <LogOut className="w-3.5 h-3.5" /> Check Out of Event
+                                    </button>
+
+                                    <button
+                                      onClick={() => navigate('/inbox')}
+                                      className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
+                                      <MessageSquare className="w-3.5 h-3.5" /> Message Host
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  </div>
-                );
-              })}
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )
+          </>
         )}
 
         {/* Modal: Full Event Details */}
@@ -880,7 +874,7 @@ export default function ArtistDashboard() {
 
           return (
             <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
-              <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-6" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto space-y-6 rounded-xl" onClick={(e) => e.stopPropagation()}>
                 
                 <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
                   <X className="w-5 h-5" />
@@ -894,7 +888,7 @@ export default function ArtistDashboard() {
                   <h2 className="font-display text-2xl font-bold text-ink">{selectedBooking.event_name || 'Untitled Event'}</h2>
                 </div>
 
-                <div className="p-4 border border-line bg-paper-100 flex items-center gap-4">
+                <div className="p-4 border border-line bg-paper-100 flex items-center gap-4 rounded-lg">
                   <Link to={`/hosts/${selectedHostId}`} className="group">
                     {selectedBooking.host?.avatar_url ? (
                       <img src={selectedBooking.host.avatar_url} alt="" className="w-12 h-12 rounded-full object-cover border border-line group-hover:opacity-90 transition-opacity" />
@@ -926,11 +920,6 @@ export default function ArtistDashboard() {
                       <Calendar className="w-3.5 h-3.5 text-ink-400" />
                       {selectedBooking.event_date ? new Date(selectedBooking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}
                     </div>
-                    {selectedBooking.start_time && (
-                      <div className="text-ink-500 flex items-center gap-1.5 mt-1">
-                        <Clock className="w-3.5 h-3.5 text-ink-400" /> {selectedBooking.start_time} ({selectedBooking.duration_hours || 1} hrs)
-                      </div>
-                    )}
                   </div>
 
                   <div>
@@ -948,60 +937,13 @@ export default function ArtistDashboard() {
                     <span className="text-ink-500">Total Agreed Price:</span>
                     <span className="font-bold text-ink">{formatCurrency(selectedBooking.total_price || selectedBooking.total_amount)}</span>
                   </div>
-                  {selectedBooking.deposit_amount && (
-                    <div className="flex justify-between py-1 border-b border-line">
-                      <span className="text-ink-500">Required Deposit:</span>
-                      <span className="font-bold text-accent">{formatCurrency(selectedBooking.deposit_amount)}</span>
-                    </div>
-                  )}
                 </div>
 
-                {displayNote && (
-                  <div className="space-y-1 text-xs">
-                    <span className="text-ink-400 uppercase tracking-wide-sm block">Host Notes & Submitted Yoco Reference</span>
-                    <div className="p-3 bg-white border border-line text-xs font-mono rounded leading-relaxed text-ink">
-                      {displayNote}
-                    </div>
-                    {!isPaid && (
-                      <p className="text-[11px] text-amber-700 mt-1.5 flex items-center gap-1 font-sans">
-                        🛡️ Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {selectedBooking.status === 'pending_verification' && (
-                  <div className="p-4 bg-amber-50 border border-amber-200 rounded space-y-3">
-                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-900">
-                      <Clock3 className="w-4 h-4 text-amber-600 animate-pulse" />
-                      <span>Host has submitted a payment reference. Please check your email or Yoco notification before confirming.</span>
-                    </div>
-                    <button
-                      onClick={() => {
-                        artistConfirmBooking(selectedBooking.id);
-                        setSelectedBooking(null);
-                      }}
-                      className="w-full bg-emerald-700 hover:bg-emerald-800 text-white py-2.5 px-4 text-xs font-semibold uppercase tracking-wide-sm rounded flex items-center justify-center gap-2 transition-colors">
-                      <CheckCircle2 className="w-4 h-4" /> Confirm Payment & Unlock Booking
-                    </button>
-                  </div>
-                )}
-
                 <div className="pt-4 flex items-center justify-between border-t border-line">
-                  <button
-                    onClick={() => {
-                      setSelectedBooking(null);
-                      navigate('/inbox');
-                    }}
-                    className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm"
-                  >
+                  <button onClick={() => { setSelectedBooking(null); navigate('/inbox'); }} className="btn-outline inline-flex items-center gap-1.5 px-4 py-2 text-xs uppercase tracking-wide-sm">
                     <MessageSquare className="w-3.5 h-3.5" /> Message Host
                   </button>
-
-                  <button 
-                    onClick={() => setSelectedBooking(null)} 
-                    className="btn-primary px-6 py-2 text-xs uppercase tracking-wide-sm"
-                  >
+                  <button onClick={() => setSelectedBooking(null)} className="btn-primary px-6 py-2 text-xs uppercase tracking-wide-sm">
                     Close
                   </button>
                 </div>
@@ -1011,42 +953,31 @@ export default function ArtistDashboard() {
           );
         })()}
 
-        {/* Modal: Talent Verification (PIN Check-in) */}
+        {/* Modals */}
         {activeVerifyBooking && (
           <TalentVerificationModal
             bookingId={activeVerifyBooking.id}
             eventName={activeVerifyBooking.eventName}
             isOpen={!!activeVerifyBooking}
             onClose={() => setActiveVerifyBooking(null)}
-            onVerified={() => {
-              setActiveVerifyBooking(null);
-              loadDashboardData(false);
-            }}
+            onVerified={() => { setActiveVerifyBooking(null); loadDashboardData(false); }}
           />
         )}
 
-        {/* Modal: Talent Check-out */}
         {activeCheckoutBooking && (
           <TalentCheckoutModal
             bookingId={activeCheckoutBooking.id}
             eventName={activeCheckoutBooking.eventName}
             isOpen={!!activeCheckoutBooking}
             onClose={() => setActiveCheckoutBooking(null)}
-            onCheckoutSuccess={() => {
-              setActiveCheckoutBooking(null);
-              loadDashboardData(false);
-            }}
+            onCheckoutSuccess={() => { setActiveCheckoutBooking(null); loadDashboardData(false); }}
           />
         )}
 
-        {/* Review Modal Trigger (For rating the host) */}
         {reviewBookingTarget && (
           <ReviewModal
             isOpen={isReviewModalOpen}
-            onClose={() => {
-              setIsReviewModalOpen(false);
-              setReviewBookingTarget(null);
-            }}
+            onClose={() => { setIsReviewModalOpen(false); setReviewBookingTarget(null); }}
             bookingId={reviewBookingTarget.id}
             artistId={reviewBookingTarget.artist_id || profile?.id}
             targetHostId={reviewBookingTarget.host_id || reviewBookingTarget.client_id}
@@ -1055,14 +986,10 @@ export default function ArtistDashboard() {
           />
         )}
 
-        {/* Pitch Modal Trigger */}
         {selectedGigForPitch && (
           <PitchGigModal
             isOpen={isPitchModalOpen}
-            onClose={() => {
-              setIsPitchModalOpen(false);
-              setSelectedGigForPitch(null);
-            }}
+            onClose={() => { setIsPitchModalOpen(false); setSelectedGigForPitch(null); }}
             gigId={selectedGigForPitch.id}
             gigTitle={selectedGigForPitch.title}
             eventDate={selectedGigForPitch.event_date}
