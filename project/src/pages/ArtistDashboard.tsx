@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { 
@@ -80,21 +80,12 @@ function formatCurrency(n: number | null) {
 export default function ArtistDashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [openGigs, setOpenGigs] = useState<Gig[]>([]);
-  const [userPitches, setUserPitches] = useState>(new Map());
+  const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
-
-  // Automatically switch to 'earnings' if URL has ?tab=earnings
-  useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    if (params.get('tab') === 'earnings') {
-      setFilter('earnings');
-    }
-  }, [location.search]);
 
   // Selection & Bulk Deletion State
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
@@ -637,7 +628,7 @@ export default function ArtistDashboard() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="flex flex-wrap gap-2">
             {['all', 'pending', 'pending_verification', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
-              <button key={f} onClick={() => { setFilter(f); if(location.search) navigate('/artist-dashboard', { replace: true }); }}
+              <button key={f} onClick={() => setFilter(f)}
                 className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
                 {f.replace('_', ' ')} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
               </button>
