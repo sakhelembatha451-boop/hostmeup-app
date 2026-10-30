@@ -35,7 +35,7 @@ export const TalentEarningsTab: React.FC = () => {
         new Set([authUserId, artistProfile?.id].filter(Boolean))
       );
 
-      // Fetch bookings for this talent
+      // Fetch bookings for logged-in talent
       const { data, error } = await supabase
         .from('bookings')
         .select('*')
@@ -47,7 +47,7 @@ export const TalentEarningsTab: React.FC = () => {
       setBookings(data || []);
     } catch (err) {
       console.error('Error loading earnings data:', err);
-    } font-sans finally {
+    } finally {
       setLoading(false);
     }
   }, [profile?.id]);
@@ -64,10 +64,10 @@ export const TalentEarningsTab: React.FC = () => {
     );
   }
 
-  // Calculate dynamic totals (applying 33% platform fee deduction)
+  // 33% Platform Fee Calculation (Talent keeps 67%)
   const PLATFORM_FEE_RATE = 0.33;
 
-  // Escrow held (Confirmed/Accepted/Checked-in bookings)
+  // Escrow held (Confirmed / Accepted / Checked-in bookings)
   const grossEscrow = bookings
     .filter((b) => ['confirmed', 'accepted', 'checked_in'].includes(b.status) || b.deposit_paid)
     .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
