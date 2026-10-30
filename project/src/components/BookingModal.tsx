@@ -1,622 +1,670 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect, FormEvent, useMemo } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
-import { 
-  Calendar, MapPin, Clock, Loader2, Package, Check, X, 
-  ExternalLink, ShieldCheck, Eye, MessageSquare, AlertTriangle, 
-  MapPinCheck, LogOut, PhoneCall, ShieldAlert, CheckCircle2, KeyRound,
-  Trash2, CheckSquare, Square
-} from 'lucide-react';
-import type { Booking } from '@/types';
-import { StatusBadge, EmptyState, Tag } from '@/components/UI';
-import HostStatusBadge from '@/components/HostStatusBadge';
-import TalentVerificationModal from '@/components/TalentVerificationModal';
-import TalentCheckoutModal from '@/components/TalentCheckoutModal';
+import { Loader2, ArrowLeft, Calendar, Clock, MapPin, Plus, X, AlertCircle, CheckCircle2, Music, Lock, CreditCard, ShieldCheck, ShieldAlert, UserPlus, Trash2, Search, ExternalLink } from 'lucide-react';
+import type { ArtistWithProfile } from '@/types';
+import { getAdminId, createConversation, createNotification } from '@/lib/messaging';
 import { maskContactInfo } from '@/utils/masking';
 
-type BookingWithHost = Booking & {
-  conversation_id?: string | null;
-  checked_in_at?: string | null;
-  completed_at?: string | null;
-  deposit_paid?: boolean;
-  balance_paid?: boolean;
-  is_arrival_verified?: boolean;
-  is_deleted?: boolean;
-  host?: {
-    id: string;
-    full_name: string;
-    avatar_url: string | null;
-    location: string;
-    email?: string;
-    phone?: string;
-    is_verified?: boolean;
-    verified?: boolean;
-    host_profile?: {
-      company_name?: string | null;
-      is_identity_verified?: boolean;
-      verification_status?: 'pending' | 'approved' | 'rejected' | null;
-    } | null;
-  };
-};
-
-function formatCurrency(n: number | null) {
-  if (n == null) return 'R0';
-  return `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+interface SelectedTalent {
+  artist: ArtistWithProfile;
+  rate: number;
+  rateUnit: string;
 }
 
-export default function ArtistDashboard() {
+const EQUIPMENT_OPTIONS = ['PA System', 'Microphones', 'DJ Controller', 'Speakers', 'Mixing Board', 'Stage Lighting', 'Instruments', 'Cables', 'Drum Kit', 'Keyboard'];
+
+function formatCurrency(n: number) {
+  return new Intl.NumberFormat('en-ZA', { style: 'currency', currency: 'ZAR', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
+}
+
+export default function BookingRequestPage() {
+  const { id } = useParams<{ id: string }>();
   const { profile } = useAuth();
   const navigate = useNavigate();
-  const [bookings, setBookings] = useState<BookingWithHost[]>([]);
+  
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>('all');
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+  const [showCheckout, setShowCheckout] = useState(false);
+  const [bookingCreated, setBookingCreated] = useState(false);
+  const [createdBookingId, setCreatedBookingId] = useState<string | null>(null);
 
-  // Selection & Bulk Deletion State
-  const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
-  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+  const [selectedTalents, setSelectedTalents] = useState<SelectedTalent[]>([]);
+  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<ArtistWithProfile[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
-  // Modals State
-  const [selectedBooking, setSelectedBooking] = useState<BookingWithHost | null>(null);
-  const [reportBooking, setReportBooking] = useState<BookingWithHost | null>(null);
-  const [cancelBooking, setCancelBooking] = useState<BookingWithHost | null>(null);
-  const [activeVerifyBooking, setActiveVerifyBooking] = useState<{ id: string; eventName: string } | null>(null);
-  const [activeCheckoutBooking, setActiveCheckoutBooking] = useState<{ id: string; eventName: string } | null>(null);
+  const [hostVerification, setHostVerification] = useState<{
+    is_identity_verified: boolean;
+    verification_status: 'pending' | 'approved' | 'rejected' | null;
+  } | null>(null);
 
-  const loadDashboardData = useCallback(async (isInitialLoad = false) => {
-    if (!profile?.id) {
-      setLoading(false);
+  const [eventName, setEventName] = useState('');
+  const [eventDate, setEventDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [durationHours, setDurationHours] = useState('');
+  const [location, setLocation] = useState('');
+  const [notes, setNotes] = useState('');
+  const [equipment, setEquipment] = useState<string[]>([]);
+  const [customEquipment, setCustomEquipment] = useState('');
+
+  const extractTalentInfo = (artistData: ArtistWithProfile): SelectedTalent => {
+    const ap = artistData.artist_profile;
+    const rateUnit = ap?.rate_unit || 'hour';
+    const baseRate = ap?.base_rate ?? ap?.hourly_rate ?? ap?.rate ?? 0;
+    return {
+      artist: artistData,
+      rate: Number(baseRate) || 0,
+      rateUnit,
+    };
+  };
+
+  useEffect(() => {
+    if (!id) return;
+    let isMounted = true;
+
+    async function loadTalentData() {
+      setLoading(true);
+      setError('');
+
+      try {
+        // 1. Check if the ID parameter is an existing Booking record
+        const { data: existingBooking, error: bookingErr } = await supabase
+          .from('bookings')
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (existingBooking && !bookingErr && isMounted) {
+          setEventName(existingBooking.event_name || '');
+          setEventDate(existingBooking.event_date || '');
+          setStartTime(existingBooking.start_time || '');
+          setDurationHours(existingBooking.gig_duration ? existingBooking.gig_duration.replace(' hrs', '').replace(' hours', '') : '2');
+          setLocation(existingBooking.location || '');
+          setNotes(existingBooking.notes || '');
+          setCreatedBookingId(existingBooking.id);
+
+          // Fetch artist profile details separately to avoid relationship 400 errors
+          let talentObj: ArtistWithProfile | null = null;
+          if (existingBooking.artist_id) {
+            const { data: userProfile } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', existingBooking.artist_id)
+              .maybeSingle();
+
+            const { data: artistProfileData } = await supabase
+              .from('artist_profiles')
+              .select('*')
+              .eq('user_id', existingBooking.artist_id)
+              .maybeSingle();
+
+            if (userProfile) {
+              talentObj = {
+                ...userProfile,
+                artist_profile: artistProfileData || null,
+              } as ArtistWithProfile;
+            }
+          }
+
+          if (!talentObj) {
+            talentObj = {
+              id: existingBooking.artist_id || 'unknown',
+              full_name: 'Artist Talent',
+              artist_profile: null,
+            } as unknown as ArtistWithProfile;
+          }
+
+          const price = Number(existingBooking.total_amount || existingBooking.total_price || 0);
+          setSelectedTalents([{
+            artist: talentObj,
+            rate: price,
+            rateUnit: 'flat',
+          }]);
+
+          if (profile?.id) {
+            const { data: hostData } = await supabase
+              .from('host_profiles')
+              .select('is_identity_verified, verification_status')
+              .eq('id', profile.id)
+              .maybeSingle();
+
+            if (hostData) setHostVerification(hostData);
+          }
+
+          setShowCheckout(true);
+          setLoading(false);
+          return;
+        }
+
+        // 2. Fallback to artist profile lookup for manual booking creation
+        let targetUserId: string | null = null;
+        let artistProfileData: any = null;
+
+        const { data: apByUser } = await supabase
+          .from('artist_profiles')
+          .select('*')
+          .eq('user_id', id)
+          .maybeSingle();
+
+        if (apByUser) {
+          targetUserId = id;
+          artistProfileData = apByUser;
+        } else {
+          const { data: apById } = await supabase
+            .from('artist_profiles')
+            .select('*')
+            .eq('id', id)
+            .maybeSingle();
+
+          if (apById) {
+            targetUserId = apById.user_id;
+            artistProfileData = apById;
+          }
+        }
+
+        let fetchedArtist: ArtistWithProfile | null = null;
+
+        if (targetUserId) {
+          const { data: userProfile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', targetUserId)
+            .maybeSingle();
+
+          if (userProfile && isMounted) {
+            fetchedArtist = {
+              ...userProfile,
+              artist_profile: artistProfileData || null,
+            } as ArtistWithProfile;
+          }
+        } else if (artistProfileData && isMounted) {
+          fetchedArtist = {
+            id: artistProfileData.user_id,
+            full_name: artistProfileData.stage_name || 'Talent',
+            artist_profile: artistProfileData,
+          } as unknown as ArtistWithProfile;
+        }
+
+        if (fetchedArtist && isMounted) {
+          setSelectedTalents([extractTalentInfo(fetchedArtist)]);
+        }
+
+        if (profile?.id && isMounted) {
+          const { data: hostData } = await supabase
+            .from('host_profiles')
+            .select('is_identity_verified, verification_status')
+            .eq('id', profile.id)
+            .maybeSingle();
+
+          if (hostData) setHostVerification(hostData);
+        }
+      } catch (err: any) {
+        console.error('Error resolving booking page talent:', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    }
+
+    loadTalentData();
+    return () => { isMounted = false; };
+  }, [id, profile?.id]);
+
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchResults([]);
       return;
     }
 
-    if (isInitialLoad) {
-      setLoading(true);
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const { data: profiles } = await supabase
+          .from('artist_profiles')
+          .select('*, profiles:user_id(*)')
+          .or(`stage_name.ilike.%${searchQuery}%,bio.ilike.%${searchQuery}%`)
+          .limit(5);
+
+        if (profiles) {
+          const formatted: ArtistWithProfile[] = profiles.map((ap: any) => ({
+            ...(ap.profiles || {}),
+            id: ap.user_id,
+            full_name: ap.stage_name || ap.profiles?.full_name || 'Talent Provider',
+            artist_profile: ap,
+          }));
+          setSearchResults(formatted.filter(item => !selectedTalents.some(st => st.artist.id === item.id)));
+        }
+      } catch (err) {
+        console.error('Error searching talents:', err);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [searchQuery, selectedTalents]);
+
+  const addTalentToBooking = (artistToAdd: ArtistWithProfile) => {
+    setSelectedTalents(prev => [...prev, extractTalentInfo(artistToAdd)]);
+    setSearchQuery('');
+    setSearchResults([]);
+  };
+
+  const removeTalentFromBooking = (artistId: string) => {
+    if (selectedTalents.length <= 1) {
+      setError('A booking must have at least one talent provider.');
+      return;
     }
+    setSelectedTalents(prev => prev.filter(t => t.artist.id !== artistId));
+  };
 
-    try {
-      // 1. Fetch artist profile associated with current user
-      const { data: artistProfile } = await supabase
-        .from('artist_profiles')
-        .select('id')
-        .eq('user_id', profile.id)
-        .maybeSingle();
+  // Strictly enforce 40% deposit and 60% balance calculation
+  const { totalAmount, depositAmount, remainingBalance } = useMemo(() => {
+    const hours = parseFloat(durationHours) || 0;
+    let total = 0;
 
-      const validProfileId = profile.id;
-      const validArtistProfileId = artistProfile?.id;
-
-      // 2. Build clean OR query targeting valid UUIDs
-      let query = supabase.from('bookings').select('*');
-
-      if (validArtistProfileId) {
-        query = query.or(`artist_id.eq.${validProfileId},artist_id.eq.${validArtistProfileId},client_id.eq.${validProfileId}`);
+    selectedTalents.forEach(item => {
+      if (item.rateUnit === 'hour') {
+        total += item.rate * hours;
       } else {
-        query = query.or(`artist_id.eq.${validProfileId},client_id.eq.${validProfileId}`);
+        total += item.rate;
       }
+    });
 
-      const { data: rawBookings, error: bookingsErr } = await query
-        .or('is_deleted.eq.false,is_deleted.is.null')
-        .order('created_at', { ascending: false });
+    const deposit = total * 0.40;
+    const remaining = total * 0.60;
+    return { totalAmount: total, depositAmount: deposit, remainingBalance: remaining };
+  }, [selectedTalents, durationHours]);
 
-      if (bookingsErr) {
-        console.error('Error fetching artist bookings:', bookingsErr);
-        setBookings([]);
-        return;
-      }
+  const toggleEquipment = (item: string) => setEquipment(equipment.includes(item) ? equipment.filter((e) => e !== item) : [...equipment, item]);
+  const addCustomEquipment = () => { if (customEquipment.trim()) { setEquipment([...equipment, customEquipment.trim()]); setCustomEquipment(''); } };
 
-      if (!rawBookings || rawBookings.length === 0) {
-        setBookings([]);
-        return;
-      }
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!profile) return;
+    if (selectedTalents.length === 0) { setError('Please select at least one talent provider.'); return; }
+    if (!eventName || !eventDate || !location) { setError('Please fill in all required fields'); return; }
 
-      // 3. Populate Host information for cards & apply automatic contact masking security checks
-      let processedBookings = rawBookings;
-      const hostIds = Array.from(
-        new Set(rawBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
-      );
-
-      if (hostIds.length > 0) {
-        const { data: profileRecords } = await supabase
-          .from('profiles')
-          .select('id, full_name, email, avatar_url, location')
-          .in('id', hostIds);
-
-        const profileMap = new Map((profileRecords || []).map((p) => [p.id, p]));
-
-        processedBookings = rawBookings.map((b) => {
-          const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
-          const isPaid = b.deposit_paid || b.balance_paid || b.status === 'confirmed' || b.status === 'fully_paid';
-
-          // Apply dynamic masking if unpaid
-          const rawNotes = b.special_requests || b.notes || '';
-          const sanitizedNotes = isPaid ? rawNotes : maskContactInfo(rawNotes);
-          
-          const rawHostEmail = p?.email || '';
-          const sanitizedHostEmail = isPaid ? rawHostEmail : (rawHostEmail ? maskContactInfo(rawHostEmail) : '');
-
-          return {
-            ...b,
-            special_requests: sanitizedNotes,
-            notes: sanitizedNotes,
-            host: {
-              id: p?.id || b.host_id || b.client_id,
-              full_name: p?.full_name || 'Host',
-              avatar_url: p?.avatar_url || null,
-              location: p?.location || '',
-              email: sanitizedHostEmail,
-              is_verified: true,
-              verified: true,
-              host_profile: null,
-            },
-          };
-        });
-      }
-
-      const formattedBookings = processedBookings as BookingWithHost[];
-      setBookings(formattedBookings);
-
-      setSelectedBooking((prevSelected) => {
-        if (!prevSelected) return null;
-        const updatedSelected = formattedBookings.find((b) => b.id === prevSelected.id);
-        return updatedSelected || prevSelected;
-      });
-    } catch (err) {
-      console.error('Error loading artist dashboard data:', err);
-      setBookings([]);
-    } finally {
-      setLoading(false);
+    const hasHourlyTalent = selectedTalents.some(t => t.rateUnit === 'hour');
+    if (hasHourlyTalent && (!durationHours || parseFloat(durationHours) <= 0)) { 
+      setError('Please enter the duration in hours for hourly talent.'); 
+      return; 
     }
-  }, [profile?.id]);
 
-  useEffect(() => { 
-    loadDashboardData(true); 
-  }, [loadDashboardData]);
+    setSubmitting(true);
+    setError('');
 
-  const toggleSelectBooking = (id: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    setSelectedBookingIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
+    const primaryTalent = selectedTalents[0].artist;
+    const targetArtistId = primaryTalent.id || primaryTalent.artist_profile?.user_id || id;
 
-  const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
+    const rawNoteText = `Hired Talent Providers (${selectedTalents.length}): ${selectedTalents.map(t => t.artist.artist_profile?.stage_name || t.artist.full_name).join(', ')}. ${notes}`;
+    const sanitizedNotes = maskContactInfo(rawNoteText);
 
-  const toggleSelectAll = () => {
-    const allFilteredIds = filtered.map((b) => b.id);
-    const areAllSelected = allFilteredIds.every((id) => selectedBookingIds.includes(id));
+    const payload = {
+      artist_id: targetArtistId,
+      host_id: profile.id,
+      event_name: eventName,
+      event_date: eventDate,
+      start_time: startTime || null,
+      gig_duration: `${durationHours || '1'} hours`,
+      equipment_needed: equipment,
+      location,
+      notes: sanitizedNotes,
+      status: 'pending',
+      total_amount: totalAmount,
+      deposit_amount: depositAmount, // 40% deposit
+      deposit_paid: false,
+    };
 
-    if (areAllSelected) {
-      setSelectedBookingIds((prev) => prev.filter((id) => !allFilteredIds.includes(id)));
-    } else {
-      setSelectedBookingIds((prev) => Array.from(new Set([...prev, ...allFilteredIds])));
-    }
-  };
-
-  const handleDeleteBookings = async (idsToDelete: string[], e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (idsToDelete.length === 0) return;
-
-    const confirmMessage = idsToDelete.length === 1
-      ? 'Are you sure you want to delete this booking card?'
-      : `Are you sure you want to delete ${idsToDelete.length} selected booking cards?`;
-
-    if (!window.confirm(confirmMessage)) return;
-
-    setIsDeleting(true);
     try {
-      setBookings((prev) => prev.filter((b) => !idsToDelete.includes(b.id)));
-      setSelectedBookingIds((prev) => prev.filter((id) => !idsToDelete.includes(id)));
+      let { data, error: insertErr } = await supabase
+        .from('bookings')
+        .insert(payload)
+        .select('id')
+        .single();
 
-      if (selectedBooking && idsToDelete.includes(selectedBooking.id)) {
-        setSelectedBooking(null);
+      if (insertErr && insertErr.message.includes("Could not find the table")) {
+        const fallback = await supabase
+          .from('booking')
+          .insert(payload)
+          .select('id')
+          .single();
+
+        data = fallback.data;
+        insertErr = fallback.error;
       }
 
-      const { error } = await supabase
-        .from('bookings')
-        .update({ is_deleted: true })
-        .in('id', idsToDelete);
+      if (insertErr) throw insertErr;
 
-      if (error) {
-        const hardDelete = await supabase
-          .from('bookings')
-          .delete()
-          .in('id', idsToDelete);
+      if (data) {
+        setCreatedBookingId(data.id);
+        
+        try {
+          const adminId = await getAdminId();
+          const hostName = profile.full_name || 'A host';
 
-        if (hardDelete.error) throw hardDelete.error;
+          for (const item of selectedTalents) {
+            const artistObj = item.artist;
+            const artistName = artistObj.artist_profile?.stage_name || artistObj.full_name || 'Talent';
+            const artistUserId = artistObj.id || artistObj.artist_profile?.user_id;
+
+            if (artistUserId) {
+              const initialMsg = `New booking request for ${artistName} — ${eventName} on ${new Date(eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${location}. Duration: ${durationHours ? `${durationHours} hours` : 'Event'}. Total: ${formatCurrency(item.rateUnit === 'hour' ? item.rate * (parseFloat(durationHours) || 1) : item.rate)}.`;
+              
+              await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
+              await createNotification(
+                artistUserId,
+                'booking',
+                'New Booking Request! 📅',
+                `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
+                '/artist-dashboard',
+                undefined,
+                data.id
+              );
+            }
+          }
+        } catch (err) {
+          console.warn('Non-fatal notification dispatch error:', err);
+        }
+
+        setShowCheckout(true);
       }
     } catch (err: any) {
-      console.error('Error deleting booking(s):', err);
-      alert(`Could not delete booking: ${err?.message || 'Database permission denied'}`);
-      loadDashboardData(false);
+      setError(err.message || 'Failed to submit booking request.');
     } finally {
-      setIsDeleting(false);
+      setSubmitting(false);
     }
   };
 
-  const renderCustomStatusBadge = (booking: BookingWithHost) => {
-    const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
-    const isDepositPaid = booking.deposit_paid || booking.status === 'confirmed';
-
-    if (isFullyPaid) {
-      return (
-        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-sm inline-flex items-center gap-1">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Balance Paid
-        </span>
-      );
-    }
-
-    if (isDepositPaid) {
-      return (
-        <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200 rounded-sm inline-flex items-center gap-1">
-          <CheckCircle2 className="w-3.5 h-3.5 text-teal-600" /> Deposit Paid (Escrow Secured)
-        </span>
-      );
-    }
-
-    return <StatusBadge status={booking.status} />;
+  const handlePayDepositRedirect = () => {
+    window.open('https://pay.yoco.com/hostmeup', '_blank');
+    setShowCheckout(false);
+    setBookingCreated(true);
+    setTimeout(() => navigate('/host-dashboard'), 1500);
   };
 
-  const updateBookingStatus = async (id: string, newStatus: string, extraFields: Record<string, any> = {}) => {
-    setUpdatingId(id);
-    try {
-      const payload = { 
-        status: newStatus, 
-        updated_at: new Date().toISOString(),
-        ...extraFields 
-      };
-
-      const { error } = await supabase
-        .from('bookings')
-        .update(payload)
-        .eq('id', id);
-
-      if (error) throw error;
-
-      await loadDashboardData(false);
-    } catch (err) {
-      console.error('Error updating status:', err);
-      alert('Could not update status. Please try again.');
-    } finally {
-      setUpdatingId(null);
-    }
+  const handleSkipPayment = () => {
+    setShowCheckout(false);
+    setBookingCreated(true);
+    setTimeout(() => navigate('/host-dashboard'), 1500);
   };
-
-  const counts = {
-    all: bookings.length,
-    pending: bookings.filter((b) => b.status === 'pending').length,
-    confirmed: bookings.filter((b) => b.status === 'confirmed' || b.deposit_paid).length,
-    accepted: bookings.filter((b) => b.status === 'accepted').length,
-    declined: bookings.filter((b) => b.status === 'declined').length,
-    completed: bookings.filter((b) => b.status === 'completed').length,
-  };
-
-  const totalEarnings = bookings
-    .filter((b) => b.status === 'confirmed' || b.status === 'accepted' || b.status === 'completed' || b.status === 'fully_paid')
-    .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
-  
-  const depositedAmount = bookings
-    .filter((b) => b.deposit_paid)
-    .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
-  const allFilteredSelected = filtered.length > 0 && filtered.every((b) => selectedBookingIds.includes(b.id));
+  if (selectedTalents.length === 0) return (
+    <div className="min-h-screen flex flex-col items-center justify-center text-center px-4">
+      <h2 className="font-display text-2xl text-ink mb-2">Talent not found</h2>
+      <p className="text-sm text-ink-400 mb-4">The artist or talent profile you are looking for could not be located.</p>
+      <Link to="/artists" aria-label="Back to talent directory" className="text-sm font-medium text-accent hover:text-accent-600 underline">Back to directory</Link>
+    </div>
+  );
+
+  if (bookingCreated) return (
+    <div className="min-h-screen flex items-center justify-center bg-paper px-4">
+      <div className="text-center animate-scale-in">
+        <div className="w-16 h-16 border border-accent-200 bg-accent-50 flex items-center justify-center text-accent mx-auto mb-6"><CheckCircle2 className="w-8 h-8" /></div>
+        <h2 className="font-display text-3xl font-bold text-ink mb-2">Booking Requests Sent!</h2>
+        <p className="text-ink-400">Redirecting to your dashboard...</p>
+      </div>
+    </div>
+  );
+
+  const isHostVerified = hostVerification?.is_identity_verified || hostVerification?.verification_status === 'approved';
 
   return (
     <div className="min-h-screen bg-paper">
-      <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12">
-        
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-10">
-          <div>
-            <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Talent Dashboard</p>
-            <h1 className="font-display text-4xl font-bold text-ink mb-1 tracking-tight">Incoming Requests</h1>
-            <p className="text-ink-400">View, manage, check into events, and monitor safety features.</p>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link to={`/artists/${profile?.id}`} aria-label="View public profile" className="btn-outline inline-flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wide-sm">
-              <ExternalLink className="w-3.5 h-3.5" /> View Profile
+      <div className="max-w-3xl mx-auto px-6 lg:px-12 py-12">
+        <Link to={`/artists/${selectedTalents[0]?.artist.id || id}`} aria-label="Back to talent profile" className="inline-flex items-center gap-2 text-xs font-medium text-ink-400 hover:text-ink uppercase tracking-wide-sm mb-8 transition-colors">
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Profile
+        </Link>
+
+        {!isHostVerified && (
+          <div className="flex items-start justify-between gap-3 p-4 mb-6 border border-amber-200 bg-amber-50 text-amber-900 text-xs">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="w-4 h-4 mt-0.5 text-amber-700 flex-shrink-0" />
+              <div>
+                <strong className="font-semibold block mb-0.5">Verification Recommended</strong>
+                <span>
+                  {hostVerification?.verification_status === 'pending'
+                    ? 'Your host verification is currently under review by our team.'
+                    : 'Your host identity is unverified. Verifying your profile increases booking acceptance rates from talent.'}
+                </span>
+              </div>
+            </div>
+            <Link to="/host-settings" className="font-semibold underline whitespace-nowrap text-amber-900 hover:text-amber-700">
+              Verify Now
             </Link>
           </div>
-        </div>
+        )}
 
-        {/* Earnings & Stats */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-10 border-y border-line py-6">
-          <div>
-            <div className="font-display text-4xl font-bold text-ink mb-1">{counts.all}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Total Requests</div>
-          </div>
-          <div>
-            <div className="font-display text-4xl font-bold text-ink mb-1">{counts.pending}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Pending</div>
-          </div>
-          <div>
-            <div className="font-display text-3xl font-bold text-accent mb-1">{formatCurrency(depositedAmount)}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Deposits Received</div>
-          </div>
-          <div>
-            <div className="font-display text-3xl font-bold text-ink-500 mb-1">{formatCurrency(totalEarnings)}</div>
-            <div className="text-xs uppercase tracking-wide-sm text-ink-400">Total Booked Value</div>
-          </div>
-        </div>
+        <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-2">— Multi-Talent Booking Request</p>
+        <h1 className="font-display text-3xl font-bold text-ink mb-2">Hire talent for your event.</h1>
+        <p className="text-ink-400 mb-8">Add multiple providers to a single event booking and pay one combined 40% deposit.</p>
 
-        {/* Filters and Selection Bar */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
-          <div className="flex flex-wrap gap-2">
-            {['all', 'pending', 'confirmed', 'accepted', 'completed', 'declined'].map((f) => (
-              <button key={f} onClick={() => setFilter(f)}
-                className={`filter-chip capitalize ${filter === f ? 'filter-chip-active' : 'filter-chip-inactive'}`}>
-                {f} {counts[f as keyof typeof counts] > 0 && `(${counts[f as keyof typeof counts]})`}
-              </button>
-            ))}
-          </div>
+        <div className="border border-line p-6 mb-8 bg-paper-100">
+          <h3 className="font-display text-base font-bold text-ink mb-4 flex items-center justify-between">
+            <span>Selected Talent Roster ({selectedTalents.length})</span>
+          </h3>
 
-          {/* Bulk Selection Actions */}
-          {filtered.length > 0 && (
-            <div className="flex items-center gap-3">
-              <button
-                onClick={toggleSelectAll}
-                className="text-xs font-semibold text-ink-500 hover:text-ink flex items-center gap-1.5 transition-colors">
-                {allFilteredSelected ? (
-                  <CheckSquare className="w-4 h-4 text-ink" />
-                ) : (
-                  <Square className="w-4 h-4 text-ink-300" />
-                )}
-                {allFilteredSelected ? 'Deselect All' : 'Select All'}
-              </button>
-
-              {selectedBookingIds.length > 0 && (
-                <button
-                  onClick={(e) => handleDeleteBookings(selectedBookingIds, e)}
-                  disabled={isDeleting}
-                  className="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-1.5 rounded inline-flex items-center gap-1.5 transition-colors shadow-xs">
-                  {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                  Delete Selected ({selectedBookingIds.length})
-                </button>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Booking Card List */}
-        {filtered.length === 0 ? (
-          <EmptyState icon={<Calendar className="w-8 h-8" />}
-            title={bookings.length === 0 ? "No booking requests yet" : "No requests match this filter"}
-            message={bookings.length === 0 ? "When hosts send you booking requests, they'll appear here." : "Try a different filter."}
-            actionLabel={bookings.length === 0 ? "Edit Your Profile" : undefined}
-            actionTo={bookings.length === 0 ? "/artist-profile/edit" : undefined} />
-        ) : (
-          <div className="space-y-6">
-            {filtered.map((booking) => {
-              const isSelected = selectedBookingIds.includes(booking.id);
-
+          <div className="space-y-3 mb-6">
+            {selectedTalents.map((item, idx) => {
+              const ap = item.artist.artist_profile;
+              const name = ap?.stage_name || item.artist.full_name;
               return (
-                <div 
-                  key={booking.id} 
-                  onClick={() => setSelectedBooking(booking)}
-                  className={`border p-6 bg-white cursor-pointer animate-fade-in transition-all relative ${
-                    isSelected ? 'border-ink bg-paper-200/20 shadow-sm' : 'border-line hover:border-ink/40 hover:shadow-sm'
-                  }`}
-                >
-                  <div className="absolute top-4 right-4 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={(e) => handleDeleteBookings([booking.id], e)}
-                      title="Delete booking card"
-                      className="p-1.5 text-ink-300 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={(e) => toggleSelectBooking(booking.id, e)}
-                      className="p-1 text-ink-400 hover:text-ink transition-colors"
-                    >
-                      {isSelected ? (
-                        <CheckSquare className="w-5 h-5 text-ink" />
-                      ) : (
-                        <Square className="w-5 h-5 text-ink-300" />
-                      )}
-                    </button>
+                <div key={item.artist.id || idx} className="flex items-center justify-between p-4 bg-paper border border-line">
+                  <div className="flex items-center gap-4">
+                    {item.artist.avatar_url ? (
+                      <img src={item.artist.avatar_url} alt={name} className="w-12 h-12 rounded-full object-cover border border-line" />
+                    ) : (
+                      <div className="w-12 h-12 rounded-full bg-ink text-paper flex items-center justify-center font-bold">{name[0]?.toUpperCase()}</div>
+                    )}
+                    <div>
+                      <h4 className="font-bold text-ink text-sm">{name}</h4>
+                      <p className="text-xs text-ink-400">{ap?.performance_roles?.join(', ') || ap?.category || 'Talent Provider'}</p>
+                    </div>
                   </div>
-
-                  <div className="flex flex-col sm:flex-row sm:items-start gap-6 pr-16">
-                    <div className="flex items-center gap-4 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                      {booking.host?.avatar_url ? (
-                        <img src={booking.host.avatar_url} alt="" width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
-                      ) : (
-                        <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-display text-lg font-bold">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
-                      )}
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-display font-semibold text-ink">
-                            {booking.host?.full_name || 'Host'}
-                          </span>
-                          <HostStatusBadge isVerified={true} verificationStatus="approved" />
-                        </div>
-                        <div className="text-xs text-ink-400 mt-0.5">Verified Host</div>
-                      </div>
-                    </div>
-
-                    <div className="flex-1">
-                      <div className="flex items-center justify-between gap-3 mb-4">
-                        <h3 className="font-display text-xl font-semibold text-ink">{booking.event_name || 'Untitled Event'}</h3>
-                        {renderCustomStatusBadge(booking)}
-                      </div>
-
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-4">
-                        <div className="flex items-center gap-1.5 text-ink-500">
-                          <Calendar className="w-3.5 h-3.5 text-ink-300" />
-                          <span>{booking.event_date ? new Date(booking.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}</span>
-                        </div>
-                        {booking.start_time && <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span>{booking.start_time}</span></div>}
-                        <div className="flex items-center gap-1.5 text-ink-500"><Clock className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.gig_duration || booking.duration_hours ? `${booking.duration_hours} hrs` : '—'}</span></div>
-                        <div className="flex items-center gap-1.5 text-ink-500"><MapPin className="w-3.5 h-3.5 text-ink-300" /><span className="truncate">{booking.location || '—'}</span></div>
-                      </div>
-
-                      {/* Display masked inquiry notes if present */}
-                      {(booking.special_requests || booking.notes) && (
-                        <div className="mb-4 p-3 bg-paper-200/50 border border-line text-xs text-ink-600 rounded">
-                          <strong className="text-ink">Inquiry Notes:</strong> {booking.special_requests || booking.notes}
-                        </div>
-                      )}
-
-                      <div className="pt-4 border-t border-line flex flex-wrap items-center justify-between gap-3" onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => setSelectedBooking(booking)}
-                          className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide-sm text-ink hover:underline">
-                          <Eye className="w-3.5 h-3.5 text-ink-400" /> View Details
-                        </button>
-
-                        <div className="flex flex-wrap items-center gap-2">
-                          {booking.status === 'pending' && (
-                            <>
-                              <button 
-                                onClick={() => updateBookingStatus(booking.id, 'declined')}
-                                disabled={updatingId === booking.id}
-                                className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm text-red-600 border-red-200 hover:bg-red-50">
-                                {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <X className="w-3.5 h-3.5" />} Decline
-                              </button>
-                              <button 
-                                onClick={() => updateBookingStatus(booking.id, 'accepted')}
-                                disabled={updatingId === booking.id}
-                                className="btn-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
-                                {updatingId === booking.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Accept
-                              </button>
-                            </>
-                          )}
-
-                          {(booking.status === 'confirmed' || booking.status === 'accepted' || booking.status === 'checked_in') && (
-                            <>
-                              {!booking.is_arrival_verified ? (
-                                <button
-                                  onClick={() => setActiveVerifyBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
-                                  className="bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                                  <KeyRound className="w-3.5 h-3.5" /> Enter Host Pass Code
-                                </button>
-                              ) : (
-                                <button
-                                  onClick={() => updateBookingStatus(booking.id, 'checked_in', { checked_in_at: new Date().toISOString() })}
-                                  disabled={updatingId === booking.id}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm">
-                                  <MapPinCheck className="w-3.5 h-3.5" /> Arrived at Event
-                                </button>
-                              )}
-
-                              <button
-                                onClick={() => setActiveCheckoutBooking({ id: booking.id, eventName: booking.event_name || 'Event' })}
-                                className="bg-ink hover:bg-ink/90 text-paper inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded uppercase tracking-wide-sm shadow-xs transition-colors">
-                                <LogOut className="w-3.5 h-3.5" /> Check Out of Event
-                              </button>
-
-                              <button
-                                onClick={() => navigate('/inbox')}
-                                className="btn-outline inline-flex items-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-wide-sm">
-                                <MessageSquare className="w-3.5 h-3.5" /> Message Host
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
+                  <div className="flex items-center gap-4">
+                    <span className="text-sm font-semibold text-accent">
+                      {formatCurrency(item.rate)}/{item.rateUnit === 'hour' ? 'hr' : item.rateUnit}
+                    </span>
+                    {selectedTalents.length > 1 && (
+                      <button 
+                        type="button" 
+                        onClick={() => removeTalentFromBooking(item.artist.id)} 
+                        className="text-ink-400 hover:text-red-600 transition-colors"
+                        title="Remove talent"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
               );
             })}
           </div>
-        )}
 
-        {/* Modal: Details (With Explicit Dynamic Masking Applied) */}
-        {selectedBooking && (() => {
-          const isPaid = selectedBooking.deposit_paid || selectedBooking.balance_paid || selectedBooking.status === 'confirmed' || selectedBooking.status === 'fully_paid';
-          const rawNote = selectedBooking.special_requests || selectedBooking.notes || '';
-          const displayNote = isPaid ? rawNote : maskContactInfo(rawNote);
-          const rawEmail = selectedBooking.host?.email || '';
-          const displayEmail = isPaid ? rawEmail : (rawEmail ? maskContactInfo(rawEmail) : '');
+          <div className="relative">
+            <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 flex items-center gap-1">
+              <UserPlus className="w-3.5 h-3.5" /> Add Another Talent / Asset Provider to Event
+            </label>
+            <div className="relative">
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search talent or asset by stage name..."
+                className="input-editorial w-full pl-9 pr-4 py-2.5 text-sm"
+              />
+              <Search className="w-4 h-4 text-ink-400 absolute left-3 top-3" />
+              {isSearching && <Loader2 className="w-4 h-4 text-ink-400 animate-spin absolute right-3 top-3" />}
+            </div>
 
-          return (
-            <div className="fixed inset-0 bg-ink/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => setSelectedBooking(null)}>
-              <div className="bg-paper border border-line p-6 max-w-xl w-full shadow-2xl relative max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => setSelectedBooking(null)} className="absolute top-4 right-4 text-ink-400 hover:text-ink">
-                  <X className="w-5 h-5" />
-                </button>
-
-                <div className="flex items-center gap-3 mb-4">
-                  {renderCustomStatusBadge(selectedBooking)}
-                  <span className="text-xs text-ink-400">ID: {selectedBooking.id.substring(0, 8)}...</span>
-                </div>
-
-                <h2 className="font-display text-2xl font-bold text-ink mb-4">{selectedBooking.event_name || 'Untitled Event'}</h2>
-
-                {/* Host Info Box */}
-                <div className="p-4 bg-paper-200/50 border border-line rounded mb-4">
-                  <div className="flex items-center gap-3 mb-2">
-                    {selectedBooking.host?.avatar_url ? (
-                      <img src={selectedBooking.host.avatar_url} alt="" className="w-10 h-10 rounded-full object-cover" />
-                    ) : (
-                      <div className="w-10 h-10 rounded-full bg-ink-200 text-ink flex items-center justify-center font-bold">
-                        {selectedBooking.host?.full_name?.[0]?.toUpperCase() || '?'}
-                      </div>
-                    )}
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-ink">{selectedBooking.host?.full_name || 'Host'}</span>
-                        <HostStatusBadge isVerified={true} verificationStatus="approved" />
-                      </div>
-                      {displayEmail && <div className="text-xs text-ink-500 font-mono mt-0.5">{displayEmail}</div>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Event Details */}
-                <div className="space-y-3 text-sm mb-6">
-                  <div className="flex justify-between border-b border-line pb-2">
-                    <span className="text-ink-400">Date & Time:</span>
-                    <span className="font-medium">{selectedBooking.event_date ? new Date(selectedBooking.event_date).toLocaleDateString() : '—'} {selectedBooking.start_time || ''}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-line pb-2">
-                    <span className="text-ink-400">Location:</span>
-                    <span className="font-medium">{selectedBooking.location || '—'}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-line pb-2">
-                    <span className="text-ink-400">Agreed Price:</span>
-                    <span className="font-medium">{formatCurrency(selectedBooking.total_price || selectedBooking.total_amount || 0)}</span>
-                  </div>
-                  <div className="flex justify-between border-b border-line pb-2">
-                    <span className="text-ink-400">Required Deposit:</span>
-                    <span className="font-bold text-accent">{formatCurrency(selectedBooking.deposit_amount || 0)}</span>
-                  </div>
-                </div>
-
-                {/* Host Notes / Yoco Box */}
-                {displayNote && (
-                  <div className="mb-6">
-                    <label className="block text-xs uppercase tracking-wide-sm font-semibold text-ink-400 mb-2">
-                      Host Notes & Submitted Yoco Reference
-                    </label>
-                    <div className="p-3 bg-white border border-line text-xs font-mono rounded leading-relaxed text-ink">
-                      {displayNote}
-                    </div>
-                    {!isPaid && (
-                      <p className="text-[11px] text-amber-700 mt-1.5 flex items-center gap-1 font-sans">
-                        🛡️ Contact details hidden until booking deposit is cleared via HostMeUp Escrow.
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                <div className="pt-4 flex justify-between items-center border-t border-line">
-                  <button 
-                    onClick={() => navigate('/inbox')}
-                    className="btn-outline px-4 py-2 text-xs uppercase tracking-wide-sm flex items-center gap-1.5">
-                    <MessageSquare className="w-3.5 h-3.5" /> Message Host
+            {searchResults.length > 0 && (
+              <div className="absolute z-20 left-0 right-0 mt-1 bg-paper border border-line shadow-lg max-h-48 overflow-y-auto">
+                {searchResults.map((res) => (
+                  <button
+                    key={res.id}
+                    type="button"
+                    onClick={() => addTalentToBooking(res)}
+                    className="w-full flex items-center justify-between p-3 text-left hover:bg-paper-200 border-b border-line last:border-0 transition-colors"
+                  >
+                    <span className="text-sm font-medium text-ink">{res.artist_profile?.stage_name || res.full_name}</span>
+                    <span className="text-xs text-accent font-semibold">+ Add Provider</span>
                   </button>
-                  <button onClick={() => setSelectedBooking(null)} className="btn-primary px-5 py-2 text-xs uppercase tracking-wide-sm">Close</button>
-                </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {error && <div className="flex items-start gap-2 p-3 mb-6 border border-red-200 bg-red-50 text-red-700 text-sm"><AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>}
+
+        <form onSubmit={handleSubmit} className="space-y-8">
+          <div className="border border-line p-6 lg:p-8">
+            <h3 className="font-display text-lg font-semibold text-ink mb-6 flex items-center gap-2"><Calendar className="w-4 h-4 text-accent" /> Event Details</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div className="sm:col-span-2">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Event Name *</label>
+                <input type="text" required value={eventName} onChange={(e) => setEventName(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="Summer Music Festival 2026" />
+              </div>
+              <div>
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Event Date *</label>
+                <input type="date" required value={eventDate} onChange={(e) => setEventDate(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2">Start Time</label>
+                <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 flex items-center gap-1"><Clock className="w-3 h-3" /> Booking Duration (Hours) *</label>
+                <input type="number" min="0.5" step="0.5" required value={durationHours} onChange={(e) => setDurationHours(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="e.g. 4" />
+                <p className="text-xs text-ink-300 mt-1">This duration applies to all hourly rate talent selected above.</p>
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs uppercase tracking-wide-sm text-ink-400 mb-2 flex items-center gap-1"><MapPin className="w-3 h-3" /> Location / Venue *</label>
+                <input type="text" required value={location} onChange={(e) => setLocation(e.target.value)} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="Venue address" />
               </div>
             </div>
-          );
-        })()}
+          </div>
 
+          <div className="border border-line p-6 lg:p-8 bg-paper-200">
+            <h3 className="font-display text-lg font-semibold text-ink mb-6 flex items-center gap-2"><CreditCard className="w-4 h-4 text-accent" /> Pricing Summary</h3>
+            <div className="space-y-4">
+              <div className="flex items-baseline justify-between pb-4 border-b border-line">
+                <div>
+                  <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Total Booking Cost</p>
+                  <p className="text-sm text-ink-500">Combined total for {selectedTalents.length} provider(s)</p>
+                </div>
+                <span className="font-display text-3xl font-bold text-ink">{formatCurrency(totalAmount)}</span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-wide-sm text-accent mb-1">Required Upfront Deposit (40%)</p>
+                  <p className="text-sm text-ink-400">Due now to confirm all providers</p>
+                </div>
+                <span className="font-display text-2xl font-semibold text-accent">{formatCurrency(depositAmount)}</span>
+              </div>
+              <div className="flex items-baseline justify-between pt-4 border-t border-line">
+                <div>
+                  <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-1">Remaining Balance (60%)</p>
+                  <p className="text-sm text-ink-400">Due after event completion</p>
+                </div>
+                <span className="font-display text-2xl font-semibold text-ink-600">{formatCurrency(remainingBalance)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="border border-line p-6 lg:p-8">
+            <h3 className="font-display text-lg font-semibold text-ink mb-6">Equipment Needed</h3>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {EQUIPMENT_OPTIONS.map((item) => <button key={item} type="button" onClick={() => toggleEquipment(item)} className={`filter-chip ${equipment.includes(item) ? 'filter-chip-active' : 'filter-chip-inactive'}`}>{item}</button>)}
+            </div>
+            <div className="flex gap-2">
+              <input type="text" value={customEquipment} onChange={(e) => setCustomEquipment(e.target.value)} className="input-editorial flex-1 px-4 py-2.5 text-sm" placeholder="Add custom equipment..." onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustomEquipment(); } }} />
+              <button type="button" onClick={addCustomEquipment} className="inline-flex items-center gap-1 px-4 py-2.5 text-sm font-medium text-paper bg-ink hover:bg-ink-700 transition-colors rounded-none whitespace-nowrap"><Plus className="w-4 h-4" /> Add</button>
+            </div>
+            {equipment.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {equipment.map((item) => <span key={item} className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-accent-50 text-accent border border-accent-200 rounded-none">{item}<button type="button" onClick={() => toggleEquipment(item)} className="hover:text-accent-700"><X className="w-3 h-3" /></button></span>)}
+              </div>
+            )}
+          </div>
+
+          <div className="border border-line p-6 lg:p-8">
+            <h3 className="font-display text-lg font-semibold text-ink mb-6 flex items-center gap-2"><Music className="w-4 h-4 text-accent" /> Additional Notes</h3>
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={4} className="input-editorial w-full px-4 py-2.5 text-sm" placeholder="Special requests or instructions for the team..." />
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button type="submit" disabled={submitting} className="btn-primary inline-flex items-center gap-2 px-8 py-3.5 text-xs uppercase tracking-wide-sm disabled:opacity-50">
+              {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Calendar className="w-4 h-4" />} Continue to Checkout
+            </button>
+            <button type="button" onClick={() => navigate(-1)} className="btn-outline px-8 py-3.5 text-xs uppercase tracking-wide-sm">Cancel</button>
+          </div>
+        </form>
       </div>
+
+      {showCheckout && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 backdrop-blur-sm animate-fade-in p-4" onClick={() => setShowCheckout(false)}>
+          <div className="bg-paper border border-line max-w-md w-full p-8 animate-scale-in" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-10 h-10 border border-accent-200 bg-accent-50 flex items-center justify-center text-accent"><Lock className="w-5 h-5" /></div>
+              <div>
+                <h3 className="font-display text-xl font-bold text-ink">Secure Deposit Checkout</h3>
+                <p className="text-xs text-ink-400">Pay deposit with Yoco Payment Page</p>
+              </div>
+            </div>
+
+            <div className="border border-line p-4 mb-6 space-y-3">
+              <div className="flex justify-between text-sm">
+                <span className="text-ink-400">Providers Hired</span>
+                <span className="font-medium text-ink">{selectedTalents.length} Talent(s)</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-ink-400">Event</span>
+                <span className="font-medium text-ink">{eventName}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-ink-400">Date</span>
+                <span className="font-medium text-ink">{new Date(eventDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+              </div>
+              <div className="h-px bg-line my-2" />
+              <div className="flex justify-between text-sm">
+                <span className="text-ink-500">Total Booking Cost</span>
+                <span className="font-medium text-ink">{formatCurrency(totalAmount)}</span>
+              </div>
+              <div className="flex justify-between items-baseline">
+                <span className="text-sm text-accent font-medium">Upfront Deposit (40%)</span>
+                <span className="font-display text-xl font-bold text-accent">{formatCurrency(depositAmount)}</span>
+              </div>
+            </div>
+
+            <div className="p-3 mb-6 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-none">
+              <p className="font-semibold mb-1">Important Instructions for Yoco Checkout:</p>
+              <ul className="list-disc pl-4 space-y-1 text-amber-800">
+                <li>Enter Amount: <strong>{formatCurrency(depositAmount)}</strong></li>
+                <li>Enter Reference: <strong>Booking #{createdBookingId?.slice(0, 8)}</strong></li>
+              </ul>
+            </div>
+
+            {error && <div className="flex items-start gap-2 p-3 mb-4 border border-red-200 bg-red-50 text-red-700 text-sm"><AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /><span>{error}</span></div>}
+
+            <button onClick={handlePayDepositRedirect} className="btn-accent w-full flex items-center justify-center gap-2 py-4 text-xs uppercase tracking-wide-sm mb-3">
+              <Lock className="w-4 h-4" />
+              Pay {formatCurrency(depositAmount)} on Yoco <ExternalLink className="w-3.5 h-3.5 ml-1" />
+            </button>
+            <button onClick={handleSkipPayment} className="btn-ghost w-full text-center text-xs uppercase tracking-wide-sm py-2">
+              Skip for now — pay later
+            </button>
+            <p className="text-xs text-ink-300 text-center mt-4 flex items-center justify-center gap-1.5">
+              <ShieldCheck className="w-3.5 h-3.5" /> Encrypted & Secured by Yoco
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
