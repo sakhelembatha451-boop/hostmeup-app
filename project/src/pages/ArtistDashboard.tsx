@@ -16,9 +16,12 @@ import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
 import ReviewModal from '@/components/ReviewModal';
 import PitchGigModal from '@/components/PitchGigModal';
-import { TalentEarningsTab } from '@/components/TalentEarningsTab';
+import * as EarningsModule from '@/components/TalentEarningsTab';
 import { maskContactInfo } from '@/utils/masking';
 import { createNotification } from '@/lib/messaging';
+
+// Resolve named vs default export to avoid blank screen crashes
+const TalentEarningsTab = EarningsModule.TalentEarningsTab || (EarningsModule as any).default;
 
 type BookingWithHost = Booking & {
   conversation_id?: string | null;
@@ -494,10 +497,10 @@ export default function ArtistDashboard() {
           </div>
         </div>
 
-        {/* FRONT & CENTER: EARNINGS & PAYOUTS TAB */}
+        {/* FRONT & CENTER: EARNINGS & PAYOUTS TAB WITH SAFE FALLBACK */}
         <div className="border border-line bg-white p-6 rounded-xl shadow-xs space-y-4">
           <h2 className="font-display text-xl font-bold text-ink">Earnings & Payout Breakdown</h2>
-          <TalentEarningsTab />
+          {TalentEarningsTab ? <TalentEarningsTab /> : null}
         </div>
 
         {/* Live Open Gig Calls Section for Talent */}
