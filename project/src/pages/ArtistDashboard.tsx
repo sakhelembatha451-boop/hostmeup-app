@@ -16,7 +16,7 @@ import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
 import ReviewModal from '@/components/ReviewModal';
 import PitchGigModal from '@/components/PitchGigModal';
-import { TalentEarningsTab } from '../components/TalentEarningsTab';
+import { TalentEarningsTab } from '@/components/TalentEarningsTab';
 import { maskContactInfo } from '@/utils/masking';
 import { createNotification } from '@/lib/messaging';
 
@@ -497,7 +497,7 @@ export default function ArtistDashboard() {
         {/* FRONT & CENTER: EARNINGS & PAYOUTS TAB */}
         <div className="border border-line bg-white p-6 rounded-xl shadow-xs space-y-4">
           <h2 className="font-display text-xl font-bold text-ink">Earnings & Payout Breakdown</h2>
-          <TalentEarningsTab />
+          {typeof TalentEarningsTab === 'function' ? <TalentEarningsTab /> : <div className="text-sm text-amber-600">Earnings component loading error fallback</div>}
         </div>
 
         {/* Live Open Gig Calls Section for Talent */}
