@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { 
@@ -79,7 +79,6 @@ function formatCurrency(n: number | null) {
 export default function ArtistDashboard() {
   const { profile } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [openGigs, setOpenGigs] = useState<Gig[]>([]);
   const [userPitches, setUserPitches] = useState>(new Map());
@@ -87,8 +86,8 @@ export default function ArtistDashboard() {
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
 
-  // Check if user clicked Earnings from Navbar (?tab=earnings)
-  const isEarningsTab = new URLSearchParams(location.search).get('tab') === 'earnings';
+  // Safe local toggle for Earnings view
+  const [showEarningsView, setShowEarningsView] = useState(false);
 
   // Selection & Bulk Deletion State
   const [selectedBookingIds, setSelectedBookingIds] = useState<string[]>([]);
@@ -494,7 +493,7 @@ export default function ArtistDashboard() {
     <div className="min-h-screen bg-paper">
       <div className="max-w-5xl mx-auto px-6 lg:px-12 py-12 space-y-10">
         
-        {/* Header */}
+        {/* Header with Earnings Toggle Button */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
             <p className="text-xs uppercase tracking-wide-sm text-ink-400 mb-3">— Talent Dashboard</p>
@@ -502,17 +501,22 @@ export default function ArtistDashboard() {
             <p className="text-ink-400">View bookings, pitch for live open gigs, and monitor escrow safety.</p>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setShowEarningsView(!showEarningsView)}
+              className={`px-4 py-2.5 text-xs uppercase font-semibold tracking-wide-sm transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer ${
+                showEarningsView ? 'bg-emerald-900 text-white' : 'bg-emerald-800 text-white hover:bg-emerald-900'
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5 text-emerald-200" /> {showEarningsView ? 'View Bookings' : 'Earnings & Payouts'}
+            </button>
             <Link to="/gigs" className="px-4 py-2.5 bg-purple-900 text-white text-xs uppercase font-semibold tracking-wide-sm hover:bg-purple-950 transition-colors flex items-center gap-1.5 shadow-xs">
               <Radio className="w-3.5 h-3.5 text-purple-300 animate-pulse" /> Browse Gig Board
-            </Link>
-            <Link to={`/artists/${profile?.id}`} aria-label="View public profile" className="btn-outline inline-flex items-center gap-2 px-4 py-2.5 text-xs uppercase tracking-wide-sm">
-              <ExternalLink className="w-3.5 h-3.5" /> View Profile
             </Link>
           </div>
         </div>
 
-        {/* IF EARNINGS TAB IS ACTIVE FROM NAVBAR */}
-        {isEarningsTab ? (
+        {/* LOCAL STATE EARNINGS VIEW */}
+        {showEarningsView ? (
           <div className="border border-line bg-white p-8 rounded-xl shadow-xs space-y-6 animate-fade-in">
             <div className="flex items-center justify-between border-b border-line pb-4">
               <div>
@@ -520,8 +524,8 @@ export default function ArtistDashboard() {
                 <p className="text-xs text-ink-400 mt-1">Monitor your cleared payouts, active escrow funds, and bank setup.</p>
               </div>
               <button 
-                onClick={() => navigate('/artist-dashboard')}
-                className="px-4 py-2 bg-ink text-paper text-xs uppercase font-semibold tracking-wide-sm hover:bg-ink-800 transition-colors"
+                onClick={() => setShowEarningsView(false)}
+                className="px-4 py-2 bg-ink text-paper text-xs uppercase font-semibold tracking-wide-sm hover:bg-ink-800 transition-colors cursor-pointer"
               >
                 ← Back to Bookings
               </button>
