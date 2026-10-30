@@ -283,6 +283,7 @@ export default function HostDashboard() {
 
       if (newStatus === 'accepted' && profile?.id && pitch.artist_id) {
         const gigInfo = pitch.gig;
+        const totalBudget = pitch.proposed_rate || gigInfo?.budget || 0;
 
         const { data: bookingData, error: bookingErr } = await supabase
           .from('bookings')
@@ -290,14 +291,14 @@ export default function HostDashboard() {
             host_id: profile.id,
             artist_id: pitch.artist_id,
             gig_id: pitch.gig_id,
-            total_price: pitch.proposed_rate || gigInfo?.budget || 0,
+            total_price: totalBudget,
             event_date: gigInfo?.event_date || new Date().toISOString(),
             event_name: gigInfo?.title || 'Gig Booking',
             location: gigInfo?.location || '',
             start_time: gigInfo?.start_time || '18:00',
             gig_duration: gigInfo?.duration ? `${gigInfo.duration} hrs` : '2 hrs',
             status: 'pending_deposit',
-            deposit_amount: (pitch.proposed_rate || gigInfo?.budget || 0) * 0.5,
+            deposit_amount: totalBudget * 0.4, // Updated to 40% deposit calculation
           })
           .select()
           .single();
@@ -504,9 +505,11 @@ export default function HostDashboard() {
   };
 
   const handlePaymentRedirect = (booking: BookingWithArtist, type: 'deposit' | 'remaining') => {
+    // Dynamic calculation: Deposit is calculated as 40% if not stored directly
+    const computedDeposit = booking.deposit_amount ?? ((booking.total_price || 0) * 0.4);
     const amountToPay = type === 'deposit' 
-      ? (booking.deposit_amount || 0) 
-      : ((booking.total_price || 0) - (booking.deposit_amount || 0));
+      ? computedDeposit 
+      : ((booking.total_price || 0) - computedDeposit);
 
     const successUrl = `${window.location.origin}/success?booking_id=${booking.id}`;
     const yocoCheckoutUrl = `${YOCO_PAYMENT_PAGE_URL}?amount=${amountToPay}&success_url=${encodeURIComponent(successUrl)}`;
@@ -958,7 +961,10 @@ export default function HostDashboard() {
               const isPendingCheckoutApproval = booking.status === 'pending_checkout_approval' || booking.notes?.includes('Awaiting Host Approval');
               const isBalancePaid = booking.balance_paid || booking.status?.toLowerCase() === 'fully_paid';
               const isCompleted = booking.status?.toLowerCase() === 'completed' || !!booking.completed_at;
-              const remainingBalance = (booking.total_price || 0) - (booking.deposit_amount || 0);
+
+              // Compute deposit amount as 40% if not stored directly
+              const computedDeposit = booking.deposit_amount ?? ((booking.total_price || 0) * 0.4);
+              const remainingBalance = (booking.total_price || 0) - computedDeposit;
 
               return (
                 <div 
@@ -1057,7 +1063,7 @@ export default function HostDashboard() {
                                     className="px-3 py-1.5 bg-ink text-paper text-xs font-semibold uppercase tracking-wide-sm rounded hover:bg-ink/80 flex items-center gap-1.5 transition-colors"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5" />
-                                    <span>Pay Deposit ({formatCurrency(booking.deposit_amount)})</span>
+                                    <span>Pay Deposit ({formatCurrency(computedDeposit)})</span>
                                   </button>
                                 </div>
 
@@ -1165,7 +1171,7 @@ export default function HostDashboard() {
                                     booking.artist_id || booking.client_id || '', 
                                     booking.event_name || 'Event', 
                                     !!booking.balance_paid || booking.status === 'fully_paid',
-                                    remainingBalance > 0 ? remainingBalance : (booking.total_price || 0) - (booking.deposit_amount || 0)
+                                    remainingBalance > 0 ? remainingBalance : (booking.total_price || 0) - computedDeposit
                                   )}
                                   className="bg-ink hover:bg-ink/90 text-paper text-xs font-semibold uppercase tracking-wide-sm px-4 py-2.5 rounded flex items-center justify-center gap-2 transition-colors disabled:opacity-50 w-fit"
                                 >
@@ -1304,8 +1310,10 @@ export default function HostDashboard() {
                     <span className="font-medium text-ink">{formatCurrency(selectedBooking.total_price)}</span>
                   </div>
                   <div className="flex justify-between text-sm py-1 border-b border-line/50">
-                    <span className="text-ink-500">Deposit Amount Paid</span>
-                    <span className="font-medium text-ink">{formatCurrency(selectedBooking.deposit_amount)}</span>
+                    <span className="text-ink-500">Deposit Amount Paid (40%)</span>
+                    <span className="font-medium text-ink">
+                      {formatCurrency(selectedBooking.deposit_amount ?? ((selectedBooking.total_price || 0) * 0.4))}
+                    </span>
                   </div>
 
                   {(
@@ -1319,7 +1327,7 @@ export default function HostDashboard() {
                         <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Remaining Balance Paid
                       </span>
                       <span>
-                        {formatCurrency((selectedBooking.total_price || 0) - (selectedBooking.deposit_amount || 0))}
+                        {formatCurrency((selectedBooking.total_price || 0) - (selectedBooking.deposit_amount ?? ((selectedBooking.total_price || 0) * 0.4)))}
                       </span>
                     </div>
                   )}
