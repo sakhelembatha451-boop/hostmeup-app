@@ -273,8 +273,9 @@ export default function BookingRequestPage() {
       }
     });
 
-    const deposit = total * 0.4;
-    const remaining = total * 0.6;
+    // 100% strictly enforced 40% deposit and 60% remaining balance
+    const deposit = total * 0.40;
+    const remaining = total * 0.60;
     return { totalAmount: total, depositAmount: deposit, remainingBalance: remaining };
   }, [selectedTalents, durationHours]);
 
@@ -299,7 +300,6 @@ export default function BookingRequestPage() {
     const primaryTalent = selectedTalents[0].artist;
     const targetArtistId = primaryTalent.id || primaryTalent.artist_profile?.user_id || id;
 
-    // Build raw note string and automatically sanitize contact details before database write
     const rawNoteText = `Hired Talent Providers (${selectedTalents.length}): ${selectedTalents.map(t => t.artist.artist_profile?.stage_name || t.artist.full_name).join(', ')}. ${notes}`;
     const sanitizedNotes = maskContactInfo(rawNoteText);
 
@@ -315,7 +315,7 @@ export default function BookingRequestPage() {
       notes: sanitizedNotes,
       status: 'pending',
       total_amount: totalAmount,
-      deposit_amount: depositAmount,
+      deposit_amount: depositAmount, // Dynamically computed 40% deposit
       deposit_paid: false,
     };
 
@@ -380,7 +380,6 @@ export default function BookingRequestPage() {
   };
 
   const handlePayDepositRedirect = () => {
-    // Redirect host directly to the permanent Yoco Payment Page
     window.open('https://pay.yoco.com/hostmeup', '_blank');
     setShowCheckout(false);
     setBookingCreated(true);
@@ -639,14 +638,15 @@ export default function BookingRequestPage() {
               </div>
               <div className="flex justify-between items-baseline">
                 <span className="text-sm text-accent font-medium">Upfront Deposit (40%)</span>
-                <span className="font-display text-xl font-bold text-accent">{formatCurrency(depositAmount)}</span>
+                {/* Dynamically calculated 40% from totalAmount instead of relying on existingBooking.deposit_amount */}
+                <span className="font-display text-xl font-bold text-accent">{formatCurrency(totalAmount * 0.40)}</span>
               </div>
             </div>
 
             <div className="p-3 mb-6 bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-none">
               <p className="font-semibold mb-1">Important Instructions for Yoco Checkout:</p>
               <ul className="list-disc pl-4 space-y-1 text-amber-800">
-                <li>Enter Amount: <strong>{formatCurrency(depositAmount)}</strong></li>
+                <li>Enter Amount: <strong>{formatCurrency(totalAmount * 0.40)}</strong></li>
                 <li>Enter Reference: <strong>Booking #{createdBookingId?.slice(0, 8)}</strong></li>
               </ul>
             </div>
@@ -655,7 +655,7 @@ export default function BookingRequestPage() {
 
             <button onClick={handlePayDepositRedirect} className="btn-accent w-full flex items-center justify-center gap-2 py-4 text-xs uppercase tracking-wide-sm mb-3">
               <Lock className="w-4 h-4" />
-              Pay {formatCurrency(depositAmount)} on Yoco <ExternalLink className="w-3.5 h-3.5 ml-1" />
+              Pay {formatCurrency(totalAmount * 0.40)} on Yoco <ExternalLink className="w-3.5 h-3.5 ml-1" />
             </button>
             <button onClick={handleSkipPayment} className="btn-ghost w-full text-center text-xs uppercase tracking-wide-sm py-2">
               Skip for now — pay later
