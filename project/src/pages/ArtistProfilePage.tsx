@@ -98,7 +98,7 @@ const BookingModal: React.FC<BookingModalProps> = ({
   const selectedService = services.find((s) => s.id === selectedServiceId);
   const baseRate = selectedService ? selectedService.price : extractNumericRate();
   const calculatedTotal = baseRate > 0 ? baseRate * (selectedService ? 1 : duration) : 0;
-  const depositAmount = calculatedTotal > 0 ? calculatedTotal * 0.5 : 0;
+  const depositAmount = calculatedTotal > 0 ? calculatedTotal * 0.40 : 0;
 
   const handleSubmitBooking = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -220,7 +220,7 @@ const BookingModal: React.FC<BookingModalProps> = ({
           </div>
 
           <div className="p-3 border border-line bg-paper-100 flex items-center justify-between text-xs">
-            <span className="font-semibold text-ink-600">Required Deposit (50%):</span>
+            <span className="font-semibold text-ink-600">Required Deposit (40%):</span>
             <span className="font-bold text-ink">R{depositAmount.toFixed(2)}</span>
           </div>
 
