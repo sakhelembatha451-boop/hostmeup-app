@@ -355,6 +355,25 @@ export default function BookingRequestPage() {
               const initialMsg = `New booking request for ${artistName} — ${eventName} on ${new Date(eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${location}. Duration: ${durationHours ? `${durationHours} hours` : 'Event'}. Total: ${formatCurrency(item.rateUnit === 'hour' ? item.rate * (parseFloat(durationHours) || 1) : item.rate)}.`;
               
               await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
+              
+              // Directly create the notification entry in Supabase for real-time alerting
+              const { error: notifErr } = await supabase.from('notifications').insert([
+                {
+                  user_id: artistUserId,
+                  title: 'New Booking Request! 📅',
+                  message: `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
+                  type: 'booking_request',
+                  is_read: false,
+                  related_id: data.id,
+                  created_at: new Date().toISOString(),
+                },
+              ]);
+
+              if (notifErr) {
+                console.warn('Failed to insert Supabase notification:', notifErr);
+              }
+
+              // Also invoke helper notification dispatch if configured
               await createNotification(
                 artistUserId,
                 'booking',
@@ -638,7 +657,6 @@ export default function BookingRequestPage() {
               </div>
               <div className="flex justify-between items-baseline">
                 <span className="text-sm text-accent font-medium">Upfront Deposit (40%)</span>
-                {/* Dynamically calculated 40% from totalAmount instead of relying on existingBooking.deposit_amount */}
                 <span className="font-display text-xl font-bold text-accent">{formatCurrency(totalAmount * 0.40)}</span>
               </div>
             </div>
