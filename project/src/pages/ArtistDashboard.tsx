@@ -3,10 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { 
-  Calendar, MapPin, Clock, Loader2, Check, X, 
-  ExternalLink, ShieldCheck, Eye, MessageSquare, 
-  MapPinCheck, LogOut, ShieldAlert, CheckCircle2, KeyRound,
-  Trash2, CheckSquare, Square, Mail, Clock3,
+  Calendar, MapPin, Clock, Loader2, X, 
+  ExternalLink, MessageSquare, 
+  MapPinCheck, CheckCircle2, KeyRound,
+  Trash2, CheckSquare, Square, Clock3,
   PartyPopper, Star, Radio, Send, Wallet
 } from 'lucide-react';
 import type { Booking } from '@/types';
@@ -119,9 +119,7 @@ export default function ArtistDashboard() {
         .eq('user_id', authUserId)
         .maybeSingle();
 
-      const targetArtistIds = Array.from(
-        new Set([authUserId, artistProfile?.id].filter(Boolean))
-      );
+      const targetArtistIds = [authUserId, artistProfile?.id].filter(Boolean) as string[];
 
       const { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
@@ -137,7 +135,7 @@ export default function ArtistDashboard() {
         let processedBookings = activeBookings;
         const hostIds = Array.from(
           new Set(activeBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
-        );
+        ) as string[];
         const bookingIds = activeBookings.map((b) => b.id);
 
         let reviewedBookingIds = new Set<string>();
@@ -148,7 +146,7 @@ export default function ArtistDashboard() {
             .in('booking_id', bookingIds)
             .eq('reviewer_id', authUserId);
 
-          if (existingReviews) {
+          if (existingReviews && Array.isArray(existingReviews)) {
             reviewedBookingIds = new Set(existingReviews.map((r) => r.booking_id));
           }
         }
@@ -191,8 +189,8 @@ export default function ArtistDashboard() {
         .order('created_at', { ascending: false })
         .limit(6);
 
-      if (gigData && gigData.length > 0) {
-        const gigHostIds = Array.from(new Set(gigData.map((g) => g.host_id)));
+      if (gigData && Array.isArray(gigData) && gigData.length > 0) {
+        const gigHostIds = Array.from(new Set(gigData.map((g) => g.host_id))) as string[];
         const { data: gigHosts } = await supabase
           .from('profiles')
           .select('id, full_name, avatar_url')
@@ -215,7 +213,7 @@ export default function ArtistDashboard() {
         .select('gig_id, status, proposed_rate')
         .eq('artist_id', authUserId);
 
-      if (pitchData) {
+      if (pitchData && Array.isArray(pitchData)) {
         const pitchMap = new Map<string, UserPitch>();
         pitchData.forEach((p) => {
           pitchMap.set(p.gig_id, p as UserPitch);
@@ -245,7 +243,7 @@ export default function ArtistDashboard() {
         { event: 'INSERT', schema: 'public', table: 'bookings' },
         (payload) => {
           const newBooking = payload.new as any;
-          if (newBooking.artist_id === profile.id || newBooking.client_id === profile.id) {
+          if (newBooking?.artist_id === profile.id || newBooking?.client_id === profile.id) {
             loadDashboardData(false);
           }
         }
@@ -316,20 +314,6 @@ export default function ArtistDashboard() {
       return (
         <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-xs inline-flex items-center gap-1">
           <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Accepted
-        </span>
-      );
-    }
-    if (pitch.status === 'shortlisted') {
-      return (
-        <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-blue-50 text-blue-800 border border-blue-300 rounded-xs inline-flex items-center gap-1">
-          <Sparkles className="w-3 h-3 text-blue-600" /> Shortlisted
-        </span>
-      );
-    }
-    if (pitch.status === 'declined') {
-      return (
-        <span className="px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider bg-red-50 text-red-800 border border-red-200 rounded-xs inline-flex items-center gap-1">
-          <ShieldAlert className="w-3 h-3 text-red-600" /> Declined
         </span>
       );
     }
@@ -481,7 +465,7 @@ export default function ArtistDashboard() {
                       </div>
                       <h4 className="font-display font-bold text-ink text-sm leading-snug line-clamp-1">{gig.title}</h4>
                       <div className="space-y-1 text-[11px] text-ink-500">
-                        <div className="flex items-center gap-1"><Calendar className="w-3 h-3 text-ink-400" /><span>{new Date(gig.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span></div>
+                        <div className="flex items-center gap-1"><Calendar className="w-3 h-3 text-ink-400" /><span>{new Date(gig.event_date).toLocaleDateString()}</span></div>
                         <div className="flex items-center gap-1"><MapPin className="w-3 h-3 text-ink-400" /><span className="truncate">{gig.location}</span></div>
                       </div>
                     </div>
