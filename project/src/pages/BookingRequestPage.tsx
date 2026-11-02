@@ -356,14 +356,14 @@ export default function BookingRequestPage() {
               
               await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
               
-              // Directly create the notification entry in Supabase for real-time alerting
+              // Directly create the notification entry in Supabase using table column 'read'
               const { error: notifErr } = await supabase.from('notifications').insert([
                 {
                   user_id: artistUserId,
                   title: 'New Booking Request! 📅',
                   message: `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
                   type: 'booking_request',
-                  is_read: false,
+                  read: false, // Corrected from is_read to match table column 'read'
                   related_id: data.id,
                   created_at: new Date().toISOString(),
                 },
