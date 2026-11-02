@@ -82,7 +82,7 @@ export default function ArtistDashboard() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [openGigs, setOpenGigs] = useState<Gig[]>([]);
-  const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
+  const [userPitches, setUserPitches] = useState>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -240,6 +240,45 @@ export default function ArtistDashboard() {
   useEffect(() => { 
     loadDashboardData(true); 
   }, [loadDashboardData]);
+
+  // Supabase Realtime Subscription Hook for Live Bookings and Notifications
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const channel = supabase
+      .channel('artist-dashboard-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'bookings',
+        },
+        (payload) => {
+          const newBooking = payload.new as any;
+          if (newBooking.artist_id === profile.id || newBooking.client_id === profile.id) {
+            loadDashboardData(false);
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${profile.id}`,
+        },
+        (_payload) => {
+          loadDashboardData(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [profile?.id, loadDashboardData]);
 
   const toggleSelectBooking = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
