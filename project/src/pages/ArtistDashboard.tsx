@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
@@ -77,7 +77,46 @@ function formatCurrency(n: number | null) {
   return `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
-export default function ArtistDashboard() {
+// Error Boundary component to prevent blank screen crashes
+class DashboardErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error('ArtistDashboard Error Boundary:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-paper text-center">
+          <h2 className="font-display text-2xl font-bold text-ink mb-2">Dashboard Reloading...</h2>
+          <p className="text-sm text-ink-400 mb-4 max-w-md">
+            An update arrived. Click below to refresh your view.
+          </p>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="btn-primary px-6 py-2.5 text-xs uppercase tracking-wide-sm"
+          >
+            Refresh Dashboard
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function ArtistDashboardContent() {
   const { profile } = useAuth();
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
@@ -119,7 +158,9 @@ export default function ArtistDashboard() {
         .eq('user_id', authUserId)
         .maybeSingle();
 
-      const targetArtistIds = [authUserId, artistProfile?.id].filter(Boolean) as string[];
+      const targetArtistIds = Array.from(
+        new Set([authUserId, artistProfile?.id].filter((id): id is string => Boolean(id)))
+      );
 
       const { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
@@ -130,12 +171,13 @@ export default function ArtistDashboard() {
       if (bookingsErr) {
         console.error('Error fetching bookings:', bookingsErr);
         setBookings([]);
-      } else if (rawBookings) {
+      } else if (rawBookings && Array.isArray(rawBookings)) {
         const activeBookings = rawBookings.filter((b) => !b.is_deleted);
         let processedBookings = activeBookings;
+        
         const hostIds = Array.from(
-          new Set(activeBookings.map((b) => b.host_id || b.client_id).filter(Boolean))
-        ) as string[];
+          new Set(activeBookings.map((b) => b.host_id || b.client_id).filter((id): id is string => Boolean(id)))
+        );
         const bookingIds = activeBookings.map((b) => b.id);
 
         let reviewedBookingIds = new Set<string>();
@@ -190,7 +232,10 @@ export default function ArtistDashboard() {
         .limit(6);
 
       if (gigData && Array.isArray(gigData) && gigData.length > 0) {
-        const gigHostIds = Array.from(new Set(gigData.map((g) => g.host_id))) as string[];
+        const gigHostIds = Array.from(
+          new Set(gigData.map((g) => g.host_id).filter((id): id is string => Boolean(id)))
+        );
+        
         const { data: gigHosts } = await supabase
           .from('profiles')
           .select('id, full_name, avatar_url')
@@ -243,7 +288,7 @@ export default function ArtistDashboard() {
         { event: 'INSERT', schema: 'public', table: 'bookings' },
         (payload) => {
           const newBooking = payload.new as any;
-          if (newBooking?.artist_id === profile.id || newBooking?.client_id === profile.id) {
+          if (newBooking && (newBooking.artist_id === profile.id || newBooking.client_id === profile.id)) {
             loadDashboardData(false);
           }
         }
@@ -653,5 +698,13 @@ export default function ArtistDashboard() {
 
       </div>
     </div>
+  );
+}
+
+export default function ArtistDashboard() {
+  return (
+    <DashboardErrorBoundary>
+      <ArtistDashboardContent />
+    </DashboardErrorBoundary>
   );
 }
