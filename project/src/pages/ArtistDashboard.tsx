@@ -73,11 +73,10 @@ interface UserPitch {
 }
 
 function formatCurrency(n: number | null) {
-  if (n == null) return 'R0';
-  return `R${n.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  if (n == null || isNaN(n)) return 'R0';
+  return `R${Number(n).toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
-// Error Boundary component to prevent blank screen crashes
 class DashboardErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { hasError: boolean; error: Error | null }
@@ -92,22 +91,22 @@ class DashboardErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: any) {
-    console.error('ArtistDashboard Error Boundary:', error, errorInfo);
+    console.error('ArtistDashboard Error:', error, errorInfo);
   }
 
   render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-paper text-center">
-          <h2 className="font-display text-2xl font-bold text-ink mb-2">Dashboard Reloading...</h2>
-          <p className="text-sm text-ink-400 mb-4 max-w-md">
-            An update arrived. Click below to refresh your view.
+          <h2 className="font-display text-2xl font-bold text-ink mb-2">Dashboard Error</h2>
+          <p className="text-sm text-ink-400 mb-4 max-w-md font-mono text-left bg-red-50 p-3 border border-red-200">
+            {this.state.error?.toString()}
           </p>
           <button 
             onClick={() => window.location.reload()} 
             className="btn-primary px-6 py-2.5 text-xs uppercase tracking-wide-sm"
           >
-            Refresh Dashboard
+            Reload Page
           </button>
         </div>
       );
@@ -158,9 +157,9 @@ function ArtistDashboardContent() {
         .eq('user_id', authUserId)
         .maybeSingle();
 
-      const targetArtistIds = Array.from(
-        new Set([authUserId, artistProfile?.id].filter((id): id is string => Boolean(id)))
-      );
+      const targetArtistIds = Array.isArray([authUserId, artistProfile?.id])
+        ? [authUserId, artistProfile?.id].filter((id): id is string => Boolean(id))
+        : [authUserId];
 
       const { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
@@ -172,13 +171,13 @@ function ArtistDashboardContent() {
         console.error('Error fetching bookings:', bookingsErr);
         setBookings([]);
       } else if (rawBookings && Array.isArray(rawBookings)) {
-        const activeBookings = rawBookings.filter((b) => !b.is_deleted);
+        const activeBookings = rawBookings.filter((b) => b && !b.is_deleted);
         let processedBookings = activeBookings;
         
-        const hostIds = Array.from(
-          new Set(activeBookings.map((b) => b.host_id || b.client_id).filter((id): id is string => Boolean(id)))
-        );
-        const bookingIds = activeBookings.map((b) => b.id);
+        const hostIds = Array.isArray(activeBookings)
+          ? Array.from(new Set(activeBookings.map((b) => b.host_id || b.client_id).filter((id): id is string => Boolean(id))))
+          : [];
+        const bookingIds = Array.isArray(activeBookings) ? activeBookings.map((b) => b.id) : [];
 
         let reviewedBookingIds = new Set<string>();
         if (bookingIds.length > 0) {
@@ -189,7 +188,7 @@ function ArtistDashboardContent() {
             .eq('reviewer_id', authUserId);
 
           if (existingReviews && Array.isArray(existingReviews)) {
-            reviewedBookingIds = new Set(existingReviews.map((r) => r.booking_id));
+            reviewedBookingIds = new Set(existingReviews.map((r) => r?.booking_id).filter(Boolean));
           }
         }
 
@@ -199,16 +198,16 @@ function ArtistDashboardContent() {
             .select('id, full_name, email, avatar_url, location')
             .in('id', hostIds);
 
-          const profileMap = new Map((profileRecords || []).map((p) => [p.id, p]));
+          const profileMap = new Map(Array.isArray(profileRecords) ? profileRecords.map((p) => [p?.id, p]) : []);
 
           processedBookings = activeBookings.map((b) => {
-            const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || b.host || null;
+            const p = profileMap.get(b.host_id) || profileMap.get(b.client_id) || null;
 
             return {
               ...b,
               has_reviewed: reviewedBookingIds.has(b.id),
               host: {
-                id: p?.id || b.host_id || b.client_id,
+                id: p?.id || b.host_id || b.client_id || 'unknown',
                 full_name: p?.full_name || 'Host',
                 avatar_url: p?.avatar_url || null,
                 location: p?.location || '',
@@ -233,7 +232,7 @@ function ArtistDashboardContent() {
 
       if (gigData && Array.isArray(gigData) && gigData.length > 0) {
         const gigHostIds = Array.from(
-          new Set(gigData.map((g) => g.host_id).filter((id): id is string => Boolean(id)))
+          new Set(gigData.map((g) => g?.host_id).filter((id): id is string => Boolean(id)))
         );
         
         const { data: gigHosts } = await supabase
@@ -241,7 +240,7 @@ function ArtistDashboardContent() {
           .select('id, full_name, avatar_url')
           .in('id', gigHostIds);
 
-        const gigHostMap = new Map((gigHosts || []).map((h) => [h.id, h]));
+        const gigHostMap = new Map(Array.isArray(gigHosts) ? gigHosts.map((h) => [h?.id, h]) : []);
 
         setOpenGigs(
           gigData.map((g) => ({
@@ -261,7 +260,7 @@ function ArtistDashboardContent() {
       if (pitchData && Array.isArray(pitchData)) {
         const pitchMap = new Map<string, UserPitch>();
         pitchData.forEach((p) => {
-          pitchMap.set(p.gig_id, p as UserPitch);
+          if (p?.gig_id) pitchMap.set(p.gig_id, p as UserPitch);
         });
         setUserPitches(pitchMap);
       }
@@ -278,46 +277,19 @@ function ArtistDashboardContent() {
     loadDashboardData(true); 
   }, [loadDashboardData]);
 
-  useEffect(() => {
-    if (!profile?.id) return;
-
-    const channel = supabase
-      .channel('artist-dashboard-realtime')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'bookings' },
-        (payload) => {
-          const newBooking = payload.new as any;
-          if (newBooking && (newBooking.artist_id === profile.id || newBooking.client_id === profile.id)) {
-            loadDashboardData(false);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${profile.id}` },
-        () => {
-          loadDashboardData(false);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [profile?.id, loadDashboardData]);
-
   const toggleSelectBooking = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setSelectedBookingIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+      Array.isArray(prev) ? (prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]) : [id]
     );
   };
 
-  const filtered = filter === 'all' ? bookings : bookings.filter((b) => b.status === filter);
+  const filtered = Array.isArray(bookings) 
+    ? (filter === 'all' ? bookings : bookings.filter((b) => b?.status === filter))
+    : [];
 
   const toggleSelectAll = () => {
-    const allFilteredIds = filtered.map((b) => b.id);
+    const allFilteredIds = Array.isArray(filtered) ? filtered.map((b) => b.id) : [];
     const areAllSelected = allFilteredIds.every((id) => selectedBookingIds.includes(id));
 
     if (areAllSelected) {
@@ -329,7 +301,7 @@ function ArtistDashboardContent() {
 
   const handleDeleteBookings = async (idsToDelete: string[], e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    if (idsToDelete.length === 0) return;
+    if (!idsToDelete || idsToDelete.length === 0) return;
 
     if (!window.confirm(`Are you sure you want to delete ${idsToDelete.length} selected booking card(s)?`)) return;
 
@@ -370,11 +342,11 @@ function ArtistDashboardContent() {
   };
 
   const renderCustomStatusBadge = (booking: BookingWithHost) => {
-    const isCompleted = booking.status === 'completed' || !!booking.completed_at;
-    const isCheckedIn = booking.is_arrival_verified || booking.status === 'checked_in';
-    const isFullyPaid = booking.balance_paid || booking.status === 'fully_paid';
-    const isDepositPaid = booking.deposit_paid || booking.status === 'confirmed';
-    const isPendingVerification = booking.status === 'pending_verification';
+    const isCompleted = booking?.status === 'completed' || !!booking?.completed_at;
+    const isCheckedIn = booking?.is_arrival_verified || booking?.status === 'checked_in';
+    const isFullyPaid = booking?.balance_paid || booking?.status === 'fully_paid';
+    const isDepositPaid = booking?.deposit_paid || booking?.status === 'confirmed';
+    const isPendingVerification = booking?.status === 'pending_verification';
 
     if (isCompleted) return <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-purple-50 text-purple-800 border border-purple-200 rounded-sm inline-flex items-center gap-1"><PartyPopper className="w-3.5 h-3.5 text-purple-600" /> Event Completed</span>;
     if (isCheckedIn) return <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-800 border border-emerald-300 rounded-sm inline-flex items-center gap-1"><MapPinCheck className="w-3.5 h-3.5 text-emerald-600" /> Checked In</span>;
@@ -382,7 +354,7 @@ function ArtistDashboardContent() {
     if (isDepositPaid) return <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-teal-50 text-teal-800 border border-teal-200 rounded-sm inline-flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5 text-teal-600" /> Deposit Paid</span>;
     if (isPendingVerification) return <span className="px-2.5 py-1 text-[11px] font-bold uppercase tracking-wider bg-amber-50 text-amber-800 border border-amber-200 rounded-sm inline-flex items-center gap-1"><Clock3 className="w-3.5 h-3.5 text-amber-600 animate-pulse" /> Pending Verification</span>;
 
-    return <StatusBadge status={booking.status} />;
+    return <StatusBadge status={booking?.status || 'pending'} />;
   };
 
   const updateBookingStatus = async (id: string, newStatus: string) => {
@@ -418,7 +390,7 @@ function ArtistDashboardContent() {
           hostTargetId,
           'deposit_verified',
           'Payment Confirmed! 🎉',
-          `The artist verified your payment reference for "${targetBooking?.event_name}".`,
+          `The artist verified your payment reference for "${targetBooking?.event_name || 'Event'}".`,
           '/host-dashboard',
           bookingId
         );
@@ -433,26 +405,30 @@ function ArtistDashboardContent() {
   };
 
   const counts = {
-    all: bookings.length,
-    pending: bookings.filter((b) => b.status === 'pending').length,
-    pending_verification: bookings.filter((b) => b.status === 'pending_verification').length,
-    confirmed: bookings.filter((b) => b.status === 'confirmed' || b.deposit_paid).length,
-    accepted: bookings.filter((b) => b.status === 'accepted').length,
-    declined: bookings.filter((b) => b.status === 'declined').length,
-    completed: bookings.filter((b) => b.status === 'completed' || b.completed_at).length,
+    all: Array.isArray(bookings) ? bookings.length : 0,
+    pending: Array.isArray(bookings) ? bookings.filter((b) => b?.status === 'pending').length : 0,
+    pending_verification: Array.isArray(bookings) ? bookings.filter((b) => b?.status === 'pending_verification').length : 0,
+    confirmed: Array.isArray(bookings) ? bookings.filter((b) => b?.status === 'confirmed' || b?.deposit_paid).length : 0,
+    accepted: Array.isArray(bookings) ? bookings.filter((b) => b?.status === 'accepted').length : 0,
+    declined: Array.isArray(bookings) ? bookings.filter((b) => b?.status === 'declined').length : 0,
+    completed: Array.isArray(bookings) ? bookings.filter((b) => b?.status === 'completed' || b?.completed_at).length : 0,
   };
 
-  const totalEarnings = bookings
-    .filter((b) => ['confirmed', 'accepted', 'completed', 'fully_paid'].includes(b.status || ''))
-    .reduce((sum, b) => sum + (b.total_price || b.total_amount || 0), 0);
+  const totalEarnings = Array.isArray(bookings)
+    ? bookings
+        .filter((b) => ['confirmed', 'accepted', 'completed', 'fully_paid'].includes(b?.status || ''))
+        .reduce((sum, b) => sum + Number(b?.total_price || b?.total_amount || 0), 0)
+    : 0;
   
-  const depositedAmount = bookings
-    .filter((b) => b.deposit_paid)
-    .reduce((sum, b) => sum + (b.deposit_amount || 0), 0);
+  const depositedAmount = Array.isArray(bookings)
+    ? bookings
+        .filter((b) => b?.deposit_paid)
+        .reduce((sum, b) => sum + Number(b?.deposit_amount || 0), 0)
+    : 0;
 
   if (loading) return <div className="flex items-center justify-center min-h-screen"><Loader2 className="w-6 h-6 text-ink animate-spin" /></div>;
 
-  const allFilteredSelected = filtered.length > 0 && filtered.every((b) => selectedBookingIds.includes(b.id));
+  const allFilteredSelected = Array.isArray(filtered) && filtered.length > 0 && filtered.every((b) => selectedBookingIds.includes(b.id));
 
   return (
     <div className="min-h-screen bg-paper">
@@ -488,7 +464,7 @@ function ArtistDashboardContent() {
             </Link>
           </div>
 
-          {openGigs.length === 0 ? (
+          {!Array.isArray(openGigs) || openGigs.length === 0 ? (
             <div className="border border-dashed border-line bg-paper p-6 text-center text-xs text-ink-400">
               No open gig calls posted at the moment. Check back soon!
             </div>
@@ -502,16 +478,16 @@ function ArtistDashboardContent() {
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           <span className="text-[9px] font-bold uppercase tracking-wider bg-purple-100 text-purple-900 px-2 py-0.5 border border-purple-200">
-                            {gig.category}
+                            {gig.category || 'Gig'}
                           </span>
                           {renderPitchStatusBadge(gig)}
                         </div>
-                        <span className="font-bold text-emerald-800 text-xs">R{gig.budget.toLocaleString()}</span>
+                        <span className="font-bold text-emerald-800 text-xs">R{(gig.budget || 0).toLocaleString()}</span>
                       </div>
-                      <h4 className="font-display font-bold text-ink text-sm leading-snug line-clamp-1">{gig.title}</h4>
+                      <h4 className="font-display font-bold text-ink text-sm leading-snug line-clamp-1">{gig.title || 'Untitled Gig'}</h4>
                       <div className="space-y-1 text-[11px] text-ink-500">
-                        <div className="flex items-center gap-1"><Calendar className="w-3 h-3 text-ink-400" /><span>{new Date(gig.event_date).toLocaleDateString()}</span></div>
-                        <div className="flex items-center gap-1"><MapPin className="w-3 h-3 text-ink-400" /><span className="truncate">{gig.location}</span></div>
+                        <div className="flex items-center gap-1"><Calendar className="w-3 h-3 text-ink-400" /><span>{gig.event_date ? new Date(gig.event_date).toLocaleDateString() : '—'}</span></div>
+                        <div className="flex items-center gap-1"><MapPin className="w-3 h-3 text-ink-400" /><span className="truncate">{gig.location || '—'}</span></div>
                       </div>
                     </div>
                     <button
@@ -546,7 +522,7 @@ function ArtistDashboardContent() {
             </button>
           </div>
 
-          {filter !== 'earnings' && filtered.length > 0 && (
+          {filter !== 'earnings' && Array.isArray(filtered) && filtered.length > 0 && (
             <div className="flex items-center gap-3">
               <button onClick={toggleSelectAll} className="text-xs font-semibold text-ink-500 hover:text-ink flex items-center gap-1.5 transition-colors">
                 {allFilteredSelected ? <CheckSquare className="w-4 h-4 text-ink" /> : <Square className="w-4 h-4 text-ink-300" />}
@@ -565,7 +541,7 @@ function ArtistDashboardContent() {
         {filter === 'earnings' ? (
           <TalentEarningsTab />
         ) : (
-          filtered.length === 0 ? (
+          !Array.isArray(filtered) || filtered.length === 0 ? (
             <EmptyState icon={<Calendar className="w-8 h-8" />} title="No booking requests yet" message="When hosts send you booking requests, they'll appear here." />
           ) : (
             <div className="space-y-6">
@@ -592,7 +568,7 @@ function ArtistDashboardContent() {
                           {booking.host?.avatar_url ? (
                             <img src={booking.host.avatar_url} alt="" width={56} height={56} className="w-14 h-14 rounded-full object-cover border border-line" />
                           ) : (
-                            <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-bold">{booking.host?.full_name?.[0]?.toUpperCase() || '?'}</div>
+                            <div className="w-14 h-14 rounded-full bg-ink-200 text-ink-500 flex items-center justify-center font-bold">{(booking.host?.full_name || 'H')[0]?.toUpperCase()}</div>
                           )}
                         </Link>
                         <div>
