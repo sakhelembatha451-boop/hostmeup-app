@@ -273,7 +273,6 @@ export default function BookingRequestPage() {
       }
     });
 
-    // 100% strictly enforced 40% deposit and 60% remaining balance
     const deposit = total * 0.40;
     const remaining = total * 0.60;
     return { totalAmount: total, depositAmount: deposit, remainingBalance: remaining };
@@ -315,7 +314,7 @@ export default function BookingRequestPage() {
       notes: sanitizedNotes,
       status: 'pending',
       total_amount: totalAmount,
-      deposit_amount: depositAmount, // Dynamically computed 40% deposit
+      deposit_amount: depositAmount,
       deposit_paid: false,
     };
 
@@ -356,14 +355,14 @@ export default function BookingRequestPage() {
               
               await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
               
-              // Directly create the notification entry in Supabase using table column 'read'
+              // Directly insert the notification entry into Supabase notifications table
               const { error: notifErr } = await supabase.from('notifications').insert([
                 {
                   user_id: artistUserId,
                   title: 'New Booking Request! 📅',
                   message: `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
                   type: 'booking_request',
-                  read: false, // Corrected from is_read to match table column 'read'
+                  read: false,
                   related_id: data.id,
                   created_at: new Date().toISOString(),
                 },
@@ -373,7 +372,7 @@ export default function BookingRequestPage() {
                 console.warn('Failed to insert Supabase notification:', notifErr);
               }
 
-              // Also invoke helper notification dispatch if configured
+              // Also trigger helper notification dispatcher
               await createNotification(
                 artistUserId,
                 'booking',
