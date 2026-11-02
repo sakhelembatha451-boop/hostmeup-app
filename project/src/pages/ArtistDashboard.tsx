@@ -16,7 +16,6 @@ import TalentVerificationModal from '@/components/TalentVerificationModal';
 import TalentCheckoutModal from '@/components/TalentCheckoutModal';
 import ReviewModal from '@/components/ReviewModal';
 import PitchGigModal from '@/components/PitchGigModal';
-import { TalentEarningsTab } from '@/components/TalentEarningsTab';
 import { maskContactInfo } from '@/utils/masking';
 import { createNotification } from '@/lib/messaging';
 
@@ -41,11 +40,6 @@ type BookingWithHost = Booking & {
     phone?: string;
     is_verified?: boolean;
     verified?: boolean;
-    host_profile?: {
-      company_name?: string | null;
-      is_identity_verified?: boolean;
-      verification_status?: 'pending' | 'approved' | 'rejected' | null;
-    } | null;
   };
 };
 
@@ -157,9 +151,7 @@ function ArtistDashboardContent() {
         .eq('user_id', authUserId)
         .maybeSingle();
 
-      const targetArtistIds = Array.isArray([authUserId, artistProfile?.id])
-        ? [authUserId, artistProfile?.id].filter((id): id is string => Boolean(id))
-        : [authUserId];
+      const targetArtistIds = [authUserId, artistProfile?.id].filter((id): id is string => Boolean(id));
 
       const { data: rawBookings, error: bookingsErr } = await supabase
         .from('bookings')
@@ -174,10 +166,10 @@ function ArtistDashboardContent() {
         const activeBookings = rawBookings.filter((b) => b && !b.is_deleted);
         let processedBookings = activeBookings;
         
-        const hostIds = Array.isArray(activeBookings)
-          ? Array.from(new Set(activeBookings.map((b) => b.host_id || b.client_id).filter((id): id is string => Boolean(id))))
-          : [];
-        const bookingIds = Array.isArray(activeBookings) ? activeBookings.map((b) => b.id) : [];
+        const hostIds = Array.from(
+          new Set(activeBookings.map((b) => b.host_id || b.client_id).filter((id): id is string => Boolean(id)))
+        );
+        const bookingIds = activeBookings.map((b) => b.id);
 
         let reviewedBookingIds = new Set<string>();
         if (bookingIds.length > 0) {
@@ -214,7 +206,6 @@ function ArtistDashboardContent() {
                 email: p?.email || '',
                 is_verified: true,
                 verified: true,
-                host_profile: null,
               },
             };
           });
@@ -539,7 +530,11 @@ function ArtistDashboardContent() {
         </div>
 
         {filter === 'earnings' ? (
-          <TalentEarningsTab />
+          <div className="border border-line bg-paper p-8 text-center space-y-3">
+            <h3 className="font-display text-lg font-bold text-ink">Earnings & Payouts Overview</h3>
+            <p className="text-xs text-ink-400">Total Confirmed Earnings: <strong className="text-accent">{formatCurrency(totalEarnings)}</strong></p>
+            <p className="text-xs text-ink-400">Total Escrow Deposits Cleared: <strong className="text-ink">{formatCurrency(depositedAmount)}</strong></p>
+          </div>
         ) : (
           !Array.isArray(filtered) || filtered.length === 0 ? (
             <EmptyState icon={<Calendar className="w-8 h-8" />} title="No booking requests yet" message="When hosts send you booking requests, they'll appear here." />
