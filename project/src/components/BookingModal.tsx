@@ -71,7 +71,6 @@ export default function BookingRequestPage() {
       setError('');
 
       try {
-        // 1. Check if the ID parameter is an existing Booking record
         const { data: existingBooking, error: bookingErr } = await supabase
           .from('bookings')
           .select('*')
@@ -87,7 +86,6 @@ export default function BookingRequestPage() {
           setNotes(existingBooking.notes || '');
           setCreatedBookingId(existingBooking.id);
 
-          // Fetch artist profile details separately to avoid relationship 400 errors
           let talentObj: ArtistWithProfile | null = null;
           if (existingBooking.artist_id) {
             const { data: userProfile } = await supabase
@@ -140,7 +138,6 @@ export default function BookingRequestPage() {
           return;
         }
 
-        // 2. Fallback to artist profile lookup for manual booking creation
         let targetUserId: string | null = null;
         let artistProfileData: any = null;
 
@@ -261,7 +258,6 @@ export default function BookingRequestPage() {
     setSelectedTalents(prev => prev.filter(t => t.artist.id !== artistId));
   };
 
-  // Strictly enforce 40% deposit and 60% balance calculation
   const { totalAmount, depositAmount, remainingBalance } = useMemo(() => {
     const hours = parseFloat(durationHours) || 0;
     let total = 0;
@@ -315,7 +311,7 @@ export default function BookingRequestPage() {
       notes: sanitizedNotes,
       status: 'pending',
       total_amount: totalAmount,
-      deposit_amount: depositAmount, // 40% deposit
+      deposit_amount: depositAmount,
       deposit_paid: false,
     };
 
@@ -349,14 +345,47 @@ export default function BookingRequestPage() {
           for (const item of selectedTalents) {
             const artistObj = item.artist;
             const artistName = artistObj.artist_profile?.stage_name || artistObj.full_name || 'Talent';
-            const artistUserId = artistObj.id || artistObj.artist_profile?.user_id;
+            
+            let targetArtistUserId = artistObj.artist_profile?.user_id || artistObj.id;
+            
+            if (!artistObj.artist_profile?.user_id && artistObj.id) {
+              const { data: profileCheck } = await supabase
+                .from('artist_profiles')
+                .select('user_id')
+                .eq('id', artistObj.id)
+                .maybeSingle();
+              if (profileCheck?.user_id) {
+                targetArtistUserId = profileCheck.user_id;
+              }
+            }
 
-            if (artistUserId) {
+            if (targetArtistUserId) {
               const initialMsg = `New booking request for ${artistName} — ${eventName} on ${new Date(eventDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })} at ${location}. Duration: ${durationHours ? `${durationHours} hours` : 'Event'}. Total: ${formatCurrency(item.rateUnit === 'hour' ? item.rate * (parseFloat(durationHours) || 1) : item.rate)}.`;
               
               await createConversation(profile.id, `Booking: ${eventName}`, 'booking', data.id, initialMsg, adminId);
+              
+              const notifPayload = {
+                user_id: targetArtistUserId,
+                title: 'New Booking Request! 📅',
+                message: `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
+                type: 'booking_request',
+                read: false,
+                related_id: data.id,
+                created_at: new Date().toISOString(),
+              };
+
+              console.log('Dispatching notification payload to database:', notifPayload);
+
+              const { error: notifErr } = await supabase.from('notifications').insert([notifPayload]);
+
+              if (notifErr) {
+                console.error('CRITICAL: Failed to insert Supabase notification due to RLS or schema error:', notifErr.message);
+              } else {
+                console.log('SUCCESS: Notification successfully written for artist:', targetArtistUserId);
+              }
+
               await createNotification(
-                artistUserId,
+                targetArtistUserId,
                 'booking',
                 'New Booking Request! 📅',
                 `${hostName} sent a booking request for "${eventName}" on ${eventDate}.`,
@@ -364,6 +393,8 @@ export default function BookingRequestPage() {
                 undefined,
                 data.id
               );
+            } else {
+              console.error('Could not resolve valid user_id for artist notification:', artistObj);
             }
           }
         } catch (err) {
