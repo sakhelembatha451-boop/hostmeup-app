@@ -82,7 +82,7 @@ export default function ArtistDashboard() {
   const navigate = useNavigate();
   const [bookings, setBookings] = useState<BookingWithHost[]>([]);
   const [openGigs, setOpenGigs] = useState<Gig[]>([]);
-  const [userPitches, setUserPitches] = useState<Map<string, UserPitch>>(new Map());
+  const [userPitches, setUserPitches] = useState>(new Map());
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>('all');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -240,6 +240,32 @@ export default function ArtistDashboard() {
   useEffect(() => { 
     loadDashboardData(true); 
   }, [loadDashboardData]);
+
+  // Supabase Realtime Listener for incoming notifications
+  useEffect(() => {
+    if (!profile?.id) return;
+
+    const notifChannel = supabase
+      .channel('artist-realtime-notifications')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `user_id=eq.${profile.id}`,
+        },
+        (payload) => {
+          console.log('New live notification received on dashboard:', payload.new);
+          loadDashboardData(false);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(notifChannel);
+    };
+  }, [profile?.id, loadDashboardData]);
 
   const toggleSelectBooking = (id: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -457,7 +483,6 @@ export default function ArtistDashboard() {
 
       if (error) throw error;
 
-      // Real-time notification dispatch to host
       const hostTargetId = targetBooking?.host_id || targetBooking?.client_id;
       if (hostTargetId) {
         await createNotification(
